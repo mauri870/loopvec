@@ -16,5 +16,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Build
+        run: make build
+
       - name: Test
         run: make test
+
+      - name: Fmt
+        run: |
+          make fmt
+          git diff --exit-code
+
+      - name: Lint
+        run: make lint
