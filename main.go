@@ -3,24 +3,35 @@
 //
 // Usage:
 //
-//	loopvec [-w] [packages...]
+//	loopvec [-split | -w | -d] [packages...]
 //
-// Without -w, loopvec prints the rewritten source to stdout.
-// With -w, loopvec writes changes back to the source files.
+// Without flags, loopvec prints the rewritten source to stdout.
+// With -split, loopvec writes the simd variant to file_simd.go and adds
+// //go:build !goexperiment.simd to the original file.
+// With -w, loopvec writes changes back to the source files in place.
+// With -d, loopvec prints a unified diff for each changed file.
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"go/format"
 	"go/token"
 	"os"
+	"os/exec"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 
 	"github.com/mauri870/loopvec/internal/rewrite"
 )
 
-var writeBack = flag.Bool("w", false, "write result to source files")
+var (
+	writeBack = flag.Bool("w", false, "write result to source files in place")
+	splitMode = flag.Bool("split", false, "write simd variant to file_simd.go and add //go:build !goexperiment.simd to original")
+	diffMode  = flag.Bool("d", false, "display unified diff instead of rewritten source")
+)
 
 func main() {
 	flag.Parse()
@@ -95,15 +106,86 @@ func processPkg(fset *token.FileSet, pkg *packages.Package) error {
 
 		fmt.Fprintf(os.Stderr, "loopvec: rewrote %d loop(s) in %s\n", result.Rewrites, path)
 
-		if *writeBack {
+		switch {
+		case *splitMode:
+			simdPath := strings.TrimSuffix(path, ".go") + "_simd.go"
+			if err := os.WriteFile(simdPath, result.Src, 0o644); err != nil {
+				return err
+			}
+			tagged := addBuildTag(src, "!goexperiment.simd")
+			if err := os.WriteFile(path, tagged, 0o644); err != nil {
+				return err
+			}
+		case *writeBack:
 			if err := os.WriteFile(path, result.Src, 0o644); err != nil {
 				return err
 			}
-		} else {
+		case *diffMode:
+			if err := printDiff(path, src, result.Src); err != nil {
+				return err
+			}
+		default:
 			if _, err := os.Stdout.Write(result.Src); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// addBuildTag inserts a //go:build constraint into src if not already present.
+// format.Source moves it to the correct position (before the package clause).
+func addBuildTag(src []byte, tag string) []byte {
+	constraint := "//go:build " + tag
+	s := string(src)
+	if strings.Contains(s, constraint) {
+		return src
+	}
+	idx := strings.Index(s, "package ")
+	if idx < 0 {
+		return src
+	}
+	nl := strings.Index(s[idx:], "\n")
+	if nl < 0 {
+		return src
+	}
+	insertAt := idx + nl + 1
+	modified := s[:insertAt] + "\n" + constraint + "\n" + s[insertAt:]
+	formatted, err := format.Source([]byte(modified))
+	if err != nil {
+		return []byte(modified)
+	}
+	return formatted
+}
+
+// printDiff prints a unified diff between orig and rewritten for path,
+// using the system diff command.
+func printDiff(path string, orig, rewritten []byte) error {
+	origFile, err := os.CreateTemp("", "loopvec-orig-*.go")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(origFile.Name())
+	if _, err := origFile.Write(orig); err != nil {
+		origFile.Close()
+		return err
+	}
+	origFile.Close()
+
+	newFile, err := os.CreateTemp("", "loopvec-new-*.go")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(newFile.Name())
+	if _, err := newFile.Write(rewritten); err != nil {
+		newFile.Close()
+		return err
+	}
+	newFile.Close()
+
+	out, _ := exec.Command("diff", "-u", origFile.Name(), newFile.Name()).Output()
+	out = bytes.ReplaceAll(out, []byte(origFile.Name()), []byte(path))
+	out = bytes.ReplaceAll(out, []byte(newFile.Name()), []byte(path))
+	_, err = os.Stdout.Write(out)
+	return err
 }

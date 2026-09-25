@@ -6,14 +6,17 @@ vectorization. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
 
 ## What it detects
 
-The tool recognizes three loop shapes and rewrites them to use portable SIMD
+The tool recognizes these loop shapes and rewrites them to use portable SIMD
 operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 
 | Pattern | Operation |
 |---|---|
 | `for i := range dst { dst[i] = a[i] + b[i] }` | element-wise binary op |
 | `for i := range dst { dst[i] += src[i] }` | in-place binary op |
-| `for i := range dst { dst[i] *= scalar }` | scalar broadcast |
+| `for i := range dst { dst[i] *= scalar }` | scalar broadcast op |
+| `for i := range dst { dst[i] = 0 }` | fill (broadcast literal) |
+| `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
+| `for i := 0; i < len(s); i++ { ... }` | three-clause for (same body shapes) |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
@@ -22,7 +25,7 @@ Supported operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
 
 ## Performance
 
-On AMD Ryzen 9 9950X3D (AVX-512), 1M `float32` elements:
+Synthetic benchmarks on AMD Ryzen 9 9950X3D (AVX-512), 1M `float32` elements:
 
 ```
                │   scalar    │             simd              │
@@ -31,6 +34,10 @@ ScalUnitary-32   189.38µ ± 2%   33.86µ ± 2%  -82.12% (p=0.000 n=10)
 AddSlices-32     245.53µ ± 3%   92.57µ ± 4%  -62.30% (p=0.000 n=10)
 geomean           215.6µ         55.99µ       -74.04%
 ```
+
+Running `loopvec` on [gonum](https://github.com/gonum/gonum) detects 140
+vectorizable loops across 46 files, including BLAS level-3 routines, LAPACK
+kernels, and statistical functions.
 
 ## Installation
 
@@ -42,17 +49,11 @@ go install github.com/mauri870/loopvec@latest
 
 ### Standalone
 
-Print the rewritten source to stdout (dry run):
-
 ```sh
-loopvec ./...
-loopvec ./mypkg/...
-```
-
-Rewrite files in place:
-
-```sh
-loopvec -w ./...
+loopvec ./...             # print rewritten source to stdout
+loopvec -d ./...          # show unified diff (like gofmt -d)
+loopvec -split ./...      # recommended: write file_simd.go + guard original
+loopvec -w ./...          # overwrite files in place (requires version control)
 ```
 
 ### As a `go tool` (Go 1.24+)
@@ -66,28 +67,27 @@ go get -tool github.com/mauri870/loopvec@latest
 Then invoke it without installing globally:
 
 ```sh
-go tool loopvec ./...
-go tool loopvec -w ./...
+go tool loopvec -d ./...
+go tool loopvec -split ./mypkg/...
 ```
 
-## Output
+## Workflow
 
-The rewritten file gets a `//go:build goexperiment.simd` build constraint added
-automatically. The original (scalar) code will not be compiled when
-`GOEXPERIMENT=simd` is set; you will typically want to keep the original file
-as a `!goexperiment.simd` fallback.
-
-A typical workflow:
+`-split` is the recommended mode. It writes the vectorized code to
+`ops_simd.go` (with `//go:build goexperiment.simd`) and adds
+`//go:build !goexperiment.simd` to the original `ops.go`. Both files stay in
+your repository — the scalar version builds by default, and the simd version
+builds when `GOEXPERIMENT=simd` is set.
 
 ```sh
-# 1. Rewrite a file in place to create the simd variant
-loopvec -w ./mypkg/ops.go
+# 1. Preview changes
+go tool loopvec -d ./mypkg/...
 
-# 2. Manually split the file:
-#    ops.go          → add //go:build !goexperiment.simd  (keep original)
-#    ops_simd.go     → the rewritten file (already has //go:build goexperiment.simd)
+# 2. Apply: creates ops_simd.go and guards ops.go
+go tool loopvec -split ./mypkg/...
 
-# 3. Build and run benchmarks to verify the improvement
+# 3. Verify correctness and benchmark
+go test ./mypkg/...
 GOEXPERIMENT=simd go test -bench=. ./mypkg/
 ```
 
@@ -105,8 +105,22 @@ func AddFloat32s(dst, a, b []float32) {
 }
 ```
 
-**After `loopvec -w ops.go`:**
+**After `loopvec -split ops.go`:**
 
+`ops.go` (original, now guarded):
+```go
+//go:build !goexperiment.simd
+
+package ops
+
+func AddFloat32s(dst, a, b []float32) {
+    for i := range dst {
+        dst[i] = a[i] + b[i]
+    }
+}
+```
+
+`ops_simd.go` (new file):
 ```go
 //go:build goexperiment.simd
 
