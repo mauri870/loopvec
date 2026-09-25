@@ -165,23 +165,23 @@ func printDiff(path string, orig, rewritten []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(origFile.Name())
+	defer func() { _ = os.Remove(origFile.Name()) }()
 	if _, err := origFile.Write(orig); err != nil {
-		origFile.Close()
+		_ = origFile.Close()
 		return err
 	}
-	origFile.Close()
+	_ = origFile.Close()
 
 	newFile, err := os.CreateTemp("", "loopvec-new-*.go")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(newFile.Name())
+	defer func() { _ = os.Remove(newFile.Name()) }()
 	if _, err := newFile.Write(rewritten); err != nil {
-		newFile.Close()
+		_ = newFile.Close()
 		return err
 	}
-	newFile.Close()
+	_ = newFile.Close()
 
 	out, _ := exec.Command("diff", "-u", origFile.Name(), newFile.Name()).Output()
 	out = bytes.ReplaceAll(out, []byte(origFile.Name()), []byte(path))

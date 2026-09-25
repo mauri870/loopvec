@@ -130,11 +130,8 @@ func rewriteSource(src []byte) ([]byte, error) {
 	}
 
 	conf := types.Config{Importer: nil}
-	_, err = conf.Check("test", fset, []*ast.File{file}, info)
-	if err != nil {
-		// Type errors are expected when import "simd" is not resolvable.
-		// We proceed anyway; the analyzer only needs basic type info.
-	}
+	// Type errors are expected when import "simd" is not resolvable; proceed anyway.
+	_, _ = conf.Check("test", fset, []*ast.File{file}, info)
 
 	result, err := rewrite.File(fset, file, info, src)
 	if err != nil {
