@@ -36,7 +36,6 @@ func TestTxtar(t *testing.T) {
 		t.Fatal("no txtar files found in testdata/")
 	}
 	for _, path := range matches {
-		path := path
 		name := strings.TrimSuffix(filepath.Base(path), ".txtar")
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -194,8 +193,7 @@ func runTestProgram(t *testing.T, modName string, goModSrc, pkgSrc, mainSrc []by
 
 	out, err := runCmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			return "", fmt.Errorf("run failed: %w\n%s", err, exitErr.Stderr)
 		}
 		return "", err
@@ -225,10 +223,10 @@ func archiveFiles(ar *txtar.Archive) map[string][]byte {
 
 // parseModuleName extracts the module name from a go.mod file.
 func parseModuleName(gomod []byte) string {
-	for _, line := range strings.Split(string(gomod), "\n") {
+	for line := range strings.SplitSeq(string(gomod), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if after, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return ""

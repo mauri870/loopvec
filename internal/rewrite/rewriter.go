@@ -93,13 +93,13 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte) (Re
 		endOff := tf.Offset(r.end)
 
 		// Insert any pre-statements (like broadcast variable declarations) before the loop.
-		preText := ""
+		var preText strings.Builder
 		for extraIdx < len(extraStmts) && extraStmts[extraIdx].pos == r.start {
-			preText += extraStmts[extraIdx].text + "\n"
+			preText.WriteString(extraStmts[extraIdx].text + "\n")
 			extraIdx++
 		}
 
-		replacement := preText + r.text
+		replacement := preText.String() + r.text
 		result = append(result[:startOff], append([]byte(replacement), result[endOff:]...)...)
 	}
 
