@@ -143,6 +143,13 @@ func AddFloat32s(dst, a, b []float32) {
 - Go 1.27 or later
 - `GOEXPERIMENT=simd` at build time for the rewritten code
 
+## Known Limitations
+
+**Methods are not rewritten.** The experimental SIMD compiler crashes with an
+internal error when a `//go:build goexperiment.simd` file contains a method
+(function with a receiver). Only top-level functions are vectorized.
+Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657).
+
 ## Testing
 
 The test suite uses [txtar](https://pkg.go.dev/golang.org/x/tools/txtar) archives

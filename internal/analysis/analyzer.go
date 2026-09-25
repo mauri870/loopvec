@@ -116,9 +116,23 @@ func tokenOpToLoopOp(tok token.Token) (Op, bool) {
 }
 
 // Analyze walks a file's AST and returns all vectorizable loops.
+// Loops inside methods (functions with a receiver) are skipped because
+// GOEXPERIMENT=simd has a compiler bug with method bodies in simd-tagged
+// files (https://github.com/golang/go/issues/80657).
 func Analyze(file *ast.File, info *types.Info) []Loop {
 	var loops []Loop
+	inMethod := false
 	ast.Inspect(file, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if fn, ok := n.(*ast.FuncDecl); ok {
+			inMethod = fn.Recv != nil
+			return true
+		}
+		if inMethod {
+			return true
+		}
 		switch stmt := n.(type) {
 		case *ast.RangeStmt:
 			if l, ok := analyzeRange(stmt, info); ok {
@@ -165,7 +179,7 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 		return Loop{}, false
 	}
 
-	return analyzeBody(stmt, nil, keyIdent.Name, rangeIdent.Name, valueVar, stmt.Body, info)
+	return analyzeBody(stmt, nil, keyIdent.Name, rangeIdent, valueVar, stmt.Body, info)
 }
 
 // analyzeFor checks if a three-clause for loop is vectorizable.
@@ -222,12 +236,14 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 		return Loop{}, false
 	}
 
-	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent.Name, "", stmt.Body, info)
+	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent, "", stmt.Body, info)
 }
 
 // analyzeBody checks the loop body for vectorizable assignments.
+// boundsIdent is the identifier node for the slice that determines the loop bounds (used for type lookup).
 // valueVar is the range value variable name (e.g. "v" in "for i, v := range src"), or "".
-func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, boundsSlice, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+	boundsSlice := boundsIdent.Name
 	if len(body.List) != 1 {
 		return Loop{}, false
 	}
@@ -322,12 +338,20 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, bound
 			// dst[i] op= v  where v is the range value var (represents boundsSlice[i])
 			loop.Src2Slice = src2
 		} else {
-			loop.Scalar = assignStmt.Rhs[0]
+			// Only accept simple scalars: a literal or a plain identifier.
+			// Compound expressions (v*alpha, f(x), etc.) are not safe to hoist.
+			switch assignStmt.Rhs[0].(type) {
+			case *ast.BasicLit, *ast.Ident:
+				loop.Scalar = assignStmt.Rhs[0]
+			default:
+				return Loop{}, false
+			}
 		}
 	}
 
-	// Resolve element type via type info.
-	elemType, ok := resolveSliceElemType(boundsSlice, body, info)
+	// Resolve element type via the bounds identifier node directly — avoids
+	// false matches when multiple functions have same-named slices of different types.
+	elemType, ok := resolveSliceElemType(boundsIdent, info)
 	if !ok {
 		return Loop{}, false
 	}
@@ -360,18 +384,17 @@ func asSliceIndex(expr ast.Expr, indexVar string) (string, bool) {
 	return sliceIdent.Name, true
 }
 
-// resolveSliceElemType finds a slice identifier in scope and returns its element type.
-func resolveSliceElemType(sliceName string, body *ast.BlockStmt, info *types.Info) (types.Type, bool) {
-	for expr, tv := range info.Types {
-		ident, ok := expr.(*ast.Ident)
-		if !ok || ident.Name != sliceName {
-			continue
-		}
-		slice, ok := tv.Type.(*types.Slice)
-		if !ok {
-			continue
-		}
-		return slice.Elem(), true
+// resolveSliceElemType returns the element type of the slice named by ident.
+// Using the specific AST node avoids false matches when multiple functions
+// have same-named slices of different types.
+func resolveSliceElemType(ident *ast.Ident, info *types.Info) (types.Type, bool) {
+	tv, ok := info.Types[ident]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	slice, ok := tv.Type.(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	return slice.Elem(), true
 }
