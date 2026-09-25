@@ -141,15 +141,22 @@ func Analyze(file *ast.File, info *types.Info) []Loop {
 //	for i := range dst { dst[i] op= src[i] }
 //	for i := range dst { dst[i] op= scalar }
 //	for i := range dst { dst[i] = constant }   (fill broadcast)
+//	for i, v := range src { dst[i] = v op scalar }  (two-variable range)
 func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
-	// Must have a single key variable (no value).
+	// Key must be an identifier.
 	keyIdent, ok := stmt.Key.(*ast.Ident)
 	if !ok {
 		return Loop{}, false
 	}
-	if stmt.Value != nil && stmt.Value != ast.NewIdent("_") {
-		if ident, ok := stmt.Value.(*ast.Ident); !ok || ident.Name != "_" {
+	// Value may be absent, blank, or a named variable (two-variable range).
+	var valueVar string
+	if stmt.Value != nil {
+		ident, ok := stmt.Value.(*ast.Ident)
+		if !ok {
 			return Loop{}, false
+		}
+		if ident.Name != "_" {
+			valueVar = ident.Name
 		}
 	}
 	// Range target must be a slice identifier.
@@ -158,7 +165,7 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 		return Loop{}, false
 	}
 
-	return analyzeBody(stmt, nil, keyIdent.Name, rangeIdent.Name, stmt.Body, info)
+	return analyzeBody(stmt, nil, keyIdent.Name, rangeIdent.Name, valueVar, stmt.Body, info)
 }
 
 // analyzeFor checks if a three-clause for loop is vectorizable.
@@ -215,11 +222,12 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 		return Loop{}, false
 	}
 
-	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent.Name, stmt.Body, info)
+	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent.Name, "", stmt.Body, info)
 }
 
 // analyzeBody checks the loop body for vectorizable assignments.
-func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, boundsSlice string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+// valueVar is the range value variable name (e.g. "v" in "for i, v := range src"), or "".
+func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, boundsSlice, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
 	if len(body.List) != 1 {
 		return Loop{}, false
 	}
@@ -235,6 +243,18 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, bound
 		return Loop{}, false
 	}
 
+	// asValueVar returns boundsSlice if expr is the range value variable.
+	asValueVar := func(expr ast.Expr) (string, bool) {
+		if valueVar == "" {
+			return "", false
+		}
+		ident, ok := expr.(*ast.Ident)
+		if !ok || ident.Name != valueVar {
+			return "", false
+		}
+		return boundsSlice, true
+	}
+
 	if assignStmt.Tok == token.ASSIGN {
 		lhsIndex, ok := asSliceIndex(assignStmt.Lhs[0], indexVar)
 		if !ok {
@@ -243,29 +263,42 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, bound
 		loop.DstSlice = lhsIndex
 
 		if binExpr, ok := assignStmt.Rhs[0].(*ast.BinaryExpr); ok {
-			// dst[i] = src1[i] op src2[i]  or  dst[i] = src1[i] op scalar
+			// dst[i] = X op Y where X/Y may be slice[i] or range value var or scalar
 			op, ok := tokenOpToLoopOp(binExpr.Op)
 			if !ok {
 				return Loop{}, false
 			}
 			loop.Op = op
 
-			src1, ok := asSliceIndex(binExpr.X, indexVar)
-			if !ok {
+			if src1, ok := asSliceIndex(binExpr.X, indexVar); ok {
+				loop.Src1Slice = src1
+			} else if src1, ok := asValueVar(binExpr.X); ok {
+				loop.Src1Slice = src1
+			} else {
 				return Loop{}, false
 			}
-			loop.Src1Slice = src1
 
 			if src2, ok := asSliceIndex(binExpr.Y, indexVar); ok {
+				loop.Src2Slice = src2
+			} else if src2, ok := asValueVar(binExpr.Y); ok {
 				loop.Src2Slice = src2
 			} else {
 				loop.Scalar = binExpr.Y
 			}
-		} else if _, isSliceIdx := asSliceIndex(assignStmt.Rhs[0], indexVar); !isSliceIdx {
-			// dst[i] = constant  (fill broadcast; Src1Slice left empty)
+		} else if _, isSliceIdx := asSliceIndex(assignStmt.Rhs[0], indexVar); isSliceIdx {
+			// dst[i] = src[i]  (plain copy — skip for now)
+			return Loop{}, false
+		} else if _, isValueVar := asValueVar(assignStmt.Rhs[0]); isValueVar {
+			// dst[i] = v  (range value copy — skip for now)
+			return Loop{}, false
+		} else if ident, ok := assignStmt.Rhs[0].(*ast.Ident); ok && ident.Name == indexVar {
+			// dst[i] = i  (index fill — not a constant, skip)
+			return Loop{}, false
+		} else if _, ok := assignStmt.Rhs[0].(*ast.BasicLit); ok {
+			// dst[i] = literal constant  (fill broadcast; Src1Slice left empty)
 			loop.Scalar = assignStmt.Rhs[0]
 		} else {
-			// dst[i] = src[i]  (plain copy — skip for now)
+			// Complex or non-constant expression — skip
 			return Loop{}, false
 		}
 	} else {
@@ -284,6 +317,9 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, bound
 		loop.Src1Slice = lhsSlice
 
 		if src2, ok := asSliceIndex(assignStmt.Rhs[0], indexVar); ok {
+			loop.Src2Slice = src2
+		} else if src2, ok := asValueVar(assignStmt.Rhs[0]); ok {
+			// dst[i] op= v  where v is the range value var (represents boundsSlice[i])
 			loop.Src2Slice = src2
 		} else {
 			loop.Scalar = assignStmt.Rhs[0]
