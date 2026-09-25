@@ -141,9 +141,6 @@ func rewriteSource(src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if result.Rewrites == 0 {
-		return nil, fmt.Errorf("no loops were rewritten")
-	}
 	return result.Src, nil
 }
 
