@@ -2,7 +2,7 @@ export GOTOOLCHAIN := go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build test fix fmt lint ci
+.PHONY: build test fix fmt lint ci bench bench-regen
 
 test:
 	go test ./... -count=1 -race
@@ -26,3 +26,11 @@ build:
 ci: test
 	$(MAKE) fmt
 	git diff --exit-code
+
+bench:
+	go test -bench=. -count=10 ./bench/ > /tmp/bench_scalar.txt
+	GOEXPERIMENT=simd go test -bench=. -count=10 ./bench/ > /tmp/bench_simd.txt
+	benchstat /tmp/bench_scalar.txt /tmp/bench_simd.txt
+
+bench-regen: build
+	go run . -split ./bench/

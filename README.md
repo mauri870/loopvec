@@ -25,19 +25,27 @@ Supported operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
 
 ## Performance
 
-Synthetic benchmarks on AMD Ryzen 9 9950X3D (AVX-512), 1M `float32` elements:
+Benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512), `float32` operations:
 
 ```
-               │   scalar    │             simd              │
-               │   sec/op    │   sec/op    vs base           │
-ScalUnitary-32   189.38µ ± 2%   33.86µ ± 2%  -82.12% (p=0.000 n=10)
-AddSlices-32     245.53µ ± 3%   92.57µ ± 4%  -62.30% (p=0.000 n=10)
-geomean           215.6µ         55.99µ       -74.04%
+                        │    scalar     │              simd               │
+                        │    sec/op     │   sec/op     vs base            │
+AddFloat32s/64-32           22.750n ±  8%   5.401n ± 2%  -76.26% (p=0.000 n=10)
+AddFloat32s/4096-32          899.3n ±  2%   260.3n ± 2%  -71.05% (p=0.000 n=10)
+AddFloat32s/1048576-32      234.92µ ±  2%   95.15µ ± 5%  -59.50% (p=0.000 n=10)
+MulFloat32s/64-32           24.825n ± 14%   5.347n ± 2%  -78.46% (p=0.000 n=10)
+MulFloat32s/4096-32          858.6n ±  8%   257.0n ± 2%  -70.07% (p=0.000 n=10)
+MulFloat32s/1048576-32      231.60µ ±  7%   92.05µ ± 4%  -60.25% (p=0.000 n=10)
+ScalFloat32s/64-32          10.570n ±  5%   3.936n ± 3%  -62.77% (p=0.000 n=10)
+ScalFloat32s/4096-32         740.8n ±  1%   148.0n ± 1%  -80.02% (p=0.000 n=10)
+ScalFloat32s/1048576-32     191.06µ ±  1%   37.36µ ± 3%  -80.45% (p=0.000 n=10)
+geomean                       1.487µ         415.4n       -72.06%
 ```
 
-Running `loopvec` on [gonum](https://github.com/gonum/gonum) detects 140
-vectorizable loops across 46 files, including BLAS level-3 routines, LAPACK
-kernels, and statistical functions.
+Running `loopvec` on [gonum](https://github.com/gonum/gonum) detects 38
+vectorizable loops across 17 files, including LAPACK kernels, optimization
+functions, and statistical routines. BLAS methods are excluded due to the
+compiler limitation noted below.
 
 ## Installation
 
