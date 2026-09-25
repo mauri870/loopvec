@@ -140,6 +140,7 @@ func Analyze(file *ast.File, info *types.Info) []Loop {
 //	for i := range dst { dst[i] = src1[i] op src2[i] }
 //	for i := range dst { dst[i] op= src[i] }
 //	for i := range dst { dst[i] op= scalar }
+//	for i := range dst { dst[i] = constant }   (fill broadcast)
 func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 	// Must have a single key variable (no value).
 	keyIdent, ok := stmt.Key.(*ast.Ident)
@@ -235,33 +236,37 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar, bound
 	}
 
 	if assignStmt.Tok == token.ASSIGN {
-		// dst[i] = src1[i] op src2[i]
 		lhsIndex, ok := asSliceIndex(assignStmt.Lhs[0], indexVar)
 		if !ok {
 			return Loop{}, false
 		}
 		loop.DstSlice = lhsIndex
 
-		binExpr, ok := assignStmt.Rhs[0].(*ast.BinaryExpr)
-		if !ok {
-			return Loop{}, false
-		}
-		op, ok := tokenOpToLoopOp(binExpr.Op)
-		if !ok {
-			return Loop{}, false
-		}
-		loop.Op = op
+		if binExpr, ok := assignStmt.Rhs[0].(*ast.BinaryExpr); ok {
+			// dst[i] = src1[i] op src2[i]  or  dst[i] = src1[i] op scalar
+			op, ok := tokenOpToLoopOp(binExpr.Op)
+			if !ok {
+				return Loop{}, false
+			}
+			loop.Op = op
 
-		src1, ok := asSliceIndex(binExpr.X, indexVar)
-		if !ok {
-			return Loop{}, false
-		}
-		loop.Src1Slice = src1
+			src1, ok := asSliceIndex(binExpr.X, indexVar)
+			if !ok {
+				return Loop{}, false
+			}
+			loop.Src1Slice = src1
 
-		if src2, ok := asSliceIndex(binExpr.Y, indexVar); ok {
-			loop.Src2Slice = src2
+			if src2, ok := asSliceIndex(binExpr.Y, indexVar); ok {
+				loop.Src2Slice = src2
+			} else {
+				loop.Scalar = binExpr.Y
+			}
+		} else if _, isSliceIdx := asSliceIndex(assignStmt.Rhs[0], indexVar); !isSliceIdx {
+			// dst[i] = constant  (fill broadcast; Src1Slice left empty)
+			loop.Scalar = assignStmt.Rhs[0]
 		} else {
-			loop.Scalar = binExpr.Y
+			// dst[i] = src[i]  (plain copy — skip for now)
+			return Loop{}, false
 		}
 	} else {
 		// dst[i] op= src[i]  or  dst[i] op= scalar

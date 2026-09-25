@@ -137,8 +137,8 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 
 	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
 
-	if loop.Scalar != nil {
-		// Broadcast pattern: dst[i] op= scalar
+	if loop.Scalar != nil && loop.Src1Slice == "" {
+		// Fill broadcast: dst[i] = constant
 		var scalarBuf bytes.Buffer
 		if err := format.Node(&scalarBuf, fset, loop.Scalar); err != nil {
 			return "", "", err
@@ -148,7 +148,22 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 		fmt.Fprintf(&preBuf, "_vc%s := simd.%s(%s)", simdType, broadcastFn, scalarText)
 
 		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.DstSlice)
+		fmt.Fprintf(&loopBuf, "\t_n := _vc%s.StorePart(%s[_i:])\n", simdType, loop.DstSlice)
+		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
+		fmt.Fprint(&loopBuf, "}")
+	} else if loop.Scalar != nil {
+		// Scalar broadcast with load: dst[i] op= scalar  or  dst[i] = src[i] op scalar
+		var scalarBuf bytes.Buffer
+		if err := format.Node(&scalarBuf, fset, loop.Scalar); err != nil {
+			return "", "", err
+		}
+		scalarText := scalarBuf.String()
+
+		fmt.Fprintf(&preBuf, "_vc%s := simd.%s(%s)", simdType, broadcastFn, scalarText)
+
+		loadSlice := loop.Src1Slice
+		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
+		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loadSlice)
 		fmt.Fprintf(&loopBuf, "\t_v1.%s(_vc%s).StorePart(%s[_i:])\n", opMethod, simdType, loop.DstSlice)
 		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
 		fmt.Fprint(&loopBuf, "}")

@@ -1,0 +1,48 @@
+Fill a float64 slice with zero (broadcast constant).
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func ZeroFloat64s(dst []float64) {
+	for i := range dst {
+		dst[i] = 0
+	}
+}
+
+-- want.go --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func ZeroFloat64s(dst []float64) {
+	_vcFloat64s := simd.BroadcastFloat64s(0)
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat64s.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := []float64{1, 2, 3, 4, 5, 6, 7, 8}
+	test.ZeroFloat64s(dst)
+	fmt.Println(dst)
+}
+
+-- testmain/output --
+[0 0 0 0 0 0 0 0]
