@@ -240,6 +240,11 @@ gotip download 839405
 GOEXPERIMENT=simd gotip tool loopvec -methods -split ./...
 ```
 
+**Files with build constraints are skipped.** Any file that carries a
+`//go:build` (or legacy `// +build`) line is left untouched. This includes files
+already guarded by `-split`, so re-running `-split` on a package you have
+already split is a no-op.
+
 ## Testing
 
 The test suite uses [txtar](https://pkg.go.dev/golang.org/x/tools/txtar) archives

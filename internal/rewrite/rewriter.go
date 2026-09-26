@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build/constraint"
 	"go/format"
 	"go/parser"
 	"go/token"
@@ -28,6 +29,9 @@ type Result struct {
 // information populated for the file. allowMethods enables rewriting of loops
 // inside methods; see analysis.Analyze for the caveat.
 func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, allowMethods bool) (Result, error) {
+	if hasBuildConstraint(file) {
+		return Result{Src: src}, nil
+	}
 	loops := analysis.Analyze(file, info, allowMethods)
 	if len(loops) == 0 {
 		return Result{Src: src}, nil
@@ -125,6 +129,22 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, all
 	formatted = fixBlankParams(fset, formatted)
 
 	return Result{Src: formatted, Rewrites: len(replacements)}, nil
+}
+
+// hasBuildConstraint reports whether file carries a //go:build or // +build
+// line before its package clause. Such files are left untouched.
+func hasBuildConstraint(file *ast.File) bool {
+	for _, group := range file.Comments {
+		if group.Pos() >= file.Package {
+			break
+		}
+		for _, comment := range group.List {
+			if constraint.IsGoBuild(comment.Text) || constraint.IsPlusBuild(comment.Text) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // generateReplacement returns (loopText, preText, error) for a vectorizable loop.
