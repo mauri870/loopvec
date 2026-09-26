@@ -94,7 +94,7 @@ func (b *build) skipSet() (map[string]bool, error) {
 		return nil, err
 	}
 	set := map[string]bool{}
-	for _, path := range strings.Fields(string(out)) {
+	for path := range strings.FieldsSeq(string(out)) {
 		set[path] = true
 	}
 	return set, nil
@@ -116,7 +116,7 @@ func (b *build) exports() (map[string]string, error) {
 		return nil, err
 	}
 	exports := map[string]string{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		path, file, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if ok && file != "" {
 			exports[path] = file

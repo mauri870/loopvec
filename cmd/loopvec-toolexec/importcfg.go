@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -50,9 +51,7 @@ func readImportcfg(path string) (*importcfg, error) {
 // cfg already provides keep their archive.
 func (c *importcfg) with(extra map[string]string) *importcfg {
 	out := &importcfg{packageFile: map[string]string{}, importMap: c.importMap}
-	for k, v := range c.packageFile {
-		out.packageFile[k] = v
-	}
+	maps.Copy(out.packageFile, c.packageFile)
 	for k, v := range extra {
 		if _, ok := out.packageFile[k]; !ok {
 			out.packageFile[k] = v

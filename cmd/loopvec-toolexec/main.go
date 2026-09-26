@@ -127,7 +127,7 @@ func logf(pkg, format string, args ...any) {
 	}
 	if only := os.Getenv("LOOPVEC_TOOLEXEC_LOG_PKGS"); only != "" {
 		match := false
-		for _, p := range strings.Split(only, ",") {
+		for p := range strings.SplitSeq(only, ",") {
 			if strings.TrimSpace(p) == pkg {
 				match = true
 			}

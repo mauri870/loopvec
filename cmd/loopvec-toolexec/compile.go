@@ -239,7 +239,7 @@ func variantDependency(b *build, cfg *importcfg) string {
 		return ""
 	}
 	variants := map[string]bool{}
-	for _, line := range strings.Fields(string(data)) {
+	for line := range strings.FieldsSeq(string(data)) {
 		variants[line] = true
 	}
 	var found []string
