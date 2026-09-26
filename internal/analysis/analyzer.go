@@ -43,11 +43,11 @@ type Loop struct {
 	// Depth-2 expression tree: dst[i] = (Src1[i] Op Src2OrScalar) Op2 Src3OrScalar2
 	// or (when InnerOnRight) Src3OrScalar2 Op2 (Src1[i] Op Src2OrScalar).
 	// Float32s/Float64s with Op==Mul and Op2==Add use MulAdd (FMA).
-	IsExprTree  bool
+	IsExprTree   bool
 	InnerOnRight bool
-	Op2         Op
-	Src3Slice   string
-	Scalar2     ast.Expr
+	Op2          Op
+	Src3Slice    string
+	Scalar2      ast.Expr
 }
 
 // simdElemType returns the simd type name for a given element type, or empty string if not supported.
