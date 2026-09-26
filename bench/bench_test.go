@@ -87,3 +87,30 @@ func BenchmarkNegFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkDivFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			a := make([]float32, n)
+			src := make([]float32, n)
+			b.ResetTimer()
+			for b.Loop() {
+				DivFloat32s(dst, a, src)
+			}
+		})
+	}
+}
+
+func BenchmarkDaxpyFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			a := make([]float32, n)
+			b.ResetTimer()
+			for b.Loop() {
+				DaxpyFloat32s(dst, a, 2.0)
+			}
+		})
+	}
+}

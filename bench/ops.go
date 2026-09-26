@@ -37,3 +37,15 @@ func NegFloat32s(dst, src []float32) {
 		dst[i] = -src[i]
 	}
 }
+
+func DivFloat32s(dst, a, b []float32) {
+	for i := range dst {
+		dst[i] = a[i] / b[i]
+	}
+}
+
+func DaxpyFloat32s(dst, a []float32, alpha float32) {
+	for i := range dst {
+		dst[i] += a[i] * alpha
+	}
+}
