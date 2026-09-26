@@ -4,6 +4,8 @@
 experimental [simd](https://pkg.go.dev/simd) package for automatic SIMD
 vectorization. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
 
+Go blog post: https://go.dev/blog/simd-experiment
+
 ## What it detects
 
 The tool recognizes these loop shapes and rewrites them to use portable SIMD
