@@ -1,0 +1,53 @@
+# A rewrite that does not type-check is discarded: the package is compiled from
+# its original source, the build succeeds, and the log says why. Here the
+# parameter named simd shadows the package the rewrite imports.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/app/vec
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+! stdout .
+! stderr .
+cmpenv log log.want
+
+exec ./app
+cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+// The parameter named simd shadows the package the rewrite would import.
+func AddInt32s(simd int, dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i] + int32(simd)
+	}
+}
+
+func Add(simd int, dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/app/vec"
+)
+
+func main() {
+	d := make([]int32, 3)
+	vec.Add(0, d, []int32{1, 2, 3}, []int32{10, 20, 30})
+	fmt.Println(d)
+}
+-- want.out --
+[11 22 33]
+-- log.want --
+kept example.com/app/vec: rewritten source rejected: $WORK/vec/vec.go:14:19: simd.LoadInt32sPart undefined (type int has no field or method LoadInt32sPart)

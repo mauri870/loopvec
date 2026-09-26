@@ -24,15 +24,26 @@ type Result struct {
 	Rewrites int
 }
 
+// Options controls how File rewrites a source file.
+type Options struct {
+	// AllowMethods enables rewriting of loops inside methods; see
+	// analysis.Analyze for the caveat.
+	AllowMethods bool
+	// Compiler is set when the source is rewritten inside the build itself
+	// (-toolexec). The go command has already selected the file for the current
+	// build, so its build constraints are not consulted and no
+	// //go:build goexperiment.simd constraint is added.
+	Compiler bool
+}
+
 // File rewrites all vectorizable loops in src, returning the modified source.
 // fset and file must correspond to the parsed src. info must have type
-// information populated for the file. allowMethods enables rewriting of loops
-// inside methods; see analysis.Analyze for the caveat.
-func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, allowMethods bool) (Result, error) {
-	if hasBuildConstraint(file) {
+// information populated for the file.
+func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opts Options) (Result, error) {
+	if !opts.Compiler && hasBuildConstraint(file) {
 		return Result{Src: src}, nil
 	}
-	loops := analysis.Analyze(file, info, allowMethods)
+	loops := analysis.Analyze(file, info, opts.AllowMethods)
 	if len(loops) == 0 {
 		return Result{Src: src}, nil
 	}
@@ -115,7 +126,9 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, all
 	}
 
 	// Add build tag if not present.
-	result = ensureBuildTag(result, "goexperiment.simd")
+	if !opts.Compiler {
+		result = ensureBuildTag(result, "goexperiment.simd")
+	}
 
 	// Format the result.
 	formatted, err := format.Source(result)

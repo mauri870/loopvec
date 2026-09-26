@@ -1,0 +1,44 @@
+# Without GOEXPERIMENT=simd the wrapper compiles everything unchanged.
+
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+! stdout .
+! stderr .
+! exists log
+exec ./app
+cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/app/vec"
+)
+
+func main() {
+	dst := make([]int32, 21)
+	a := make([]int32, 21)
+	b := make([]int32, 21)
+	for i := range a {
+		a[i], b[i] = int32(i), int32(2*i)
+	}
+	vec.AddInt32s(dst, a, b)
+	fmt.Println(dst)
+}
+-- want.out --
+[0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60]

@@ -1,0 +1,54 @@
+# A package-level initializer that contains a vectorizable loop must not break
+# the build: rewriting it would leave simd calls in the generated package
+# initializer, which fails at link time. Only the function's loop is rewritten.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/app/vec
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+! stdout .
+! stderr .
+cmp log log.want
+
+exec ./app
+cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+var Spaces = func() string {
+	b := make([]byte, 5)
+	for i := range b {
+		b[i] = ' '
+	}
+	return string(b)
+}()
+
+func Xor(x byte, b []byte) {
+	for i := range b {
+		b[i] ^= x
+	}
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/app/vec"
+)
+
+func main() {
+	b := []byte("hello, vectors and tails")
+	vec.Xor(1, b)
+	fmt.Printf("%q %q\n", vec.Spaces, b)
+}
+-- want.out --
+"     " "idmmn-!wdbunsr!`oe!u`hmr"
+-- log.want --
+rewrote 1 loop(s) in example.com/app/vec

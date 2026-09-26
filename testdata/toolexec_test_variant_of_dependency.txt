@@ -1,0 +1,22 @@
+# Testing a package that simd depends on makes the go command compile a test
+# variant of it, and rebuild the importers it knows about against that variant.
+# simd is not among them, so a rewritten package linked into the same test binary
+# would see two different builds of fmt and fail to link. testing/iotest has a
+# loop the wrapper would rewrite, and fmt's tests import it: it must be left
+# alone here, and the test binary must link and pass.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_DEBUG=1
+env LOOPVEC_TOOLEXEC_LOG_PKGS=testing/iotest
+exec go test -short -run 'TestSprintf|TestScanf' -toolexec=$LOOPVEC_TOOLEXEC fmt
+stdout -count=1 '^ok  	fmt	'
+cmp log log.want
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- log.want --
+skipped testing/iotest: built against a test variant of fmt

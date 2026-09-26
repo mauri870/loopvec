@@ -1,0 +1,65 @@
+# Division: dst[i] = a[i] / b[i] uses Div on float64.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func DivFloat64s(dst, a, b []float64) {
+	for i := range dst {
+		dst[i] = a[i] / b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func DivFloat64s(dst, a, b []float64) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat64sPart(a[_i:])
+		_v2, _ := simd.LoadFloat64sPart(b[_i:])
+		_v1.Div(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]float64, 21)
+	a := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+	b := make([]float64, 21)
+	for i := range b {
+		b[i] = 2
+	}
+	test.DivFloat64s(dst, a, b)
+	fmt.Println(dst)
+}
+-- testmain/output --
+[0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5 6 6.5 7 7.5 8 8.5 9 9.5 10 10.5]

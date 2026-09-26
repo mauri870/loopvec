@@ -1,0 +1,30 @@
+# The go command asks every tool for "-V=full" and folds the answer into the
+# build IDs of what it produces. For compile and link the wrapper adds its own
+# content hash so cached objects are invalidated when the wrapper changes. On a
+# development toolchain the go command insists the trailing buildID= field stays
+# last, so the hash goes inside it; releases are identified by the whole line.
+
+chmod 0755 dev/compile release/compile other/asm
+
+exec $LOOPVEC_TOOLEXEC $WORK/dev/compile -V=full
+stdout -count=1 '^compile version go1\.28-devel_edd77e8488f Fri Sep 25 13:56:10 2026 -0700 buildID=abc/def-loopvec[0-9a-f]{16}$'
+! stderr .
+
+exec $LOOPVEC_TOOLEXEC $WORK/release/compile -V=full
+stdout -count=1 '^compile version go1\.27\.1 X:simd loopvec=[0-9a-f]{16}$'
+! stderr .
+
+# Other tools are reported unchanged.
+exec $LOOPVEC_TOOLEXEC $WORK/other/asm -V=full
+stdout -count=1 '^asm version go1\.27\.1$'
+! stderr .
+
+-- dev/compile --
+#!/bin/sh
+echo "compile version go1.28-devel_edd77e8488f Fri Sep 25 13:56:10 2026 -0700 buildID=abc/def"
+-- release/compile --
+#!/bin/sh
+echo "compile version go1.27.1 X:simd"
+-- other/asm --
+#!/bin/sh
+echo "asm version go1.27.1"

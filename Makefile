@@ -22,9 +22,10 @@ lint:
 
 build:
 	go build ./...
+	go build -o bin/ . ./cmd/loopvec-toolexec
 
 install:
-	go install ./...
+	go install . ./cmd/loopvec-toolexec
 
 ci: test
 	$(MAKE) fmt

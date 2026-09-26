@@ -138,7 +138,7 @@ func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) e
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		result, err := rewrite.File(fset, file, info, src, allowMethods)
+		result, err := rewrite.File(fset, file, info, src, rewrite.Options{AllowMethods: allowMethods})
 		if err != nil {
 			return fmt.Errorf("rewrite %s: %w", path, err)
 		}

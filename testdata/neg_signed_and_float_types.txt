@@ -1,0 +1,167 @@
+# Unary - is rewritten to Neg for every signed integer and floating-point element type.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func NegInt8s(dst, a []int8) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegInt16s(dst, a []int16) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegInt32s(dst, a []int32) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegInt64s(dst, a []int64) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegFloat32s(dst, a []float32) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegFloat64s(dst, a []float64) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func NegInt8s(dst, a []int8) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt8sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NegInt16s(dst, a []int16) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt16sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NegInt32s(dst, a []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NegInt64s(dst, a []int64) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt64sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NegFloat32s(dst, a []float32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NegFloat64s(dst, a []float64) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat64sPart(a[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 6 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	{
+		dst := make([]int8, 21)
+		a := []int8{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegInt8s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int16, 21)
+		a := []int16{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegInt16s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int32, 21)
+		a := []int32{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegInt32s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int64, 21)
+		a := []int64{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegInt64s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]float32, 21)
+		a := []float32{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegFloat32s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]float64, 21)
+		a := []float64{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NegFloat64s(dst, a)
+		fmt.Println(dst)
+	}
+}
+-- testmain/output --
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]
+[-1 2 -3 4 -5 6 -7 8 -9 10 -11 12 -13 14 -15 16 -17 18 -19 20 -21]

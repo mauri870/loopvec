@@ -1,0 +1,63 @@
+# In-place depth-2 with a non-commutative outer op: dst[i] -= a[i]*alpha keeps
+# the destination as the left operand of Sub.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func SubScaledFloat32s(dst, a []float32, alpha float32) {
+	for i := range dst {
+		dst[i] -= a[i] * alpha
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func SubScaledFloat32s(dst, a []float32, alpha float32) {
+	_vcAFloat32s0 := simd.BroadcastFloat32s(alpha)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_v2, _ := simd.LoadFloat32sPart(dst[_i:])
+		_v2.Sub(_v1.Mul(_vcAFloat32s0)).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := []float32{100, 200, 300, 400, 500}
+	a := []float32{1, 2, 3, 4, 5}
+	test.SubScaledFloat32s(dst, a, 2.0)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3], dst[4])
+}
+-- testmain/output --
+98 196 294 392 490

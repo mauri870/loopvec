@@ -1,0 +1,25 @@
+# go/types can only read export data written by the Go release it was built
+# with. When loopvec-toolexec was built with a different release than the
+# toolchain running the build, packages are compiled unchanged, and the log
+# (with LOOPVEC_TOOLEXEC_DEBUG) says why.
+
+chmod 0755 compile
+env LOOPVEC_TOOLEXEC_DEBUG=1
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+exec $LOOPVEC_TOOLEXEC $WORK/compile -p example.com/x -importcfg $WORK/b001/importcfg x.go
+cmpenv stdout stdout.want
+! stderr .
+stdout -count=1 '^fake compile: '
+grep -count=1 '^skipped example\.com/x: loopvec-toolexec was built with go1\.[0-9]+ but the toolchain is go1\.1$' log
+
+-- compile --
+#!/bin/sh
+if [ "$1" = "-V=full" ]; then
+	echo "compile version go1.1 X:simd"
+	exit 0
+fi
+echo "fake compile: $@"
+-- x.go --
+package x
+-- stdout.want --
+fake compile: -p example.com/x -importcfg $WORK/b001/importcfg x.go

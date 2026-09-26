@@ -1,0 +1,45 @@
+# The wrapper also rewrites the standard library: encoding/asn1 negates big
+# integers with "bytes[i] ^= 0xff", which is vectorized while the program's
+# output stays the same.
+
+exec go run .
+cmp stdout want.out
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=encoding/asn1
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+! stdout .
+! stderr .
+cmp log log.want
+
+exec ./app
+cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- main.go --
+package main
+
+import (
+	"encoding/asn1"
+	"fmt"
+	"math/big"
+)
+
+func main() {
+	for _, n := range []int64{-300, -1, -65536, 300} {
+		der, err := asn1.Marshal(big.NewInt(n))
+		fmt.Println(n, der, err)
+	}
+}
+-- want.out --
+-300 [2 2 254 212] <nil>
+-1 [2 1 255] <nil>
+-65536 [2 3 255 0 0] <nil>
+300 [2 2 1 44] <nil>
+-- log.want --
+rewrote 2 loop(s) in encoding/asn1

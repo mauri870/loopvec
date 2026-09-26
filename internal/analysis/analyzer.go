@@ -196,6 +196,12 @@ func tokenOpToLoopOp(tok token.Token) (Op, bool) {
 }
 
 // Analyze walks a file's AST and returns all vectorizable loops.
+//
+// Only loops inside function bodies are considered. A loop in a package-level
+// variable initializer, such as var t = func() []byte { ... }(), runs as part
+// of the compiler-generated package initializer, where the simd operations are
+// not resolved and the program fails to link.
+//
 // When allowMethods is false, loops inside methods (functions with a receiver)
 // are skipped because GOEXPERIMENT=simd has a compiler bug with method bodies
 // in simd-tagged files (https://github.com/golang/go/issues/80657).
@@ -203,34 +209,29 @@ func tokenOpToLoopOp(tok token.Token) (Op, bool) {
 // (Go 1.28+ / gotip with CL 839405).
 func Analyze(file *ast.File, info *types.Info, allowMethods bool) []Loop {
 	var loops []Loop
-	inMethod := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		if n == nil {
-			return false
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || (fn.Recv != nil && !allowMethods) {
+			continue
 		}
-		if fn, ok := n.(*ast.FuncDecl); ok {
-			inMethod = fn.Recv != nil
-			return true
-		}
-		if inMethod && !allowMethods {
-			return true
-		}
-		switch stmt := n.(type) {
-		case *ast.RangeStmt:
-			if l, ok := analyzeRange(stmt, info); ok &&
-				simdSupportsOp(l.ElemType, l.Op) &&
-				(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
-				loops = append(loops, l)
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch stmt := n.(type) {
+			case *ast.RangeStmt:
+				if l, ok := analyzeRange(stmt, info); ok &&
+					simdSupportsOp(l.ElemType, l.Op) &&
+					(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
+					loops = append(loops, l)
+				}
+			case *ast.ForStmt:
+				if l, ok := analyzeFor(stmt, info); ok &&
+					simdSupportsOp(l.ElemType, l.Op) &&
+					(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
+					loops = append(loops, l)
+				}
 			}
-		case *ast.ForStmt:
-			if l, ok := analyzeFor(stmt, info); ok &&
-				simdSupportsOp(l.ElemType, l.Op) &&
-				(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
-				loops = append(loops, l)
-			}
-		}
-		return true
-	})
+			return true
+		})
+	}
 	return loops
 }
 

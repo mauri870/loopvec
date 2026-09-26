@@ -1,0 +1,53 @@
+# A loop in a package-level variable initializer runs inside the compiler's
+# generated package initializer, where simd operations do not link, so it is not
+# rewritten. The same kind of loop in a function is.
+
+loopvec .
+cmp stdout stdout.want
+cmpenv stderr stderr.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+var spaces = func() string {
+	b := make([]byte, 200)
+	for i := range b {
+		b[i] = ' '
+	}
+	return string(b)
+}()
+
+func Xor(x byte, b []byte) {
+	for i := range b {
+		b[i] ^= x
+	}
+}
+-- stdout.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+var spaces = func() string {
+	b := make([]byte, 200)
+	for i := range b {
+		b[i] = ' '
+	}
+	return string(b)
+}()
+
+func Xor(x byte, b []byte) {
+	_vcUint8s0 := simd.BroadcastUint8s(x)
+	for _i := 0; _i < len(b); {
+		_v1, _n := simd.LoadUint8sPart(b[_i:])
+		_v1.Xor(_vcUint8s0).StorePart(b[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go

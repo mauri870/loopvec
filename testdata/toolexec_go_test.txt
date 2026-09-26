@@ -1,0 +1,43 @@
+# go test -toolexec builds and runs the tests against the vectorized package.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/app/vec
+exec go test -toolexec=$LOOPVEC_TOOLEXEC ./...
+stdout -count=1 '^ok  	example\.com/app/vec	'
+cmp log log.want
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- vec/vec_test.go --
+package vec
+
+import "testing"
+
+func TestAddInt32s(t *testing.T) {
+	dst := make([]int32, 37)
+	a := make([]int32, 37)
+	b := make([]int32, 37)
+	for i := range a {
+		a[i], b[i] = int32(i), int32(3*i)
+	}
+	AddInt32s(dst, a, b)
+	for i := range dst {
+		if dst[i] != int32(4*i) {
+			t.Fatalf("dst[%d] = %d, want %d", i, dst[i], 4*i)
+		}
+	}
+}
+-- log.want --
+rewrote 1 loop(s) in example.com/app/vec

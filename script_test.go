@@ -23,9 +23,17 @@ func TestScripts(t *testing.T) {
 		t.Fatalf("building loopvec: %v\n%s", err, out)
 	}
 
+	toolexec := filepath.Join(t.TempDir(), "loopvec-toolexec")
+	buildToolexec := exec.Command("go", "build", "-o", toolexec, "./cmd/loopvec-toolexec")
+	buildToolexec.Env = testEnv(t)
+	if out, err := buildToolexec.CombinedOutput(); err != nil {
+		t.Fatalf("building loopvec-toolexec: %v\n%s", err, out)
+	}
+
 	cmds := scripttest.DefaultCmds()
 	cmds["loopvec"] = script.Program(binary, nil, 0)
 	cmds["go"] = script.Program("go", nil, 0)
+	cmds["gotip"] = script.Program("gotip", nil, 0)
 
 	engine := &script.Engine{
 		Conds: scripttest.DefaultConds(),
@@ -38,7 +46,8 @@ func TestScripts(t *testing.T) {
 	}
 	// LOOPVEC_SRC lets scripts point a Go workspace at this checkout so that
 	// "go tool loopvec" resolves without a published release.
-	env := append(testEnv(t), "LOOPVEC_SRC="+wd)
+	// LOOPVEC_TOOLEXEC is the built -toolexec wrapper.
+	env := append(testEnv(t), "LOOPVEC_SRC="+wd, "LOOPVEC_TOOLEXEC="+toolexec)
 	scripttest.Test(t, context.Background(), engine, env, "testdata/*.txt")
 }
 

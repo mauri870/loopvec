@@ -1,0 +1,39 @@
+# Unsigned vectors have no Neg, so unary - on any unsigned type is not rewritten.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func NegUint8s(dst, a []uint8) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegUint16s(dst, a []uint16) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegUint32s(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}
+
+func NegUint64s(dst, a []uint64) {
+	for i := range dst {
+		dst[i] = -a[i]
+	}
+}

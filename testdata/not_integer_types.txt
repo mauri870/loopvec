@@ -1,0 +1,209 @@
+# Unary ^ is rewritten to Not for every integer element type, including the 64-bit ones.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func NotInt8s(dst, a []int8) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotInt16s(dst, a []int16) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotInt32s(dst, a []int32) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotInt64s(dst, a []int64) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotUint8s(dst, a []uint8) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotUint16s(dst, a []uint16) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotUint32s(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+
+func NotUint64s(dst, a []uint64) {
+	for i := range dst {
+		dst[i] = ^a[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func NotInt8s(dst, a []int8) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt8sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotInt16s(dst, a []int16) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt16sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotInt32s(dst, a []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotInt64s(dst, a []int64) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt64sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotUint8s(dst, a []uint8) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadUint8sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotUint16s(dst, a []uint16) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadUint16sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotUint32s(dst, a []uint32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadUint32sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func NotUint64s(dst, a []uint64) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadUint64sPart(a[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 8 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	{
+		dst := make([]int8, 21)
+		a := []int8{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NotInt8s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int16, 21)
+		a := []int16{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NotInt16s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int32, 21)
+		a := []int32{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NotInt32s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]int64, 21)
+		a := []int64{1, -2, 3, -4, 5, -6, 7, -8, 9, -10, 11, -12, 13, -14, 15, -16, 17, -18, 19, -20, 21}
+		test.NotInt64s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]uint8, 21)
+		a := []uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+		test.NotUint8s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]uint16, 21)
+		a := []uint16{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+		test.NotUint16s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]uint32, 21)
+		a := []uint32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+		test.NotUint32s(dst, a)
+		fmt.Println(dst)
+	}
+	{
+		dst := make([]uint64, 21)
+		a := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+		test.NotUint64s(dst, a)
+		fmt.Println(dst)
+	}
+}
+-- testmain/output --
+[-2 1 -4 3 -6 5 -8 7 -10 9 -12 11 -14 13 -16 15 -18 17 -20 19 -22]
+[-2 1 -4 3 -6 5 -8 7 -10 9 -12 11 -14 13 -16 15 -18 17 -20 19 -22]
+[-2 1 -4 3 -6 5 -8 7 -10 9 -12 11 -14 13 -16 15 -18 17 -20 19 -22]
+[-2 1 -4 3 -6 5 -8 7 -10 9 -12 11 -14 13 -16 15 -18 17 -20 19 -22]
+[254 253 252 251 250 249 248 247 246 245 244 243 242 241 240 239 238 237 236 235 234]
+[65534 65533 65532 65531 65530 65529 65528 65527 65526 65525 65524 65523 65522 65521 65520 65519 65518 65517 65516 65515 65514]
+[4294967294 4294967293 4294967292 4294967291 4294967290 4294967289 4294967288 4294967287 4294967286 4294967285 4294967284 4294967283 4294967282 4294967281 4294967280 4294967279 4294967278 4294967277 4294967276 4294967275 4294967274]
+[18446744073709551614 18446744073709551613 18446744073709551612 18446744073709551611 18446744073709551610 18446744073709551609 18446744073709551608 18446744073709551607 18446744073709551606 18446744073709551605 18446744073709551604 18446744073709551603 18446744073709551602 18446744073709551601 18446744073709551600 18446744073709551599 18446744073709551598 18446744073709551597 18446744073709551596 18446744073709551595 18446744073709551594]
