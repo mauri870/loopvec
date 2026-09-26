@@ -1,0 +1,36 @@
+int64 and uint64 multiplication is not rewritten: simd.Int64s/Uint64s have no Mul method.
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func MulInt64s(dst, src []int64) {
+	for i := range dst {
+		dst[i] *= src[i]
+	}
+}
+
+func MulUint64s(dst, src []uint64) {
+	for i := range dst {
+		dst[i] *= src[i]
+	}
+}
+
+-- want.go --
+package test
+
+func MulInt64s(dst, src []int64) {
+	for i := range dst {
+		dst[i] *= src[i]
+	}
+}
+
+func MulUint64s(dst, src []uint64) {
+	for i := range dst {
+		dst[i] *= src[i]
+	}
+}

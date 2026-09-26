@@ -90,6 +90,19 @@ func (l *Loop) SimdTypeName() string {
 	return simdElemType(l.ElemType)
 }
 
+// simdSupportsOp reports whether the simd package supports op for the given element type.
+// int64 and uint64 have no Mul instruction in the simd package.
+func simdSupportsOp(t types.Type, op Op) bool {
+	if op != OpMul {
+		return true
+	}
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return true
+	}
+	return basic.Kind() != types.Int64 && basic.Kind() != types.Uint64
+}
+
 // OpMethod returns the simd method name for the loop's inner operation.
 func (l *Loop) OpMethod() string {
 	return opMethod(l.Op)
@@ -157,11 +170,15 @@ func Analyze(file *ast.File, info *types.Info) []Loop {
 		}
 		switch stmt := n.(type) {
 		case *ast.RangeStmt:
-			if l, ok := analyzeRange(stmt, info); ok {
+			if l, ok := analyzeRange(stmt, info); ok &&
+				simdSupportsOp(l.ElemType, l.Op) &&
+				(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
 				loops = append(loops, l)
 			}
 		case *ast.ForStmt:
-			if l, ok := analyzeFor(stmt, info); ok {
+			if l, ok := analyzeFor(stmt, info); ok &&
+				simdSupportsOp(l.ElemType, l.Op) &&
+				(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
 				loops = append(loops, l)
 			}
 		}
