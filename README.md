@@ -224,8 +224,6 @@ func AddFloat32s(dst, a, b []float32) {
 functions that contain simd code, emitting `cannot use _ as value or type`.
 loopvec automatically renames them to `_p0`, `_p1`, … in the generated simd
 file so the compiler does not see them. The original file is unchanged.
-Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657) (same
-SIMD lowering pass).
 
 **Methods are not rewritten by default.** The experimental SIMD compiler crashes
 with an internal error when a `//go:build goexperiment.simd` file contains a
