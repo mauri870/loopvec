@@ -55,6 +55,10 @@ func run(patterns []string) error {
 			packages.NeedFiles |
 			packages.NeedImports,
 		Fset: fset,
+		// Strip GOEXPERIMENT=simd so packages.Load always sees the scalar source.
+		// Without this, files tagged //go:build !goexperiment.simd are excluded
+		// when the caller runs loopvec under GOEXPERIMENT=simd.
+		Env: withoutGoExperimentSimd(os.Environ()),
 	}
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
@@ -63,6 +67,14 @@ func run(patterns []string) error {
 
 	hasErr := false
 	for _, pkg := range pkgs {
+		// Skip packages with no syntax trees — this covers directories with
+		// only mage files, platform-specific packages excluded by build tags,
+		// and any other case where there are no Go files to analyze.
+		// This matches the behaviour of go build ./..., which silently skips
+		// such directories rather than treating them as errors.
+		if len(pkg.Syntax) == 0 {
+			continue
+		}
 		if packages.PrintErrors([]*packages.Package{pkg}) > 0 {
 			hasErr = true
 			continue
@@ -76,6 +88,25 @@ func run(patterns []string) error {
 		return fmt.Errorf("errors occurred")
 	}
 	return nil
+}
+
+// withoutGoExperimentSimd returns env with "simd" removed from GOEXPERIMENT.
+func withoutGoExperimentSimd(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		key, val, ok := strings.Cut(e, "=")
+		if ok && strings.EqualFold(key, "GOEXPERIMENT") {
+			filtered := []string{}
+			for _, x := range strings.Split(val, ",") {
+				if strings.TrimSpace(x) != "simd" {
+					filtered = append(filtered, x)
+				}
+			}
+			e = key + "=" + strings.Join(filtered, ",")
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func processPkg(fset *token.FileSet, pkg *packages.Package) error {
