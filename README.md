@@ -22,6 +22,8 @@ Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
 
 Supported operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
+Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply instruction
+for 64-bit integers).
 
 ## Performance
 
@@ -45,10 +47,33 @@ AxpyFloat32s/1048576-32     254.01µ ± 1%   92.14µ ± 5%  -63.73% (p=0.000 n=1
 geomean                       1.384µ        429.6n       -68.96%
 ```
 
-Running `loopvec` on [gonum](https://github.com/gonum/gonum) detects 38
-vectorizable loops across 17 files, including LAPACK kernels, optimization
-functions, and statistical routines. BLAS methods are excluded due to the
-compiler limitation noted below.
+Running `loopvec` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
+detects 94 vectorizable loops across the core arithmetic execution package,
+yielding the following speedups on AMD Ryzen 9 9950X3D (AVX-512):
+
+```
+                          │    scalar     │              simd               │
+                          │    sec/op     │   sec/op     vs base            │
+AddVSF32/64-32               12.315n ± 1%   3.608n ± 2%  -70.70% (p=0.002 n=6)
+AddVSF32/4096-32              759.8n ± 2%   146.3n ± 1%  -80.75% (p=0.002 n=6)
+AddVSF32/1048576-32          201.41µ ± 3%   37.42µ ± 2%  -81.42% (p=0.002 n=6)
+MulVSF32/64-32               14.065n ± 2%   3.771n ± 7%  -73.19% (p=0.002 n=6)
+MulVSF32/4096-32              843.9n ± 2%   149.2n ± 1%  -82.33% (p=0.002 n=6)
+MulVSF32/1048576-32          219.59µ ± 3%   37.53µ ± 3%  -82.91% (p=0.002 n=6)
+AddVSF64/64-32               12.475n ± 1%   5.716n ± 6%  -54.18% (p=0.002 n=6)
+AddVSF64/4096-32              756.8n ± 3%   289.3n ± 2%  -61.77% (p=0.002 n=6)
+AddVSF64/1048576-32          204.91µ ± 2%   75.05µ ± 2%  -63.37% (p=0.002 n=6)
+MulVSF64/64-32               12.235n ± 1%   6.027n ± 2%  -50.74% (p=0.002 n=6)
+MulVSF64/4096-32              756.1n ± 1%   286.1n ± 1%  -62.16% (p=0.002 n=6)
+MulVSF64/1048576-32          204.16µ ± 1%   74.65µ ± 1%  -63.44% (p=0.002 n=6)
+VecAddI32/64-32              12.040n ± 2%   4.350n ± 2%  -63.87% (p=0.002 n=6)
+VecAddI32/4096-32             764.0n ± 3%   195.5n ± 1%  -74.41% (p=0.002 n=6)
+VecAddI32/1048576-32         204.32µ ± 2%   63.44µ ± 3%  -68.95% (p=0.002 n=6)
+VecMulI32/64-32              14.405n ± 1%   4.409n ± 3%  -69.40% (p=0.002 n=6)
+VecMulI32/4096-32             948.9n ± 1%   196.1n ± 3%  -79.33% (p=0.002 n=6)
+VecMulI32/1048576-32         249.27µ ± 1%   65.54µ ± 2%  -73.71% (p=0.002 n=6)
+geomean                        1.302µ        373.9n       -71.28%
+```
 
 ## Installation
 
