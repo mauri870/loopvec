@@ -27,7 +27,7 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
 
-Supported binary operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
+Supported binary operators: `+`, `-`, `*`, `/`, `&`, `|`, `^` (and their `op=` forms). `/` requires `float32` or `float64` (no integer division in simd).
 Supported unary operators: `-` (negation, all except unsigned integers), `^` (bitwise NOT, all integer types).
 `MulAdd`/FMA patterns require `float32` or `float64`.
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).

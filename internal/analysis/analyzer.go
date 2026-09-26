@@ -17,6 +17,7 @@ const (
 	OpAnd
 	OpOr
 	OpXor
+	OpDiv
 	OpNeg // unary: -x
 	OpNot // unary: ^x
 )
@@ -96,16 +97,19 @@ func (l *Loop) SimdTypeName() string {
 }
 
 // simdSupportsOp reports whether the simd package supports op for the given element type.
-// int64 and uint64 have no Mul instruction in the simd package.
+// int64 and uint64 have no Mul; only float32 and float64 have Div.
 func simdSupportsOp(t types.Type, op Op) bool {
-	if op != OpMul {
-		return true
-	}
 	basic, ok := t.Underlying().(*types.Basic)
 	if !ok {
 		return true
 	}
-	return basic.Kind() != types.Int64 && basic.Kind() != types.Uint64
+	switch op {
+	case OpMul:
+		return basic.Kind() != types.Int64 && basic.Kind() != types.Uint64
+	case OpDiv:
+		return basic.Kind() == types.Float32 || basic.Kind() == types.Float64
+	}
+	return true
 }
 
 // OpMethod returns the simd method name for the loop's inner operation.
@@ -132,6 +136,8 @@ func opMethod(op Op) string {
 		return "Or"
 	case OpXor:
 		return "Xor"
+	case OpDiv:
+		return "Div"
 	case OpNeg:
 		return "Neg"
 	case OpNot:
@@ -183,6 +189,8 @@ func tokenOpToLoopOp(tok token.Token) (Op, bool) {
 		return OpOr, true
 	case token.XOR, token.XOR_ASSIGN:
 		return OpXor, true
+	case token.QUO, token.QUO_ASSIGN:
+		return OpDiv, true
 	}
 	return 0, false
 }
