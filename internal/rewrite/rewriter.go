@@ -10,6 +10,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -165,6 +166,37 @@ func hasBuildConstraint(file *ast.File) bool {
 // idx is a per-file unique counter used to avoid name collisions when multiple
 // broadcast variables are declared in the same function scope.
 func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {
+	text, pre, err := generateLoop(loop, fset, info, idx)
+	if err != nil {
+		return "", "", err
+	}
+	return applyBound(loop, text), pre, nil
+}
+
+// applyBound limits a generated loop to loop.Bound. The generators emit a loop
+// over len(dst) that slices every operand from _i; with an explicit bound the
+// loop stops there and every operand is sliced only up to it. Beforehand each
+// slice is checked to be long enough, so an out-of-range access still panics
+// with an index error as the original loop would, instead of reading or
+// writing past the data the original loop touched.
+func applyBound(loop analysis.Loop, text string) string {
+	if loop.Bound == "" {
+		return text
+	}
+	text = strings.Replace(text, "_i < len("+loop.DstSlice+"); {", "_i < "+loop.Bound+"; {", 1)
+	var checks strings.Builder
+	for _, name := range loop.Slices() {
+		operand := regexp.MustCompile(`([\s(,])` + regexp.QuoteMeta(name) + `\[_i:\]`)
+		text = operand.ReplaceAllString(text, "${1}"+name+"[_i:"+loop.Bound+"]")
+		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", name, loop.Bound)
+	}
+	if loop.BoundIsConst {
+		return checks.String() + text
+	}
+	return "if " + loop.Bound + " > 0 {\n" + checks.String() + text + "\n}"
+}
+
+func generateLoop(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {
 	simdType := loop.SimdTypeName()
 	if simdType == "" {
 		return "", "", fmt.Errorf("unsupported element type")

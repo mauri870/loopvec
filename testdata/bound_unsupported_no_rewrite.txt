@@ -1,0 +1,48 @@
+# Only an int variable or a positive integer constant can serve as an explicit
+# limit. Computed limits, field limits, zero and non-int limits are left alone.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+type T struct{ n int }
+
+func Computed(n int, x, y []float32) {
+	for i := 0; i < n+1; i++ {
+		y[i] += x[i]
+	}
+}
+
+func Field(t T, x, y []float32) {
+	for i := 0; i < t.n; i++ {
+		y[i] += x[i]
+	}
+}
+
+func Zero(x, y []float32) {
+	for i := 0; i < 0; i++ {
+		y[i] += x[i]
+	}
+}
+
+func Narrow(n int32, x, y []float32) {
+	for i := range n {
+		y[i] += x[i]
+	}
+}
+
+func LessOrEqual(n int, x, y []float32) {
+	for i := 0; i <= n; i++ {
+		y[i] += x[i]
+	}
+}

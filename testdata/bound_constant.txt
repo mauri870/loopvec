@@ -1,0 +1,74 @@
+# A constant limit, for i := 0; i < 4; i++, is rewritten with the limit spelled out.
+# Slices shorter than the limit panic, even when their capacity is larger.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Saxpy4(a float32, x, y []float32) {
+	for i := 0; i < 4; i++ {
+		y[i] += a * x[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Saxpy4(a float32, x, y []float32) {
+	_vcAFloat32s0 := simd.BroadcastFloat32s(a)
+	_ = y[4-1]
+	_ = x[4-1]
+	for _i := 0; _i < 4; {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:4])
+		_v2, _ := simd.LoadFloat32sPart(y[_i:4])
+		_v1.MulAdd(_vcAFloat32s0, _v2).StorePart(y[_i:4])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return
+}
+
+func main() {
+	x := []float32{1, 2, 3, 4, 5, 6}
+	y := []float32{10, 20, 30, 40, 50, 60}
+	test.Saxpy4(2, x, y)
+	fmt.Println(y)
+	long := make([]float32, 3, 10)
+	fmt.Println(try(func() { test.Saxpy4(2, x, long) }), try(func() { test.Saxpy4(2, x[:3], y) }))
+}
+-- testmain/output --
+[12 24 36 48 50 60]
+true true

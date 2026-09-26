@@ -1,0 +1,84 @@
+# A loop over one slice that writes another is limited by the slice it ranges over.
+# With a destination longer than the source the vector loop used to run forever: it
+# was bounded by len(dst), and loading from the exhausted source returns no
+# elements. A destination shorter than the source panics, as the scalar loop does.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Scale(dst, src []float32, f float32) {
+	for i, v := range src {
+		dst[i] = v * f
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Scale(dst, src []float32, f float32) {
+	_vcFloat32s0 := simd.BroadcastFloat32s(f)
+	if len(src) > 0 {
+		_ = dst[len(src)-1]
+		_ = src[len(src)-1]
+		for _i := 0; _i < len(src); {
+			_v1, _n := simd.LoadFloat32sPart(src[_i:len(src)])
+			_v1.Mul(_vcFloat32s0).StorePart(dst[_i:len(src)])
+			_i += _n
+		}
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return
+}
+
+func main() {
+	dst := make([]float32, 8)
+	test.Scale(dst, []float32{1, 2, 3}, 2)
+	fmt.Println(dst)
+	dst = make([]float32, 3)
+	test.Scale(dst, []float32{1, 2, 3}, 2)
+	fmt.Println(dst)
+	short := make([]float32, 3)
+	fmt.Println(try(func() { test.Scale(short, []float32{1, 2, 3, 4, 5}, 2) }))
+	untouched := []float32{7, 7, 7, 7}
+	test.Scale(untouched, nil, 2)
+	fmt.Println(untouched)
+}
+-- testmain/output --
+[2 4 6 0 0 0 0 0]
+[2 4 6]
+true
+[7 7 7 7]

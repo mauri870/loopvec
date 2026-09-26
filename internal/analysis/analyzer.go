@@ -3,6 +3,7 @@ package analysis
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 )
@@ -58,6 +59,33 @@ type Loop struct {
 
 	// IsUnary is true for loops of the form dst[i] = -src[i] or dst[i] = ^src[i].
 	IsUnary bool
+
+	// Bound is the source text of the iteration limit when it is not
+	// len(DstSlice): an int variable or constant (i < n), or len of another
+	// slice. The rewritten loop stops there and every slice is checked to be
+	// long enough first, so out-of-range accesses still panic. Empty means
+	// len(DstSlice).
+	Bound string
+	// BoundIsConst is set when Bound is a positive integer constant.
+	BoundIsConst bool
+}
+
+// Slices returns the distinct slices the loop reads or writes.
+func (l *Loop) Slices() []string {
+	var out []string
+	for _, name := range []string{l.DstSlice, l.Src1Slice, l.Src2Slice, l.Src3Slice} {
+		if name == "" {
+			continue
+		}
+		seen := false
+		for _, have := range out {
+			seen = seen || have == name
+		}
+		if !seen {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // simdElemType returns the simd type name for a given element type, or empty string if not supported.
@@ -260,13 +288,18 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 			valueVar = ident.Name
 		}
 	}
-	// Range target must be a slice identifier.
-	rangeIdent, ok := stmt.X.(*ast.Ident)
-	if !ok {
-		return Loop{}, false
+	// A slice identifier ranges over its elements; anything else must be an
+	// integer limit (for i := range n).
+	rangeIdent, isIdent := stmt.X.(*ast.Ident)
+	if !isIdent || !isSlice(rangeIdent, info) {
+		if stmt.Value != nil {
+			return Loop{}, false
+		}
+		return analyzeBounded(stmt, nil, keyIdent.Name, stmt.X, stmt.Body, info)
 	}
 
-	return analyzeBody(stmt, nil, keyIdent.Name, rangeIdent, valueVar, stmt.Body, info)
+	loop, ok := analyzeBody(stmt, nil, keyIdent.Name, rangeIdent, valueVar, stmt.Body, info)
+	return limitedBySlice(loop, ok, rangeIdent.Name)
 }
 
 // analyzeFor checks if a three-clause for loop is vectorizable.
@@ -300,17 +333,17 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 	if !ok || condLhs.Name != indexIdent.Name {
 		return Loop{}, false
 	}
-	lenCall, ok := cond.Y.(*ast.CallExpr)
-	if !ok {
-		return Loop{}, false
-	}
-	lenIdent, ok := lenCall.Fun.(*ast.Ident)
-	if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
-		return Loop{}, false
-	}
-	sliceIdent, ok := lenCall.Args[0].(*ast.Ident)
-	if !ok {
-		return Loop{}, false
+	// The limit is either len(slice) or an integer expression.
+	var sliceIdent *ast.Ident
+	if lenCall, ok := cond.Y.(*ast.CallExpr); ok {
+		lenIdent, ok := lenCall.Fun.(*ast.Ident)
+		if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
+			return Loop{}, false
+		}
+		sliceIdent, ok = lenCall.Args[0].(*ast.Ident)
+		if !ok {
+			return Loop{}, false
+		}
 	}
 
 	// Post: i++
@@ -323,7 +356,101 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 		return Loop{}, false
 	}
 
-	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent, "", stmt.Body, info)
+	if sliceIdent == nil {
+		return analyzeBounded(nil, stmt, indexIdent.Name, cond.Y, stmt.Body, info)
+	}
+	loop, ok := analyzeBody(nil, stmt, indexIdent.Name, sliceIdent, "", stmt.Body, info)
+	return limitedBySlice(loop, ok, sliceIdent.Name)
+}
+
+// isSlice reports whether ident is a slice.
+func isSlice(ident *ast.Ident, info *types.Info) bool {
+	tv, ok := info.Types[ident]
+	if !ok {
+		return false
+	}
+	_, ok = tv.Type.(*types.Slice)
+	return ok
+}
+
+// limitedBySlice records that the loop stops at len(bounds). That matches the
+// generated loop only when bounds is the destination itself; otherwise the
+// limit must be explicit, or a destination longer than bounds would make the
+// rewritten loop run past the data.
+func limitedBySlice(loop Loop, ok bool, bounds string) (Loop, bool) {
+	if ok && bounds != loop.DstSlice {
+		loop.Bound = "len(" + bounds + ")"
+	}
+	return loop, ok
+}
+
+// analyzeBounded handles loops limited by an integer expression rather than a
+// slice length: for i := 0; i < n; i++ and for i := range n. The limit must be
+// a variable of type int or a positive integer constant, so it is the same
+// value every time the loop condition would evaluate it.
+func analyzeBounded(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, limit ast.Expr, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+	isConst := false
+	switch expr := limit.(type) {
+	case *ast.BasicLit:
+		if expr.Kind != token.INT {
+			return Loop{}, false
+		}
+		isConst = true
+	case *ast.Ident:
+		tv, ok := info.Types[expr]
+		if !ok || expr.Name == indexVar {
+			return Loop{}, false
+		}
+		basic, ok := tv.Type.(*types.Basic)
+		if !ok || (basic.Kind() != types.Int && basic.Kind() != types.UntypedInt) {
+			return Loop{}, false
+		}
+		isConst = tv.Value != nil
+	default:
+		return Loop{}, false
+	}
+	if isConst {
+		tv, ok := info.Types[limit]
+		if !ok || tv.Value == nil {
+			return Loop{}, false
+		}
+		n, exact := constant.Int64Val(tv.Value)
+		if !exact || n <= 0 {
+			return Loop{}, false
+		}
+	}
+
+	// With no slice in the loop header, the element type comes from the
+	// destination.
+	dst := destinationIdent(body)
+	if dst == nil {
+		return Loop{}, false
+	}
+	loop, ok := analyzeBody(rangeStmt, forStmt, indexVar, dst, "", body, info)
+	if !ok {
+		return Loop{}, false
+	}
+	loop.Bound = types.ExprString(limit)
+	loop.BoundIsConst = isConst
+	return loop, true
+}
+
+// destinationIdent returns the slice identifier assigned to by the loop's only
+// statement, as in dst[i] = ... or dst[i] += ....
+func destinationIdent(body *ast.BlockStmt) *ast.Ident {
+	if len(body.List) != 1 {
+		return nil
+	}
+	assign, ok := body.List[0].(*ast.AssignStmt)
+	if !ok || len(assign.Lhs) != 1 {
+		return nil
+	}
+	index, ok := assign.Lhs[0].(*ast.IndexExpr)
+	if !ok {
+		return nil
+	}
+	ident, _ := index.X.(*ast.Ident)
+	return ident
 }
 
 // innerSliceAndOther normalizes a binary sub-expression so that the slice[i]

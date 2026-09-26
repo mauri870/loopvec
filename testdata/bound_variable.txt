@@ -1,0 +1,95 @@
+# A loop limited by an int variable, for i := 0; i < n; i++, is rewritten with an
+# explicit limit. n shorter than, equal to and (with a negative n) below the slices,
+# and a slice whose capacity exceeds its length, behave like the scalar loop; n longer
+# than a slice panics.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func SaxpyN(n int, a float32, x, y []float32) {
+	for i := 0; i < n; i++ {
+		y[i] = a*x[i] + y[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func SaxpyN(n int, a float32, x, y []float32) {
+	_vcAFloat32s0 := simd.BroadcastFloat32s(a)
+	if n > 0 {
+		_ = y[n-1]
+		_ = x[n-1]
+		for _i := 0; _i < n; {
+			_v1, _n := simd.LoadFloat32sPart(x[_i:n])
+			_v2, _ := simd.LoadFloat32sPart(y[_i:n])
+			_v1.MulAdd(_vcAFloat32s0, _v2).StorePart(y[_i:n])
+			_i += _n
+		}
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return
+}
+
+func main() {
+	x := []float32{1, 2, 3, 4, 5, 6, 7, 8}
+	y := []float32{10, 20, 30, 40, 50, 60, 70, 80}
+	test.SaxpyN(5, 2, x, y)
+	fmt.Println(y)
+	test.SaxpyN(0, 2, x, y)
+	fmt.Println(y)
+	test.SaxpyN(-3, 2, x, y)
+	fmt.Println(y)
+	test.SaxpyN(8, 1, x, y)
+	fmt.Println(y)
+	long := make([]float32, 3, 10)
+	fmt.Println(try(func() { test.SaxpyN(5, 2, x, long) }), try(func() { test.SaxpyN(5, 2, x[:3], y) }))
+	big := make([]float32, 100)
+	bx := make([]float32, 100)
+	for i := range bx {
+		bx[i] = float32(i)
+	}
+	test.SaxpyN(77, 3, bx, big)
+	fmt.Println(big[0], big[76], big[77])
+}
+-- testmain/output --
+[12 24 36 48 60 60 70 80]
+[12 24 36 48 60 60 70 80]
+[12 24 36 48 60 60 70 80]
+[13 26 39 52 65 66 77 88]
+true true
+0 228 0
