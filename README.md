@@ -24,6 +24,8 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 | `for i := range dst { dst[i] = -src[i] }` | `Neg` (unary negation) |
 | `for i := range dst { dst[i] = ^src[i] }` | `Not` (unary bitwise NOT) |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
+| `for i := 0; i < n; i++ { ... }`, `for i := range n { ... }` | explicit int limit; slices are length-checked first |
+| `for i := 0; i < 4; i++ { ... }` | constant limit |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
@@ -214,49 +216,9 @@ func AddFloat32s(dst, a, b []float32) {
 
 ## Whole-program mode: `-toolexec`
 
-`loopvec-toolexec` is a `go build -toolexec` wrapper that vectorizes loops while
-the go command compiles the build, so it also covers your dependencies and the
-standard library without touching any source file:
-
-```sh
-go install github.com/mauri870/loopvec/cmd/loopvec-toolexec@latest
-GOEXPERIMENT=simd go build -toolexec=$(which loopvec-toolexec) ./...
-GOEXPERIMENT=simd go test  -toolexec=$(which loopvec-toolexec) ./...
-```
-
-For every `compile` it type-checks the package from the compiler's export data,
-rewrites the loops `loopvec` recognizes, type-checks the result again, and
-compiles the rewritten source. If the rewritten package does not type-check, or
-anything else is doubtful, the original source is compiled instead, so the
-wrapper cannot make a working build fail. It also adds `simd` to the linker's
-import configuration, since the go command does not know rewritten packages
-import it. Build `loopvec-toolexec` with the same Go toolchain that runs the
-build.
-
-Packages are left alone when:
-
-- `GOEXPERIMENT` does not enable `simd`.
-- They are `simd` itself or anything `simd` or the runtime depends on (`fmt`,
-  `os`, `strconv`, `sync`, `sync/atomic`, `math`, and more). Rewritten code
-  imports `simd`, so rewriting these would create an import cycle.
-- They use cgo, or the build uses `-race`, `-msan`, `-asan`, `-shared`,
-  `-dynlink` or `-trimpath`.
-- They are built against a test variant of a package `simd` depends on, which
-  happens while testing those packages: `simd` would then be linked against a
-  different build of the same package.
-
-Loops in methods and in package-level initializers are never rewritten, as with
-`-split`.
-
-To see what happened, set `LOOPVEC_TOOLEXEC_LOG` to a file; one line is appended
-for each rewritten package and for each rewrite that was rejected.
-`LOOPVEC_TOOLEXEC_LOG_PKGS` restricts the log to a comma-separated list of import
-paths, and `LOOPVEC_TOOLEXEC_DEBUG=1` also records why a package was skipped.
-
-This mode rewrites code you have not reviewed. It applies the same
-transformation as `-split` without the chance to benchmark it, and loops over
-short slices can get slower. Treat it as an experiment and compare with the
-scalar build.
+`loopvec-toolexec` is an experimental `go build -toolexec` wrapper that vectorizes
+loops while the go command compiles a build, dependencies and standard library
+included, without touching any source file. See [toolexec.md](toolexec.md).
 
 ## Requirements
 
@@ -285,6 +247,14 @@ gotip download 839405
 # rewrite both functions and methods
 GOEXPERIMENT=simd gotip tool loopvec -methods -split ./...
 ```
+
+**Loop limits.** When a loop is limited by something other than the length of
+the slice it writes (`i < n`, `range n`, or `range src` while writing `dst`), the
+rewritten loop stops at that limit and first checks every slice with
+`_ = s[limit-1]`. An out-of-range access therefore still panics, with an index
+error, but before any element is written, whereas the scalar loop would have
+written the elements ahead of the failing index first. Only an `int` variable or
+a positive integer constant is accepted as a limit.
 
 **Files with build constraints are skipped.** Any file that carries a
 `//go:build` (or legacy `// +build`) line is left untouched. This includes files

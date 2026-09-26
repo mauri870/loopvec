@@ -37,10 +37,14 @@ import "simd"
 
 func ScalFloat32s(dst, src []float32, f float32) {
 	_vcFloat32s0 := simd.BroadcastFloat32s(f)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(src[_i:])
-		_v1.Mul(_vcFloat32s0).StorePart(dst[_i:])
-		_i += _n
+	if len(src) > 0 {
+		_ = dst[len(src)-1]
+		_ = src[len(src)-1]
+		for _i := 0; _i < len(src); {
+			_v1, _n := simd.LoadFloat32sPart(src[_i:len(src)])
+			_v1.Mul(_vcFloat32s0).StorePart(dst[_i:len(src)])
+			_i += _n
+		}
 	}
 }
 -- testmain/main.go --
