@@ -178,8 +178,9 @@ func stripBuildConstraint(src []byte, tag string) []byte {
 	return formatted
 }
 
-// addBuildTag inserts a //go:build constraint into src if not already present.
-// format.Source moves it to the correct position (before the package clause).
+// addBuildTag inserts a //go:build constraint before the package clause if not
+// already present. The constraint must appear before the package declaration
+// and be separated from it by a blank line for the toolchain to recognize it.
 func addBuildTag(src []byte, tag string) []byte {
 	constraint := "//go:build " + tag
 	s := string(src)
@@ -190,12 +191,7 @@ func addBuildTag(src []byte, tag string) []byte {
 	if idx < 0 {
 		return src
 	}
-	nl := strings.Index(s[idx:], "\n")
-	if nl < 0 {
-		return src
-	}
-	insertAt := idx + nl + 1
-	modified := s[:insertAt] + "\n" + constraint + "\n" + s[insertAt:]
+	modified := s[:idx] + constraint + "\n\n" + s[idx:]
 	formatted, err := format.Source([]byte(modified))
 	if err != nil {
 		return []byte(modified)
