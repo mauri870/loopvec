@@ -1,0 +1,73 @@
+# Add a scalar broadcast to a float32 slice (in-place).
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddScalar(dst []float32, c float32) {
+	for i := range dst {
+		dst[i] += c
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddScalar(dst []float32, c float32) {
+	_vcFloat32s0 := simd.BroadcastFloat32s(c)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(dst[_i:])
+		_v1.Add(_vcFloat32s0).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := []float32{1.0, 2.0, 3.0, 4.0, 5.0}
+	test.AddScalar(dst, 10.0)
+	fmt.Println(dst)
+}
+-- testmain/output --
+[11 12 13 14 15]
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func AddScalar(dst []float32, c float32) {
+	for i := range dst {
+		dst[i] += c
+	}
+}

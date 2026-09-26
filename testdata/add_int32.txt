@@ -1,0 +1,75 @@
+# Add element-wise int32 slices with a range loop.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]int32, 8)
+	a := []int32{1, 2, 3, 4, 5, 6, 7, 8}
+	b := []int32{10, 20, 30, 40, 50, 60, 70, 80}
+	test.AddInt32s(dst, a, b)
+	fmt.Println(dst)
+}
+-- testmain/output --
+[11 22 33 44 55 66 77 88]
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}

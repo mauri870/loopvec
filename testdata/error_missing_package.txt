@@ -1,0 +1,11 @@
+# A pattern that matches no package is an error, like go build.
+
+! loopvec ./nope
+! stdout .
+stderr -count=1 '^-: stat \S+/nope: directory not found$'
+stderr -count=1 '^loopvec: errors occurred$'
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1

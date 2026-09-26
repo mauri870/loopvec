@@ -1,0 +1,22 @@
+# -h documents every flag and exits successfully; an unknown flag is rejected
+# with the flag package's message and usage.
+
+loopvec -h
+! stdout .
+stderr -count=1 '^Usage of \S+:$'
+stderr -count=1 '^  -d	display unified diff instead of rewritten source$'
+stderr -count=1 '^  -methods$'
+stderr -count=1 '^    	rewrite loops inside methods \(requires Go 1.28\+ / gotip CL 839405 to avoid compiler crash\)$'
+stderr -count=1 '^  -split$'
+stderr -count=1 '^    	write simd variant to file_simd.go and add //go:build !goexperiment.simd to original$'
+stderr -count=1 '^  -w	write result to source files in place$'
+
+! loopvec -bogus
+! stdout .
+stderr -count=1 '^flag provided but not defined: -bogus$'
+stderr -count=1 '^Usage of \S+:$'
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1

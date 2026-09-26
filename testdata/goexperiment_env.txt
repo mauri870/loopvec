@@ -1,0 +1,23 @@
+# Running loopvec itself under GOEXPERIMENT=simd must still analyze the scalar
+# sources, including packages whose files are guarded by !goexperiment.simd.
+
+env GOEXPERIMENT=simd
+loopvec -split .
+! stderr 'build constraints'
+! stdout .
+! stderr .
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+//go:build !goexperiment.simd
+
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}

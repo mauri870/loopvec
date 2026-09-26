@@ -68,12 +68,10 @@ func run(patterns []string) error {
 
 	hasErr := false
 	for _, pkg := range pkgs {
-		// Skip packages with no syntax trees — this covers directories with
-		// only mage files, platform-specific packages excluded by build tags,
-		// and any other case where there are no Go files to analyze.
-		// This matches the behaviour of go build ./..., which silently skips
-		// such directories rather than treating them as errors.
-		if len(pkg.Syntax) == 0 {
+		// Directories with only mage files or files excluded by build tags have
+		// nothing to analyze; go build ./... skips them silently, so do the same.
+		// Any other load failure (missing package, no go.mod) is reported below.
+		if len(pkg.Syntax) == 0 && (len(pkg.Errors) == 0 || hasNoBuildableFilesError(pkg)) {
 			continue
 		}
 		if packages.PrintErrors([]*packages.Package{pkg}) > 0 {
@@ -89,6 +87,18 @@ func run(patterns []string) error {
 		return fmt.Errorf("errors occurred")
 	}
 	return nil
+}
+
+// hasNoBuildableFilesError reports whether pkg failed to load because none of
+// its Go files apply to the current build configuration.
+func hasNoBuildableFilesError(pkg *packages.Package) bool {
+	for _, e := range pkg.Errors {
+		if strings.Contains(e.Msg, "build constraints exclude all Go files") ||
+			strings.Contains(e.Msg, "no Go files in") {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutGoExperimentSimd returns env with "simd" removed from GOEXPERIMENT.

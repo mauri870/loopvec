@@ -1,0 +1,88 @@
+# Each rewritten file gets its own log line and its own stdout block, in file
+# order. Files without loops and files with build constraints stay silent.
+
+loopvec .
+cmp stdout stdout.want
+cmpenv stderr stderr.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- a.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- b.go --
+package test
+
+func MulInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] * b[i]
+	}
+}
+
+func SubInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] - b[i]
+	}
+}
+-- c.go --
+package test
+
+func Nothing() {}
+-- d.go --
+//go:build linux
+
+package test
+
+func AddUint32s(dst, a, b []uint32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- stdout.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func MulInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Mul(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func SubInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Sub(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/a.go
+loopvec: rewrote 2 loop(s) in $WORK/b.go

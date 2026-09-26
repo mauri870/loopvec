@@ -247,10 +247,9 @@ already split is a no-op.
 
 ## Testing
 
-The test suite uses [txtar](https://pkg.go.dev/golang.org/x/tools/txtar) archives
-in `testdata/`. Each archive defines the input, expected rewrite, and an optional
-test program that is compiled and run both with and without `GOEXPERIMENT=simd` to
-verify behavioral equivalence.
+The test suite builds the real `loopvec` binary and drives it with
+[rsc.io/script](https://pkg.go.dev/rsc.io/script) scripts in `testdata/*.txt`,
+the same approach used by `go` command tests.
 
 ```sh
 GOTOOLCHAIN=go1.27.1 go test -count=1 ./...

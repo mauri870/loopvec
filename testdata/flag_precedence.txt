@@ -1,0 +1,89 @@
+# When several mode flags are given, -split wins over -w, and -w wins over -d.
+
+loopvec -split -w ./a
+! stdout .
+cmpenv stderr a.stderr
+cmp a/ops.go a/ops.go.guarded
+cmp a/ops_simd.go ops_simd.go.want
+
+loopvec -w -d ./b
+! stdout .
+cmpenv stderr b.stderr
+cmp b/ops.go ops_simd.go.want
+! exists b/ops_simd.go
+
+loopvec -d -split ./c
+! stdout .
+cmpenv stderr c.stderr
+cmp c/ops.go c/ops.go.guarded
+cmp c/ops_simd.go ops_simd.go.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- a/ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- b/ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- c/ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- a/ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- c/ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- a.stderr --
+loopvec: rewrote 1 loop(s) in $WORK/a/ops.go
+-- b.stderr --
+loopvec: rewrote 1 loop(s) in $WORK/b/ops.go
+-- c.stderr --
+loopvec: rewrote 1 loop(s) in $WORK/c/ops.go

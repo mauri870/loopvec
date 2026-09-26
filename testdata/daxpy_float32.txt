@@ -1,0 +1,75 @@
+# In-place depth-2: dst[i] += a[i]*alpha uses MulAdd (FMA) on float32.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func DaxpyFloat32s(dst, a []float32, alpha float32) {
+	for i := range dst {
+		dst[i] += a[i] * alpha
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func DaxpyFloat32s(dst, a []float32, alpha float32) {
+	_vcAFloat32s0 := simd.BroadcastFloat32s(alpha)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_v2, _ := simd.LoadFloat32sPart(dst[_i:])
+		_v1.MulAdd(_vcAFloat32s0, _v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := []float32{1, 2, 3, 4}
+	a := []float32{10, 20, 30, 40}
+	test.DaxpyFloat32s(dst, a, 2.0)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3])
+}
+-- testmain/output --
+21 42 63 84
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func DaxpyFloat32s(dst, a []float32, alpha float32) {
+	for i := range dst {
+		dst[i] += a[i] * alpha
+	}
+}

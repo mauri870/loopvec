@@ -3,6 +3,11 @@ module github.com/mauri870/loopvec
 go 1.27.1
 
 require (
+	golang.org/x/tools v0.50.0
+	rsc.io/script v0.0.2
+)
+
+require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
 	4d63.com/gochecknoglobals v0.2.2 // indirect
 	charm.land/lipgloss/v2 v2.0.6 // indirect
@@ -207,8 +212,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260908163034-4bcc4b2ee518 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	golang.org/x/tools v0.50.0 // indirect
-	gonum.org/v1/gonum v0.15.1 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

@@ -1,0 +1,30 @@
+# -d prints a unified diff (paths in the headers, timestamps aside) and leaves
+# the source untouched.
+
+cp ops.go ops.go.orig
+loopvec -d .
+cmpenv stderr stderr.want
+stdout -count=1 '^--- \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
+stdout -count=1 '^\+\+\+ \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
+stdout -count=1 '^@@ -1,7 \+1,14 @@$'
+stdout -count=1 '^\+//go:build goexperiment.simd$'
+stdout -count=1 '^\+import "simd"$'
+stdout -count=1 '^-	for i := range dst \{$'
+stdout -count=1 '^\+		_v1.Add\(_v2\).StorePart\(dst\[_i:\]\)$'
+cmp ops.go ops.go.orig
+! exists ops_simd.go
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go

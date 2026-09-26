@@ -1,0 +1,55 @@
+# -methods rewrites method bodies, but go1.27.1 cannot compile them under
+# GOEXPERIMENT=simd: the compiler crashes (golang/go#80657, fixed in later
+# toolchains). This pins the crash so the README limitation stays accurate.
+# When this script starts failing on a newer toolchain, the limitation is gone:
+# update the README and turn this into a run-and-compare test.
+
+loopvec -methods -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+# The scalar build is unaffected.
+exec go build .
+
+# The simd build hits the internal compiler error.
+env GOEXPERIMENT=simd
+! exec go build .
+! stdout .
+stderr -count=1 '^# example\.com/test$'
+stderr -count=1 '^\./ops_simd\.go:9:6: internal compiler error: missing Types entry: AddInt32s@simd0$'
+stderr -count=1 '^Please file a bug report including a short program that triggers the error\.$'
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+type T struct{}
+
+func (T) AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+type T struct{}
+
+func (T) AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go

@@ -1,0 +1,43 @@
+# Loops inside methods are skipped unless -methods is given.
+
+loopvec .
+! stdout .
+! stderr .
+
+loopvec -methods .
+cmp stdout ops_simd.go.want
+cmpenv stderr stderr.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+type T struct{}
+
+func (T) AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+type T struct{}
+
+func (T) AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go

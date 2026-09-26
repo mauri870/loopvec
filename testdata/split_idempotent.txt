@@ -1,0 +1,53 @@
+# Once split, the guarded original is skipped: a second -split is a silent no-op.
+
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops.go ops.go.guarded
+cmp ops_simd.go ops_simd.go.want
+
+loopvec -split .
+! stdout .
+! stderr .
+cmp ops.go ops.go.guarded
+cmp ops_simd.go ops_simd.go.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddInt32s(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go

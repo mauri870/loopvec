@@ -1,0 +1,69 @@
+# Multiple fill-zero loops in the same function scope get unique broadcast variable names.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ZeroAll(a, b, c []float64) {
+	for i := range a {
+		a[i] = 0
+	}
+	for i := range b {
+		b[i] = 0
+	}
+	for i := range c {
+		c[i] = 0
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func ZeroAll(a, b, c []float64) {
+	_vcFloat64s0 := simd.BroadcastFloat64s(0)
+	for _i := 0; _i < len(a); {
+		_n := _vcFloat64s0.StorePart(a[_i:])
+		_i += _n
+	}
+	_vcFloat64s1 := simd.BroadcastFloat64s(0)
+	for _i := 0; _i < len(b); {
+		_n := _vcFloat64s1.StorePart(b[_i:])
+		_i += _n
+	}
+	_vcFloat64s2 := simd.BroadcastFloat64s(0)
+	for _i := 0; _i < len(c); {
+		_n := _vcFloat64s2.StorePart(c[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 3 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func ZeroAll(a, b, c []float64) {
+	for i := range a {
+		a[i] = 0
+	}
+	for i := range b {
+		b[i] = 0
+	}
+	for i := range c {
+		c[i] = 0
+	}
+}

@@ -1,0 +1,30 @@
+# A failed write is logged with the package ID and the OS error, the run exits
+# non-zero, and the original file is left as it was.
+
+[root] skip 'permission checks do not apply to root'
+
+cp ops.go ops.go.orig
+chmod 0555 .
+! loopvec -split .
+chmod 0755 .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops.go ops.go.orig
+! exists ops_simd.go
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+loopvec: example.com/test: open $WORK/ops_simd.go: permission denied
+loopvec: errors occurred

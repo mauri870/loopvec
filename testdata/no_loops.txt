@@ -1,0 +1,29 @@
+# A package without vectorizable loops produces no output and no files in any mode.
+
+loopvec .
+! stdout .
+! stderr .
+loopvec -d .
+! stdout .
+! stderr .
+loopvec -split .
+! stdout .
+! stderr .
+loopvec -w .
+! stdout .
+! stderr .
+cmp ops.go ops.go.orig
+! exists ops_simd.go
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Nothing() int { return 1 }
+-- ops.go.orig --
+package test
+
+func Nothing() int { return 1 }

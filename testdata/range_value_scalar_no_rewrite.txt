@@ -1,0 +1,21 @@
+# A range value variable used as an operand of a depth-2 expression must not be hoisted as a broadcast scalar.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func IncrAdd(a, b, incr []float32) {
+	for i, v := range a {
+		incr[i] += v + b[i]
+	}
+}

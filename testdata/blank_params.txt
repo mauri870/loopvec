@@ -1,0 +1,49 @@
+# Blank identifier parameters are renamed to _p0, _p1, ... to avoid a gotip
+# GOEXPERIMENT=simd compiler bug where _ params in simd-using functions produce
+# "cannot use _ as value or type".
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func FillZeroBlankParams(_ int, _ byte, dst []float32) {
+	for i := range dst {
+		dst[i] = 0
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func FillZeroBlankParams(_p0 int, _p1 byte, dst []float32) {
+	_vcFloat32s0 := simd.BroadcastFloat32s(0)
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat32s0.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func FillZeroBlankParams(_ int, _ byte, dst []float32) {
+	for i := range dst {
+		dst[i] = 0
+	}
+}
