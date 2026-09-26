@@ -25,9 +25,10 @@ type Result struct {
 
 // File rewrites all vectorizable loops in src, returning the modified source.
 // fset and file must correspond to the parsed src. info must have type
-// information populated for the file.
-func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte) (Result, error) {
-	loops := analysis.Analyze(file, info)
+// information populated for the file. allowMethods enables rewriting of loops
+// inside methods; see analysis.Analyze for the caveat.
+func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, allowMethods bool) (Result, error) {
+	loops := analysis.Analyze(file, info, allowMethods)
 	if len(loops) == 0 {
 		return Result{Src: src}, nil
 	}

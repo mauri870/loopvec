@@ -28,9 +28,10 @@ import (
 )
 
 var (
-	writeBack = flag.Bool("w", false, "write result to source files in place")
-	splitMode = flag.Bool("split", false, "write simd variant to file_simd.go and add //go:build !goexperiment.simd to original")
-	diffMode  = flag.Bool("d", false, "display unified diff instead of rewritten source")
+	writeBack    = flag.Bool("w", false, "write result to source files in place")
+	splitMode    = flag.Bool("split", false, "write simd variant to file_simd.go and add //go:build !goexperiment.simd to original")
+	diffMode     = flag.Bool("d", false, "display unified diff instead of rewritten source")
+	allowMethods = flag.Bool("methods", false, "rewrite loops inside methods (requires Go 1.28+ / gotip CL 839405 to avoid compiler crash)")
 )
 
 func main() {
@@ -79,7 +80,7 @@ func run(patterns []string) error {
 			hasErr = true
 			continue
 		}
-		if err := processPkg(fset, pkg); err != nil {
+		if err := processPkg(fset, pkg, *allowMethods); err != nil {
 			fmt.Fprintf(os.Stderr, "loopvec: %s: %v\n", pkg.ID, err)
 			hasErr = true
 		}
@@ -109,7 +110,7 @@ func withoutGoExperimentSimd(env []string) []string {
 	return out
 }
 
-func processPkg(fset *token.FileSet, pkg *packages.Package) error {
+func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) error {
 	info := pkg.TypesInfo
 	if info == nil {
 		return fmt.Errorf("no type info available")
@@ -127,7 +128,7 @@ func processPkg(fset *token.FileSet, pkg *packages.Package) error {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		result, err := rewrite.File(fset, file, info, src)
+		result, err := rewrite.File(fset, file, info, src, allowMethods)
 		if err != nil {
 			return fmt.Errorf("rewrite %s: %w", path, err)
 		}

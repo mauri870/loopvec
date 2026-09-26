@@ -133,7 +133,7 @@ func rewriteSource(src []byte) ([]byte, error) {
 	// Type errors are expected when import "simd" is not resolvable; proceed anyway.
 	_, _ = conf.Check("test", fset, []*ast.File{file}, info)
 
-	result, err := rewrite.File(fset, file, info, src)
+	result, err := rewrite.File(fset, file, info, src, false)
 	if err != nil {
 		return nil, err
 	}

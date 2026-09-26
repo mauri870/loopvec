@@ -191,17 +191,19 @@ func AddFloat32s(dst, a, b []float32) {
 
 ## Known Limitations
 
-**Methods are not rewritten.** The experimental SIMD compiler crashes with an
-internal error when a `//go:build goexperiment.simd` file contains a method
-(function with a receiver). Only top-level functions are vectorized.
+**Methods are not rewritten by default.** The experimental SIMD compiler crashes
+with an internal error when a `//go:build goexperiment.simd` file contains a
+method (function with a receiver). Only top-level functions are vectorized.
 Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657).
 
-I have a preliminary fix at https://go.dev/cl/839405.
+I have a preliminary fix at https://go.dev/cl/839405. Once you have a toolchain
+that includes it, pass `-methods` to enable method rewriting:
 
 ```bash
 go install golang.org/dl/gotip@latest
 gotip download 839405
-# use gotip as the go command (eg to compile loopvec on compile target program)
+# rewrite both functions and methods
+GOEXPERIMENT=simd gotip tool loopvec -methods -split ./...
 ```
 
 ## Testing

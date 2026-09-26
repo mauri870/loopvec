@@ -188,10 +188,12 @@ func tokenOpToLoopOp(tok token.Token) (Op, bool) {
 }
 
 // Analyze walks a file's AST and returns all vectorizable loops.
-// Loops inside methods (functions with a receiver) are skipped because
-// GOEXPERIMENT=simd has a compiler bug with method bodies in simd-tagged
-// files (https://github.com/golang/go/issues/80657).
-func Analyze(file *ast.File, info *types.Info) []Loop {
+// When allowMethods is false, loops inside methods (functions with a receiver)
+// are skipped because GOEXPERIMENT=simd has a compiler bug with method bodies
+// in simd-tagged files (https://github.com/golang/go/issues/80657).
+// Pass allowMethods=true only when using a toolchain that has the fix
+// (Go 1.28+ / gotip with CL 839405).
+func Analyze(file *ast.File, info *types.Info, allowMethods bool) []Loop {
 	var loops []Loop
 	inMethod := false
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -202,7 +204,7 @@ func Analyze(file *ast.File, info *types.Info) []Loop {
 			inMethod = fn.Recv != nil
 			return true
 		}
-		if inMethod {
+		if inMethod && !allowMethods {
 			return true
 		}
 		switch stmt := n.(type) {
