@@ -135,6 +135,10 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn)
 	}
 
+	if loop.IsUnary {
+		return generateUnary(loop, simdType, loadFn)
+	}
+
 	opMethod := loop.OpMethod()
 
 	var loopBuf bytes.Buffer
@@ -194,6 +198,18 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 	}
 
 	return loopBuf.String(), preBuf.String(), nil
+}
+
+// generateUnary generates a simd loop for dst[i] = -src[i] or dst[i] = ^src[i].
+func generateUnary(loop analysis.Loop, simdType, loadFn string) (string, string, error) {
+	var loopBuf bytes.Buffer
+	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
+	fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
+	fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
+	fmt.Fprintf(&loopBuf, "\t_v1.%s().StorePart(%s[_i:])\n", loop.OpMethod(), loop.DstSlice)
+	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
+	fmt.Fprint(&loopBuf, "}")
+	return loopBuf.String(), "", nil
 }
 
 // generateExprTree generates a simd loop for a depth-2 binary expression tree:

@@ -1,0 +1,49 @@
+Unary bitwise NOT: dst[i] = ^src[i] uses Not.
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func NotInt32s(dst, src []int32) {
+	for i := range dst {
+		dst[i] = ^src[i]
+	}
+}
+
+-- want.go --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func NotInt32s(dst, src []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(src[_i:])
+		_v1.Not().StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]int32, 4)
+	src := []int32{0, -1, 1, 2}
+	test.NotInt32s(dst, src)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3])
+}
+
+-- testmain/output --
+-1 0 -2 -3

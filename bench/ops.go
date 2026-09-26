@@ -31,3 +31,9 @@ func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 		dst[i] = a[i]*alpha + b[i]*beta
 	}
 }
+
+func NegFloat32s(dst, src []float32) {
+	for i := range dst {
+		dst[i] = -src[i]
+	}
+}

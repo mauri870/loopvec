@@ -17,6 +17,8 @@ const (
 	OpAnd
 	OpOr
 	OpXor
+	OpNeg // unary: -x
+	OpNot // unary: ^x
 )
 
 // Loop describes a vectorizable loop found in the source.
@@ -52,6 +54,9 @@ type Loop struct {
 	// (Src3Slice[i] * Scalar2). Enables patterns like
 	// dst[i] = a[i]*alpha + b[i]*beta → _v1.MulAdd(_vcAlpha, _v2.Mul(_vcBeta)).
 	OuterIsMul bool
+
+	// IsUnary is true for loops of the form dst[i] = -src[i] or dst[i] = ^src[i].
+	IsUnary bool
 }
 
 // simdElemType returns the simd type name for a given element type, or empty string if not supported.
@@ -127,8 +132,40 @@ func opMethod(op Op) string {
 		return "Or"
 	case OpXor:
 		return "Xor"
+	case OpNeg:
+		return "Neg"
+	case OpNot:
+		return "Not"
 	}
 	return ""
+}
+
+// negSupported reports whether the simd package implements Neg for t.
+// Unsigned integer types do not have Neg.
+func negSupported(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch basic.Kind() {
+	case types.Uint8, types.Uint16, types.Uint32, types.Uint64:
+		return false
+	}
+	return simdElemType(t) != ""
+}
+
+// notSupported reports whether the simd package implements Not for t.
+// Floating-point types do not have Not.
+func notSupported(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch basic.Kind() {
+	case types.Float32, types.Float64:
+		return false
+	}
+	return simdElemType(t) != ""
 }
 
 // tokenOpToLoopOp converts a token.Token binary op to a Loop Op.
@@ -480,6 +517,24 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string
 		} else if _, ok := assignStmt.Rhs[0].(*ast.BasicLit); ok {
 			// dst[i] = literal constant  (fill broadcast; Src1Slice left empty)
 			loop.Scalar = assignStmt.Rhs[0]
+		} else if unaryExpr, ok := assignStmt.Rhs[0].(*ast.UnaryExpr); ok {
+			// dst[i] = -src[i]  or  dst[i] = ^src[i]
+			var unaryOp Op
+			switch unaryExpr.Op {
+			case token.SUB:
+				unaryOp = OpNeg
+			case token.XOR:
+				unaryOp = OpNot
+			default:
+				return Loop{}, false
+			}
+			src, ok := asSliceIndex(unaryExpr.X, indexVar)
+			if !ok {
+				return Loop{}, false
+			}
+			loop.Src1Slice = src
+			loop.Op = unaryOp
+			loop.IsUnary = true
 		} else {
 			// Complex or non-constant expression — skip
 			return Loop{}, false
@@ -526,6 +581,19 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string
 		return Loop{}, false
 	}
 	loop.ElemType = elemType
+
+	if loop.IsUnary {
+		switch loop.Op {
+		case OpNeg:
+			if !negSupported(elemType) {
+				return Loop{}, false
+			}
+		case OpNot:
+			if !notSupported(elemType) {
+				return Loop{}, false
+			}
+		}
+	}
 
 	return loop, true
 }

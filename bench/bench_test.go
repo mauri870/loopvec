@@ -74,3 +74,16 @@ func BenchmarkAxpyFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkNegFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			src := make([]float32, n)
+			b.ResetTimer()
+			for b.Loop() {
+				NegFloat32s(dst, src)
+			}
+		})
+	}
+}

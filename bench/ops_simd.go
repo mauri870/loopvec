@@ -51,3 +51,11 @@ func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 		_i += _n
 	}
 }
+
+func NegFloat32s(dst, src []float32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(src[_i:])
+		_v1.Neg().StorePart(dst[_i:])
+		_i += _n
+	}
+}

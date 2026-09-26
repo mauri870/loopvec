@@ -18,12 +18,15 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 | `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i] }` | `MulAdd` (FMA) |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i]*beta }` | `MulAdd` + `Mul` (two-scalar axpy) |
+| `for i := range dst { dst[i] = -src[i] }` | `Neg` (unary negation) |
+| `for i := range dst { dst[i] = ^src[i] }` | `Not` (unary bitwise NOT) |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
 
-Supported operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
+Supported binary operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
+Supported unary operators: `-` (negation, all except unsigned integers), `^` (bitwise NOT, all integer types).
 `MulAdd`/FMA patterns require `float32` or `float64`.
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
 
