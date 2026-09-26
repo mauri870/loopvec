@@ -161,6 +161,14 @@ internal error when a `//go:build goexperiment.simd` file contains a method
 (function with a receiver). Only top-level functions are vectorized.
 Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657).
 
+I have a preliminary fix at https://go.dev/cl/839405.
+
+```bash
+go install golang.org/dl/gotip@latest
+gotip download 839405
+# use gotip as the go command (eg to compile loopvec on compile target program)
+```
+
 ## Testing
 
 The test suite uses [txtar](https://pkg.go.dev/golang.org/x/tools/txtar) archives
