@@ -9,21 +9,23 @@ vectorization. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
 The tool recognizes these loop shapes and rewrites them to use portable SIMD
 operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 
-| Pattern | Operation |
+| Pattern | Emitted operation |
 |---|---|
 | `for i := range dst { dst[i] = a[i] + b[i] }` | element-wise binary op |
 | `for i := range dst { dst[i] += src[i] }` | in-place binary op |
 | `for i := range dst { dst[i] *= scalar }` | scalar broadcast op |
 | `for i := range dst { dst[i] = 0 }` | fill (broadcast literal) |
 | `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
-| `for i := 0; i < len(s); i++ { ... }` | three-clause for (same body shapes) |
+| `for i := range dst { dst[i] = a[i]*alpha + b[i] }` | `MulAdd` (FMA) |
+| `for i := range dst { dst[i] = a[i]*alpha + b[i]*beta }` | `MulAdd` + `Mul` (two-scalar axpy) |
+| `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
 
 Supported operators: `+`, `-`, `*`, `&`, `|`, `^` (and their `op=` forms).
-Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply instruction
-for 64-bit integers).
+`MulAdd`/FMA patterns require `float32` or `float64`.
+Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
 
 ## Performance
 
