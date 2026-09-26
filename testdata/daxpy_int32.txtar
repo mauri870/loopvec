@@ -22,11 +22,11 @@ package test
 import "simd"
 
 func DaxpyInt32s(dst, a []int32) {
-	_vcAInt32s := simd.BroadcastInt32s(3)
+	_vcAInt32s0 := simd.BroadcastInt32s(3)
 	for _i := 0; _i < len(dst); {
 		_v1, _n := simd.LoadInt32sPart(a[_i:])
 		_v2, _ := simd.LoadInt32sPart(dst[_i:])
-		_v1.Mul(_vcAInt32s).Add(_v2).StorePart(dst[_i:])
+		_v1.Mul(_vcAInt32s0).Add(_v2).StorePart(dst[_i:])
 		_i += _n
 	}
 }

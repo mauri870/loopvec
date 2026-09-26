@@ -53,7 +53,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, all
 			stmtNode = loop.ForStmt
 		}
 
-		repl, pre, err := generateReplacement(loop, fset, info)
+		repl, pre, err := generateReplacement(loop, fset, info, len(replacements))
 		if err != nil {
 			continue
 		}
@@ -124,7 +124,9 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, all
 
 // generateReplacement returns (loopText, preText, error) for a vectorizable loop.
 // preText is optional code to insert before the loop (e.g., broadcast variable).
-func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.Info) (string, string, error) {
+// idx is a per-file unique counter used to avoid name collisions when multiple
+// broadcast variables are declared in the same function scope.
+func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {
 	simdType := loop.SimdTypeName()
 	if simdType == "" {
 		return "", "", fmt.Errorf("unsupported element type")
@@ -133,7 +135,7 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 	broadcastFn := "Broadcast" + simdType
 
 	if loop.IsExprTree {
-		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn)
+		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn, idx)
 	}
 
 	if loop.IsUnary {
@@ -147,6 +149,8 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 
 	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
 
+	vcName := fmt.Sprintf("_vc%s%d", simdType, idx)
+
 	if loop.Scalar != nil && loop.Src1Slice == "" {
 		// Fill broadcast: dst[i] = constant
 		var scalarBuf bytes.Buffer
@@ -155,10 +159,10 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 		}
 		scalarText := scalarBuf.String()
 
-		fmt.Fprintf(&preBuf, "_vc%s := simd.%s(%s)", simdType, broadcastFn, scalarText)
+		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", vcName, broadcastFn, scalarText)
 
 		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_n := _vc%s.StorePart(%s[_i:])\n", simdType, loop.DstSlice)
+		fmt.Fprintf(&loopBuf, "\t_n := %s.StorePart(%s[_i:])\n", vcName, loop.DstSlice)
 		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
 		fmt.Fprint(&loopBuf, "}")
 	} else if loop.Scalar != nil {
@@ -169,12 +173,12 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 		}
 		scalarText := scalarBuf.String()
 
-		fmt.Fprintf(&preBuf, "_vc%s := simd.%s(%s)", simdType, broadcastFn, scalarText)
+		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", vcName, broadcastFn, scalarText)
 
 		loadSlice := loop.Src1Slice
 		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
 		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loadSlice)
-		fmt.Fprintf(&loopBuf, "\t_v1.%s(_vc%s).StorePart(%s[_i:])\n", opMethod, simdType, loop.DstSlice)
+		fmt.Fprintf(&loopBuf, "\t_v1.%s(%s).StorePart(%s[_i:])\n", opMethod, vcName, loop.DstSlice)
 		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
 		fmt.Fprint(&loopBuf, "}")
 	} else if loop.Src2Slice == "" {
@@ -219,17 +223,18 @@ func generateUnary(loop analysis.Loop, simdType, loadFn string) (string, string,
 //	or (InnerOnRight): Src3OrScalar2 Op2 (Src1[i] Op Src2OrScalar)
 //
 // Float32s/Float64s with Op==Mul and Op2==Add use MulAdd (FMA).
-func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn, broadcastFn string) (string, string, error) {
+func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn, broadcastFn string, idx int) (string, string, error) {
 	var loopBuf, preBuf bytes.Buffer
 
-	// Pre-loop broadcast declarations.
+	// Pre-loop broadcast declarations. Names include idx to avoid collisions
+	// when multiple loops in the same scope broadcast the same simd type.
 	var innerBc, outerBc string
 	if loop.Scalar != nil {
 		var buf bytes.Buffer
 		if err := format.Node(&buf, fset, loop.Scalar); err != nil {
 			return "", "", err
 		}
-		innerBc = "_vcA" + simdType
+		innerBc = fmt.Sprintf("_vcA%s%d", simdType, idx)
 		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", innerBc, broadcastFn, buf.String())
 	}
 	if loop.Scalar2 != nil {
@@ -240,7 +245,7 @@ func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn,
 		if err := format.Node(&buf, fset, loop.Scalar2); err != nil {
 			return "", "", err
 		}
-		outerBc = "_vcB" + simdType
+		outerBc = fmt.Sprintf("_vcB%s%d", simdType, idx)
 		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", outerBc, broadcastFn, buf.String())
 	}
 

@@ -22,9 +22,9 @@ package test
 import "simd"
 
 func ZeroFloat64s(dst []float64) {
-	_vcFloat64s := simd.BroadcastFloat64s(0)
+	_vcFloat64s0 := simd.BroadcastFloat64s(0)
 	for _i := 0; _i < len(dst); {
-		_n := _vcFloat64s.StorePart(dst[_i:])
+		_n := _vcFloat64s0.StorePart(dst[_i:])
 		_i += _n
 	}
 }

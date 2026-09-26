@@ -22,10 +22,10 @@ package test
 import "simd"
 
 func ScalFloat32s(dst, src []float32, f float32) {
-	_vcFloat32s := simd.BroadcastFloat32s(f)
+	_vcFloat32s0 := simd.BroadcastFloat32s(f)
 	for _i := 0; _i < len(dst); {
 		_v1, _n := simd.LoadFloat32sPart(src[_i:])
-		_v1.Mul(_vcFloat32s).StorePart(dst[_i:])
+		_v1.Mul(_vcFloat32s0).StorePart(dst[_i:])
 		_i += _n
 	}
 }
