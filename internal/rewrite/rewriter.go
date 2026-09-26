@@ -119,6 +119,11 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, all
 		return Result{}, fmt.Errorf("format error: %w\nsource:\n%s", err, result)
 	}
 
+	// Rename blank identifier parameters to avoid a gotip GOEXPERIMENT=simd
+	// compiler bug where _ params in simd-using functions produce
+	// "cannot use _ as value or type".
+	formatted = fixBlankParams(fset, formatted)
+
 	return Result{Src: formatted, Rewrites: len(replacements)}, nil
 }
 
@@ -300,6 +305,50 @@ func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn,
 	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
 	fmt.Fprint(&loopBuf, "}")
 	return loopBuf.String(), preBuf.String(), nil
+}
+
+// fixBlankParams renames blank identifier (_) function parameters in src to
+// _p0, _p1, … to work around a gotip GOEXPERIMENT=simd compiler bug:
+// blank params in functions that contain simd code cause the SIMD lowering
+// pass to emit "cannot use _ as value or type". The rename is safe because
+// the parameters are never referenced by name in the body.
+func fixBlankParams(fset *token.FileSet, src []byte) []byte {
+	file, err := parser.ParseFile(fset, "", src, parser.ParseComments)
+	if err != nil {
+		return src
+	}
+
+	counter := 0
+	changed := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		fd, ok := n.(*ast.FuncDecl)
+		if !ok {
+			return true
+		}
+		if fd.Type.Params == nil {
+			return true
+		}
+		for _, field := range fd.Type.Params.List {
+			for _, name := range field.Names {
+				if name.Name == "_" {
+					name.Name = fmt.Sprintf("_p%d", counter)
+					counter++
+					changed = true
+				}
+			}
+		}
+		return true
+	})
+
+	if !changed {
+		return src
+	}
+
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, file); err != nil {
+		return src
+	}
+	return buf.Bytes()
 }
 
 // ensureImport adds an import of path to the source if not already present.

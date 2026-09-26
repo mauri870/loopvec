@@ -94,6 +94,25 @@ VecMulI32/1048576-32         250.38µ ± 1%   64.80µ ± 1%  -74.12% (p=0.002 n=
 geomean                        1.303µ        373.4n       -71.33%
 ```
 
+Running `loopvec -methods -split` on [gonum](https://github.com/gonum/gonum)
+detects loops in multiple packages (floats, blas, lapack, stat, and others).
+Benchmarks for `gonum/floats.Mul` and `MulTo` on AMD Ryzen 9 9950X3D (AVX-512):
+
+```
+                         │    scalar     │              simd               │
+                         │    sec/op     │   sec/op     vs base            │
+MulMed-32                  211.9n ± ∞ ¹   156.7n ± ∞ ¹  -26.05% (p=0.008 n=5)
+MulLarge-32                23.36µ ± ∞ ¹   17.03µ ± ∞ ¹  -27.11% (p=0.008 n=5)
+MulHuge-32                  3.227m ± ∞ ¹   3.033m ± ∞ ¹        ~ (p=0.151 n=5)
+MulToMed-32                199.1n ± ∞ ¹   100.2n ± ∞ ¹  -49.67% (p=0.008 n=5)
+MulToLarge-32               20.37µ ± ∞ ¹   16.11µ ± ∞ ¹  -20.89% (p=0.008 n=5)
+MulToHuge-32                5.004m ± ∞ ¹   4.233m ± ∞ ¹        ~ (p=0.056 n=5)
+geomean                      26.21µ         19.52µ        -25.52%
+```
+
+Medium (1000 elements) and Large (100000 elements) sizes show 20–50% speedups.
+The Huge (10M elements) case is memory-bandwidth-bound, so gain narrows.
+
 ## Installation
 
 ```sh
@@ -199,6 +218,14 @@ func AddFloat32s(dst, a, b []float32) {
 - `GOEXPERIMENT=simd` at build time for the rewritten code
 
 ## Known Limitations
+
+**Blank identifier parameters are renamed in the simd file.** The gotip
+`GOEXPERIMENT=simd` compiler rejects blank identifier (`_`) parameters in
+functions that contain simd code, emitting `cannot use _ as value or type`.
+loopvec automatically renames them to `_p0`, `_p1`, … in the generated simd
+file so the compiler does not see them. The original file is unchanged.
+Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657) (same
+SIMD lowering pass).
 
 **Methods are not rewritten by default.** The experimental SIMD compiler crashes
 with an internal error when a `//go:build goexperiment.simd` file contains a
