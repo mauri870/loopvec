@@ -109,7 +109,8 @@ func processPkg(fset *token.FileSet, pkg *packages.Package) error {
 		switch {
 		case *splitMode:
 			simdPath := strings.TrimSuffix(path, ".go") + "_simd.go"
-			if err := os.WriteFile(simdPath, result.Src, 0o644); err != nil {
+			simdSrc := stripBuildConstraint(result.Src, "!goexperiment.simd")
+			if err := os.WriteFile(simdPath, simdSrc, 0o644); err != nil {
 				return err
 			}
 			tagged := addBuildTag(src, "!goexperiment.simd")
@@ -131,6 +132,18 @@ func processPkg(fset *token.FileSet, pkg *packages.Package) error {
 		}
 	}
 	return nil
+}
+
+// stripBuildConstraint removes the //go:build <tag> line from src, then
+// re-formats. Used in split mode to drop the !goexperiment.simd guard that
+// the original file already carries, so the simd output has only its own tag.
+func stripBuildConstraint(src []byte, tag string) []byte {
+	s := strings.ReplaceAll(string(src), "//go:build "+tag+"\n", "")
+	formatted, err := format.Source([]byte(s))
+	if err != nil {
+		return []byte(s)
+	}
+	return formatted
 }
 
 // addBuildTag inserts a //go:build constraint into src if not already present.

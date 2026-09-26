@@ -39,6 +39,15 @@ type Loop struct {
 	Op Op
 	// ElemType is the slice element type.
 	ElemType types.Type
+
+	// Depth-2 expression tree: dst[i] = (Src1[i] Op Src2OrScalar) Op2 Src3OrScalar2
+	// or (when InnerOnRight) Src3OrScalar2 Op2 (Src1[i] Op Src2OrScalar).
+	// Float32s/Float64s with Op==Mul and Op2==Add use MulAdd (FMA).
+	IsExprTree  bool
+	InnerOnRight bool
+	Op2         Op
+	Src3Slice   string
+	Scalar2     ast.Expr
 }
 
 // simdElemType returns the simd type name for a given element type, or empty string if not supported.
@@ -77,9 +86,18 @@ func (l *Loop) SimdTypeName() string {
 	return simdElemType(l.ElemType)
 }
 
-// OpMethod returns the simd method name for the loop's operation.
+// OpMethod returns the simd method name for the loop's inner operation.
 func (l *Loop) OpMethod() string {
-	switch l.Op {
+	return opMethod(l.Op)
+}
+
+// Op2Method returns the simd method name for the loop's outer operation (depth-2 trees).
+func (l *Loop) Op2Method() string {
+	return opMethod(l.Op2)
+}
+
+func opMethod(op Op) string {
+	switch op {
 	case OpAdd:
 		return "Add"
 	case OpSub:
@@ -239,6 +257,104 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 	return analyzeBody(nil, stmt, indexIdent.Name, sliceIdent, "", stmt.Body, info)
 }
 
+// innerSliceAndOther normalizes a binary sub-expression so that the slice[i]
+// operand is returned first. For commutative ops the slice may be on either side.
+// Returns ok=false if neither operand is a slice[i] access.
+func innerSliceAndOther(expr *ast.BinaryExpr, op Op, indexVar string) (sliceName string, other ast.Expr, ok bool) {
+	if s, ok := asSliceIndex(expr.X, indexVar); ok {
+		return s, expr.Y, true
+	}
+	switch op {
+	case OpAdd, OpMul, OpAnd, OpOr, OpXor:
+		if s, ok := asSliceIndex(expr.Y, indexVar); ok {
+			return s, expr.X, true
+		}
+	}
+	return "", nil, false
+}
+
+// buildExprTree constructs a depth-2 Loop from an inner binary expression,
+// an outer leaf operand, and the outer op. innerOnRight marks non-commutative
+// outer ops where the inner result is the right operand (e.g. "leaf Sub inner").
+func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, innerOnRight bool, indexVar string, proto Loop) (Loop, bool) {
+	innerOp, ok := tokenOpToLoopOp(innerBin.Op)
+	if !ok {
+		return Loop{}, false
+	}
+	src1, innerOther, ok := innerSliceAndOther(innerBin, innerOp, indexVar)
+	if !ok {
+		return Loop{}, false
+	}
+
+	var src2 string
+	var scalar ast.Expr
+	if s, ok2 := asSliceIndex(innerOther, indexVar); ok2 {
+		src2 = s
+	} else {
+		switch innerOther.(type) {
+		case *ast.BasicLit, *ast.Ident:
+			scalar = innerOther
+		default:
+			return Loop{}, false
+		}
+	}
+
+	var src3 string
+	var scalar2 ast.Expr
+	if s, ok2 := asSliceIndex(outerLeaf, indexVar); ok2 {
+		src3 = s
+	} else {
+		switch outerLeaf.(type) {
+		case *ast.BasicLit, *ast.Ident:
+			scalar2 = outerLeaf
+		default:
+			return Loop{}, false
+		}
+	}
+
+	proto.IsExprTree = true
+	proto.InnerOnRight = innerOnRight
+	proto.Op = innerOp
+	proto.Op2 = outerOp
+	proto.Src1Slice = src1
+	proto.Src2Slice = src2
+	proto.Scalar = scalar
+	proto.Src3Slice = src3
+	proto.Scalar2 = scalar2
+	return proto, true
+}
+
+// tryExprTree attempts to parse a binary RHS as a depth-2 expression tree,
+// returning the populated Loop on success.
+func tryExprTree(binExpr *ast.BinaryExpr, indexVar string, proto Loop) (Loop, bool) {
+	outerOp, ok := tokenOpToLoopOp(binExpr.Op)
+	if !ok {
+		return Loop{}, false
+	}
+
+	// Inner on left: (A op B) outerOp C
+	if innerBin, ok := binExpr.X.(*ast.BinaryExpr); ok {
+		if l, ok := buildExprTree(innerBin, binExpr.Y, outerOp, false, indexVar, proto); ok {
+			return l, true
+		}
+	}
+
+	// Inner on right: A outerOp (B op C)
+	if innerBin, ok := binExpr.Y.(*ast.BinaryExpr); ok {
+		innerOnRight := true
+		switch outerOp {
+		case OpAdd, OpMul, OpAnd, OpOr, OpXor:
+			// Commutative outer: normalize so inner is always on the left.
+			innerOnRight = false
+		}
+		if l, ok := buildExprTree(innerBin, binExpr.X, outerOp, innerOnRight, indexVar, proto); ok {
+			return l, true
+		}
+	}
+
+	return Loop{}, false
+}
+
 // analyzeBody checks the loop body for vectorizable assignments.
 // boundsIdent is the identifier node for the slice that determines the loop bounds (used for type lookup).
 // valueVar is the range value variable name (e.g. "v" in "for i, v := range src"), or "".
@@ -279,6 +395,16 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string
 		loop.DstSlice = lhsIndex
 
 		if binExpr, ok := assignStmt.Rhs[0].(*ast.BinaryExpr); ok {
+			// Try depth-2 expression tree before depth-1: one operand is itself binary.
+			if depth2, ok := tryExprTree(binExpr, indexVar, loop); ok {
+				elemType, ok := resolveSliceElemType(boundsIdent, info)
+				if !ok || simdElemType(elemType) == "" {
+					return Loop{}, false
+				}
+				depth2.ElemType = elemType
+				return depth2, true
+			}
+
 			// dst[i] = X op Y where X/Y may be slice[i] or range value var or scalar
 			op, ok := tokenOpToLoopOp(binExpr.Op)
 			if !ok {

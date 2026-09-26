@@ -130,6 +130,11 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 	}
 	loadFn := "Load" + simdType + "Part"
 	broadcastFn := "Broadcast" + simdType
+
+	if loop.IsExprTree {
+		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn)
+	}
+
 	opMethod := loop.OpMethod()
 
 	var loopBuf bytes.Buffer
@@ -188,6 +193,83 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 		fmt.Fprint(&loopBuf, "}")
 	}
 
+	return loopBuf.String(), preBuf.String(), nil
+}
+
+// generateExprTree generates a simd loop for a depth-2 binary expression tree:
+//
+//	dst[i] = (Src1[i] Op Src2OrScalar) Op2 Src3OrScalar2
+//	or (InnerOnRight): Src3OrScalar2 Op2 (Src1[i] Op Src2OrScalar)
+//
+// Float32s/Float64s with Op==Mul and Op2==Add use MulAdd (FMA).
+func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn, broadcastFn string) (string, string, error) {
+	var loopBuf, preBuf bytes.Buffer
+
+	// Pre-loop broadcast declarations.
+	var innerBc, outerBc string
+	if loop.Scalar != nil {
+		var buf bytes.Buffer
+		if err := format.Node(&buf, fset, loop.Scalar); err != nil {
+			return "", "", err
+		}
+		innerBc = "_vcA" + simdType
+		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", innerBc, broadcastFn, buf.String())
+	}
+	if loop.Scalar2 != nil {
+		if preBuf.Len() > 0 {
+			preBuf.WriteByte('\n')
+		}
+		var buf bytes.Buffer
+		if err := format.Node(&buf, fset, loop.Scalar2); err != nil {
+			return "", "", err
+		}
+		outerBc = "_vcB" + simdType
+		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", outerBc, broadcastFn, buf.String())
+	}
+
+	isFloat := simdType == "Float32s" || simdType == "Float64s"
+	canFMA := isFloat && loop.Op == analysis.OpMul && loop.Op2 == analysis.OpAdd && !loop.InnerOnRight
+
+	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
+	fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
+	fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
+
+	// Inner's second operand.
+	var innerY string
+	if loop.Src2Slice != "" {
+		fmt.Fprintf(&loopBuf, "\t_v2, _ := simd.%s(%s[_i:])\n", loadFn, loop.Src2Slice)
+		innerY = "_v2"
+	} else {
+		innerY = innerBc
+	}
+
+	// Outer operand.
+	var outerX string
+	if loop.Src3Slice != "" {
+		v := "_v3"
+		if loop.Src2Slice == "" {
+			v = "_v2" // safe to reuse slot when inner second operand is a broadcast
+		}
+		fmt.Fprintf(&loopBuf, "\t%s, _ := simd.%s(%s[_i:])\n", v, loadFn, loop.Src3Slice)
+		outerX = v
+	} else {
+		outerX = outerBc
+	}
+
+	if canFMA {
+		fmt.Fprintf(&loopBuf, "\t_v1.MulAdd(%s, %s).StorePart(%s[_i:])\n", innerY, outerX, loop.DstSlice)
+	} else if loop.InnerOnRight {
+		// outerX Op2 (v1 Op innerY)
+		fmt.Fprintf(&loopBuf, "\t%s.%s(_v1.%s(%s)).StorePart(%s[_i:])\n",
+			outerX, loop.Op2Method(), loop.OpMethod(), innerY, loop.DstSlice)
+	} else {
+		// (v1 Op innerY) Op2 outerX
+		fmt.Fprintf(&loopBuf, "\t_v1.%s(%s).%s(%s).StorePart(%s[_i:])\n",
+			loop.OpMethod(), innerY, loop.Op2Method(), outerX, loop.DstSlice)
+	}
+
+	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
+	fmt.Fprint(&loopBuf, "}")
 	return loopBuf.String(), preBuf.String(), nil
 }
 

@@ -19,3 +19,9 @@ func ScalFloat32s(x []float32, c float32) {
 		x[i] *= c
 	}
 }
+
+func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
+	for i := range dst {
+		dst[i] = a[i]*alpha + b[i]
+	}
+}
