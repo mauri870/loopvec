@@ -101,19 +101,16 @@ detects loops in multiple packages (floats, blas, lapack, stat, and others).
 Benchmarks for `gonum/floats.Mul` and `MulTo` on AMD Ryzen 9 9950X3D (AVX-512):
 
 ```
-                         │    scalar     │              simd               │
-                         │    sec/op     │   sec/op     vs base            │
-MulMed-32                  211.9n ± ∞ ¹   156.7n ± ∞ ¹  -26.05% (p=0.008 n=5)
-MulLarge-32                23.36µ ± ∞ ¹   17.03µ ± ∞ ¹  -27.11% (p=0.008 n=5)
-MulHuge-32                  3.227m ± ∞ ¹   3.033m ± ∞ ¹        ~ (p=0.151 n=5)
-MulToMed-32                199.1n ± ∞ ¹   100.2n ± ∞ ¹  -49.67% (p=0.008 n=5)
-MulToLarge-32               20.37µ ± ∞ ¹   16.11µ ± ∞ ¹  -20.89% (p=0.008 n=5)
-MulToHuge-32                5.004m ± ∞ ¹   4.233m ± ∞ ¹        ~ (p=0.056 n=5)
-geomean                      26.21µ         19.52µ        -25.52%
+              │    old.txt    │               new.txt               │
+              │    sec/op     │    sec/op     vs base               │
+MulMed-32        211.9n ± ∞ ¹   122.6n ± ∞ ¹  -42.14% (p=0.008 n=5)
+MulLarge-32      23.36µ ± ∞ ¹   16.80µ ± ∞ ¹  -28.09% (p=0.008 n=5)
+MulHuge-32       3.227m ± ∞ ¹   2.977m ± ∞ ¹        ~ (p=0.690 n=5)
+MulToMed-32     199.10n ± ∞ ¹   97.68n ± ∞ ¹  -50.94% (p=0.008 n=5)
+MulToLarge-32    20.37µ ± ∞ ¹   16.37µ ± ∞ ¹  -19.62% (p=0.008 n=5)
+MulToHuge-32     5.004m ± ∞ ¹   4.462m ± ∞ ¹        ~ (p=0.222 n=5)
+geomean          26.21µ         18.77µ        -28.38%
 ```
-
-Medium (1000 elements) and Large (100000 elements) sizes show 20–50% speedups.
-The Huge (10M elements) case is memory-bandwidth-bound, so gain narrows.
 
 ## Installation
 
