@@ -1,0 +1,51 @@
+In-place depth-2: dst[i] += a[i]*2 uses Mul+Add on int32.
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func DaxpyInt32s(dst, a []int32) {
+	for i := range dst {
+		dst[i] += a[i] * 3
+	}
+}
+
+-- want.go --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func DaxpyInt32s(dst, a []int32) {
+	_vcAInt32s := simd.BroadcastInt32s(3)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(dst[_i:])
+		_v1.Mul(_vcAInt32s).Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := []int32{1, 2, 3, 4}
+	a := []int32{10, 20, 30, 40}
+	test.DaxpyInt32s(dst, a)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3])
+}
+
+-- testmain/output --
+31 62 93 124

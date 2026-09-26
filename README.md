@@ -20,6 +20,7 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 | `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i] }` | `MulAdd` (FMA) |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i]*beta }` | `MulAdd` + `Mul` (two-scalar axpy) |
+| `for i := range dst { dst[i] += a[i]*alpha }` | in-place `MulAdd` (DAXPY) |
 | `for i := range dst { dst[i] = -src[i] }` | `Neg` (unary negation) |
 | `for i := range dst { dst[i] = ^src[i] }` | `Not` (unary bitwise NOT) |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |

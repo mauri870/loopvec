@@ -569,6 +569,25 @@ func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string
 		} else if src2, ok := asValueVar(assignStmt.Rhs[0]); ok {
 			// dst[i] op= v  where v is the range value var (represents boundsSlice[i])
 			loop.Src2Slice = src2
+		} else if binRHS, isBin := assignStmt.Rhs[0].(*ast.BinaryExpr); isBin {
+			// dst[i] outerOp= (a[i] innerOp scalar), in-place depth-2 tree.
+			// Expands to: dst[i] = dst[i] outerOp (a[i] innerOp scalar),
+			// treating the LHS slice as the outer operand.
+			innerOnRight := true
+			switch op {
+			case OpAdd, OpMul, OpAnd, OpOr, OpXor:
+				innerOnRight = false // commutative outer: normalize inner to the left
+			}
+			depth2, ok2 := buildExprTree(binRHS, assignStmt.Lhs[0], op, innerOnRight, indexVar, loop)
+			if !ok2 {
+				return Loop{}, false
+			}
+			elemType2, ok2 := resolveSliceElemType(boundsIdent, info)
+			if !ok2 || simdElemType(elemType2) == "" {
+				return Loop{}, false
+			}
+			depth2.ElemType = elemType2
+			return depth2, true
 		} else {
 			// Only accept simple scalars: a literal or a plain identifier.
 			// Compound expressions (v*alpha, f(x), etc.) are not safe to hoist.
