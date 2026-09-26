@@ -25,3 +25,9 @@ func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
 		dst[i] = a[i]*alpha + b[i]
 	}
 }
+
+func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
+	for i := range dst {
+		dst[i] = a[i]*alpha + b[i]*beta
+	}
+}

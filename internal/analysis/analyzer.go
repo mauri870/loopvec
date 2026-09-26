@@ -48,6 +48,10 @@ type Loop struct {
 	Op2          Op
 	Src3Slice    string
 	Scalar2      ast.Expr
+	// OuterIsMul is set when the outer operand is itself a multiplication:
+	// (Src3Slice[i] * Scalar2). Enables patterns like
+	// dst[i] = a[i]*alpha + b[i]*beta → _v1.MulAdd(_vcAlpha, _v2.Mul(_vcBeta)).
+	OuterIsMul bool
 }
 
 // simdElemType returns the simd type name for a given element type, or empty string if not supported.
@@ -301,8 +305,27 @@ func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, inn
 
 	var src3 string
 	var scalar2 ast.Expr
+	var outerIsMul bool
 	if s, ok2 := asSliceIndex(outerLeaf, indexVar); ok2 {
 		src3 = s
+	} else if outerBin, ok2 := outerLeaf.(*ast.BinaryExpr); ok2 {
+		// Outer operand is itself a binary expr; only accept slice[i]*scalar.
+		outerInnerOp, ok3 := tokenOpToLoopOp(outerBin.Op)
+		if !ok3 || outerInnerOp != OpMul {
+			return Loop{}, false
+		}
+		outerSrc, outerOther, ok3 := innerSliceAndOther(outerBin, OpMul, indexVar)
+		if !ok3 {
+			return Loop{}, false
+		}
+		switch outerOther.(type) {
+		case *ast.BasicLit, *ast.Ident:
+		default:
+			return Loop{}, false
+		}
+		src3 = outerSrc
+		scalar2 = outerOther
+		outerIsMul = true
 	} else {
 		switch outerLeaf.(type) {
 		case *ast.BasicLit, *ast.Ident:
@@ -321,6 +344,7 @@ func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, inn
 	proto.Scalar = scalar
 	proto.Src3Slice = src3
 	proto.Scalar2 = scalar2
+	proto.OuterIsMul = outerIsMul
 	return proto, true
 }
 

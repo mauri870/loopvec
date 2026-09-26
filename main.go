@@ -97,7 +97,7 @@ func withoutGoExperimentSimd(env []string) []string {
 		key, val, ok := strings.Cut(e, "=")
 		if ok && strings.EqualFold(key, "GOEXPERIMENT") {
 			filtered := []string{}
-			for _, x := range strings.Split(val, ",") {
+			for x := range strings.SplitSeq(val, ",") {
 				if strings.TrimSpace(x) != "simd" {
 					filtered = append(filtered, x)
 				}

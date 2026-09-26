@@ -256,16 +256,23 @@ func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn,
 		outerX = outerBc
 	}
 
+	// outerExpr is the final outer operand. When OuterIsMul the outer slice is
+	// multiplied by its scalar broadcast before being used.
+	outerExpr := outerX
+	if loop.OuterIsMul {
+		outerExpr = outerX + ".Mul(" + outerBc + ")"
+	}
+
 	if canFMA {
-		fmt.Fprintf(&loopBuf, "\t_v1.MulAdd(%s, %s).StorePart(%s[_i:])\n", innerY, outerX, loop.DstSlice)
+		fmt.Fprintf(&loopBuf, "\t_v1.MulAdd(%s, %s).StorePart(%s[_i:])\n", innerY, outerExpr, loop.DstSlice)
 	} else if loop.InnerOnRight {
-		// outerX Op2 (v1 Op innerY)
+		// outerExpr Op2 (v1 Op innerY)
 		fmt.Fprintf(&loopBuf, "\t%s.%s(_v1.%s(%s)).StorePart(%s[_i:])\n",
-			outerX, loop.Op2Method(), loop.OpMethod(), innerY, loop.DstSlice)
+			outerExpr, loop.Op2Method(), loop.OpMethod(), innerY, loop.DstSlice)
 	} else {
-		// (v1 Op innerY) Op2 outerX
+		// (v1 Op innerY) Op2 outerExpr
 		fmt.Fprintf(&loopBuf, "\t_v1.%s(%s).%s(%s).StorePart(%s[_i:])\n",
-			loop.OpMethod(), innerY, loop.Op2Method(), outerX, loop.DstSlice)
+			loop.OpMethod(), innerY, loop.Op2Method(), outerExpr, loop.DstSlice)
 	}
 
 	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
