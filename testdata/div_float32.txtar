@@ -1,0 +1,51 @@
+Division: dst[i] = a[i] / b[i] uses Div (float types only).
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func DivFloat32s(dst, a, b []float32) {
+	for i := range dst {
+		dst[i] = a[i] / b[i]
+	}
+}
+
+-- want.go --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func DivFloat32s(dst, a, b []float32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_v2, _ := simd.LoadFloat32sPart(b[_i:])
+		_v1.Div(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]float32, 4)
+	a := []float32{10, 20, 9, 4}
+	b := []float32{2, 4, 3, 2}
+	test.DivFloat32s(dst, a, b)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3])
+}
+
+-- testmain/output --
+5 5 3 2
