@@ -227,8 +227,8 @@ func recordVariant(tool string, args []string, c compileArgs) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	fmt.Fprintln(f, args[out])
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintln(f, args[out])
 }
 
 // variantDependency returns a package that cfg provides from a recorded test

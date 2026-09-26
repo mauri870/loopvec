@@ -35,7 +35,7 @@ const nestedEnv = "LOOPVEC_TOOLEXEC_NESTED"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: go build -toolexec=loopvec-toolexec [packages]")
+		_, _ = fmt.Fprintln(os.Stderr, "usage: go build -toolexec=loopvec-toolexec [packages]")
 		os.Exit(2)
 	}
 	os.Exit(run(os.Args[1], os.Args[2:]))
@@ -66,7 +66,7 @@ func execTool(tool string, args []string) int {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return exitErr.ExitCode()
 		}
-		fmt.Fprintln(os.Stderr, "loopvec-toolexec:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "loopvec-toolexec:", err)
 		return 1
 	}
 	return 0
@@ -110,7 +110,7 @@ func selfHash() string {
 	if err != nil {
 		return "unknown"
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "unknown"
@@ -140,8 +140,8 @@ func logf(pkg, format string, args ...any) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	fmt.Fprintf(f, format+"\n", args...)
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintf(f, format+"\n", args...)
 }
 
 // debugf is logf for the reasons a package is left alone, enabled by

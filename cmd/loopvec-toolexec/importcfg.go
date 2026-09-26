@@ -26,7 +26,7 @@ func readImportcfg(path string) (*importcfg, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg := &importcfg{packageFile: map[string]string{}, importMap: map[string]string{}}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(nil, 1<<20)

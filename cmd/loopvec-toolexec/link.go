@@ -41,7 +41,9 @@ func patchLinkImportcfg(tool, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out.Close()
+	if err := out.Close(); err != nil {
+		return "", err
+	}
 	patched := out.Name()
 	if err := cfg.writeExtended(path, patched, exports); err != nil {
 		return "", fmt.Errorf("writing %s: %w", patched, err)
