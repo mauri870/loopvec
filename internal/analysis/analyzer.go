@@ -443,10 +443,42 @@ func tryExprTree(binExpr *ast.BinaryExpr, indexVar string, proto Loop) (Loop, bo
 	return Loop{}, false
 }
 
-// analyzeBody checks the loop body for vectorizable assignments.
+// analyzeBody checks the loop body for vectorizable assignments and rejects
+// loops whose broadcast scalars depend on the index or range value variable,
+// since those change per iteration and cannot be hoisted.
+func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+	loop, ok := analyzeBodyShape(rangeStmt, forStmt, indexVar, boundsIdent, valueVar, body, info)
+	if !ok {
+		return Loop{}, false
+	}
+	for _, scalar := range []ast.Expr{loop.Scalar, loop.Scalar2} {
+		if scalar != nil && refersTo(scalar, indexVar, valueVar) {
+			return Loop{}, false
+		}
+	}
+	return loop, true
+}
+
+// refersTo reports whether expr mentions any of the given identifier names.
+func refersTo(expr ast.Expr, names ...string) bool {
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			for _, name := range names {
+				if name != "" && ident.Name == name {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// analyzeBodyShape matches the loop body against the supported statement shapes.
 // boundsIdent is the identifier node for the slice that determines the loop bounds (used for type lookup).
 // valueVar is the range value variable name (e.g. "v" in "for i, v := range src"), or "".
-func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
 	boundsSlice := boundsIdent.Name
 	if len(body.List) != 1 {
 		return Loop{}, false

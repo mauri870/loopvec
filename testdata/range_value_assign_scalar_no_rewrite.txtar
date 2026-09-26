@@ -1,0 +1,44 @@
+Depth-2 assignment where the range value variable is a multiplier must not be hoisted as a broadcast scalar; behavior stays identical with and without simd.
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func Mix(dst, a, b []float32) {
+	for i, v := range b {
+		dst[i] = a[i]*v + b[i]
+	}
+}
+
+-- want.go --
+package test
+
+func Mix(dst, a, b []float32) {
+	for i, v := range b {
+		dst[i] = a[i]*v + b[i]
+	}
+}
+
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]float32, 4)
+	a := []float32{1, 2, 3, 4}
+	b := []float32{10, 20, 30, 40}
+	test.Mix(dst, a, b)
+	fmt.Println(dst[0], dst[1], dst[2], dst[3])
+}
+
+-- testmain/output --
+20 60 120 200

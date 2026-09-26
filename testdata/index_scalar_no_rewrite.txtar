@@ -1,0 +1,43 @@
+The loop index used as a "scalar" must not be hoisted as a broadcast.
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+
+-- in.go --
+package test
+
+func AddIndex(dst, a []int32) {
+	for i := range dst {
+		dst[i] += a[i] * int32(i)
+	}
+}
+
+func MulIdx(dst, a []int32, n int32) {
+	for i := range dst {
+		dst[i] = a[i] * n
+	}
+}
+
+-- want.go --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func AddIndex(dst, a []int32) {
+	for i := range dst {
+		dst[i] += a[i] * int32(i)
+	}
+}
+
+func MulIdx(dst, a []int32, n int32) {
+	_vcInt32s0 := simd.BroadcastInt32s(n)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v1.Mul(_vcInt32s0).StorePart(dst[_i:])
+		_i += _n
+	}
+}
