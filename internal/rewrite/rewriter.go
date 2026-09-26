@@ -204,6 +204,9 @@ func generateLoop(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx
 	loadFn := "Load" + simdType + "Part"
 	broadcastFn := "Broadcast" + simdType
 
+	if loop.IsReduction {
+		return generateReduction(loop, simdType, loadFn)
+	}
 	if loop.IsExprTree {
 		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn, idx)
 	}
@@ -284,6 +287,27 @@ func generateUnary(loop analysis.Loop, simdType, loadFn string) (string, string,
 	fmt.Fprintf(&loopBuf, "\t_v1.%s().StorePart(%s[_i:])\n", loop.OpMethod(), loop.DstSlice)
 	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
 	fmt.Fprint(&loopBuf, "}")
+	return loopBuf.String(), "", nil
+}
+
+// generateReduction generates a simd loop for a sum reduction:
+//
+//	var s T; for i := range a { s += a[i] }
+//
+// becomes a SIMD accumulation loop followed by s += _vacc.ReduceSum().
+// Using += preserves any non-zero initial value of the accumulator.
+func generateReduction(loop analysis.Loop, simdType, loadFn string) (string, string, error) {
+	var loopBuf bytes.Buffer
+
+	lenExpr := fmt.Sprintf("len(%s)", loop.Src1Slice)
+
+	fmt.Fprintf(&loopBuf, "var _vacc simd.%s\n", simdType)
+	fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
+	fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
+	fmt.Fprint(&loopBuf, "\t_vacc = _vacc.Add(_v1)\n")
+	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
+	fmt.Fprint(&loopBuf, "}\n")
+	fmt.Fprintf(&loopBuf, "%s += _vacc.ReduceSum()", loop.AccumVar)
 	return loopBuf.String(), "", nil
 }
 

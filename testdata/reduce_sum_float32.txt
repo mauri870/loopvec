@@ -1,0 +1,87 @@
+# Reduction: var s float32; for i := range a { s += a[i] } accumulates in a vector
+# and adds ReduceSum to s once at the end, so a nonzero starting value is kept.
+# ReduceSum is only in go1.28-devel.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func SumFloat32s(a []float32) float32 {
+	var s float32
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+
+func SumFromFloat32s(s float32, a []float32) float32 {
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func SumFloat32s(a []float32) float32 {
+	var s float32
+	var _vacc simd.Float32s
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_vacc = _vacc.Add(_v1)
+		_i += _n
+	}
+	s += _vacc.ReduceSum()
+	return s
+}
+
+func SumFromFloat32s(s float32, a []float32) float32 {
+	var _vacc simd.Float32s
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_vacc = _vacc.Add(_v1)
+		_i += _n
+	}
+	s += _vacc.ReduceSum()
+	return s
+}
+-- stderr.want --
+loopvec: rewrote 2 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	a := make([]float32, 37)
+	for i := range a {
+		a[i] = float32(i + 1)
+	}
+	fmt.Println(test.SumFloat32s(a), test.SumFloat32s(nil), test.SumFromFloat32s(100, a), test.SumFloat32s(a[:5]))
+}
+-- testmain/output --
+703 0 803 15

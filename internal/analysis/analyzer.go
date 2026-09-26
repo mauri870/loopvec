@@ -68,6 +68,11 @@ type Loop struct {
 	Bound string
 	// BoundIsConst is set when Bound is a positive integer constant.
 	BoundIsConst bool
+
+	// Reduction: var s T; for i := range a { s += a[i] }
+	// Only OpAdd is supported; AccumVar holds the accumulator variable name.
+	IsReduction bool
+	AccumVar    string
 }
 
 // Slices returns the distinct slices the loop reads or writes.
@@ -117,6 +122,21 @@ func simdElemType(t types.Type) string {
 		return "Float64s"
 	}
 	return ""
+}
+
+// reduceSumSupported reports whether the element type has a simd.ReduceSum method.
+// Int64 and Uint64 are excluded because the simd package does not provide ReduceSum
+// for those types.
+func reduceSumSupported(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch basic.Kind() {
+	case types.Int64, types.Uint64:
+		return false
+	}
+	return simdElemType(t) != ""
 }
 
 // SimdTypeName returns the simd vector type name for the loop's element type, or empty string.
@@ -378,7 +398,8 @@ func isSlice(ident *ast.Ident, info *types.Info) bool {
 // limit must be explicit, or a destination longer than bounds would make the
 // rewritten loop run past the data.
 func limitedBySlice(loop Loop, ok bool, bounds string) (Loop, bool) {
-	if ok && bounds != loop.DstSlice {
+	// A reduction writes no slice, so the slice it ranges over is its limit.
+	if ok && !loop.IsReduction && bounds != loop.DstSlice {
 		loop.Bound = "len(" + bounds + ")"
 	}
 	return loop, ok
@@ -719,6 +740,25 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 
 		lhsSlice, ok := asSliceIndex(assignStmt.Lhs[0], indexVar)
 		if !ok {
+			// Check for reduction: accum += slice[i]
+			if op == OpAdd {
+				if accumIdent, ok2 := assignStmt.Lhs[0].(*ast.Ident); ok2 {
+					if src, ok2 := asSliceIndex(assignStmt.Rhs[0], indexVar); ok2 {
+						elemType, ok2 := resolveSliceElemType(boundsIdent, info)
+						if ok2 && reduceSumSupported(elemType) {
+							return Loop{
+								RangeStmt:   rangeStmt,
+								ForStmt:     forStmt,
+								IndexVar:    indexVar,
+								IsReduction: true,
+								AccumVar:    accumIdent.Name,
+								Src1Slice:   src,
+								ElemType:    elemType,
+							}, true
+						}
+					}
+				}
+			}
 			return Loop{}, false
 		}
 		loop.DstSlice = lhsSlice
