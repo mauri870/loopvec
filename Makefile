@@ -2,7 +2,7 @@ export GOTOOLCHAIN := go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build test fix fmt lint ci bench bench-regen
+.PHONY: build install test fix fmt lint ci bench bench-regen
 
 test:
 	go test ./... -count=1 -race
@@ -22,6 +22,9 @@ lint:
 
 build:
 	go build ./...
+
+install:
+	go install ./...
 
 ci: test
 	$(MAKE) fmt
