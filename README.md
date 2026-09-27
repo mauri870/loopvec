@@ -46,7 +46,7 @@ which is faster than a vector loop.
 
 ## Performance
 
-Benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a 78% speedup, resulting in a 4.56x throughput increase.
+Synthetic benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a 78% speedup, resulting in a 4.56x throughput increase.
 
 <details>
 <summary>bench.txt</summary>
