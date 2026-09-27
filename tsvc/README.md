@@ -2,7 +2,7 @@
 
 `tsvc` ports the [TSVC_2](https://github.com/UoB-HPC/TSVC_2) vectorizer suite from C to Go.
 It exists primarily to test [loopvec](..), it gives a coverage score and a
-correctness gate (normal vs SIMD build) and a benchmark set that is standardized.
+correctness gate (scalar vs SIMD build) and a benchmark set that is standardized.
 
 The loop shapes are kept exactly as TSVC_2.
 
@@ -39,11 +39,9 @@ make tsvc-test
 This also checks the SIMD build against the same golden, via
 `GOEXPERIMENT=simd` and `-toolexec=loopvec-toolexec`.
 
-Goldens live in `testdata/golden_<GOARCH>.json`, one per architecture: Go's
-compiler contracts a multiply feeding an add into a single FMA instruction
-on some architectures (arm64) but not others (baseline amd64), so a "fused"
-kernel's checksum can differ slightly between them. Check the arm64 golden
-without arm64 hardware, via `qemu-aarch64-static`:
+Goldens live in `testdata/golden_<GOARCH>.json`, one per architecture.
+
+Check the arm64 golden without arm64 hardware, via `qemu-aarch64-static`:
 
 ```sh
 make tsvc-test-qemu-arm64
