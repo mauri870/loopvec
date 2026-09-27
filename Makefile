@@ -54,7 +54,6 @@ tsvc-test-qemu-arm64: generate build
 
 tsvc-update: generate
 	go test ./tsvc/ -run TestGolden -update
-	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test -exec=qemu-aarch64-static ./tsvc/ -run TestGolden -update
 
 tsvc-bench: generate build
 	go test -run '^$$' -bench . -count=10 ./tsvc/ > /tmp/tsvc_bench_scalar.txt
