@@ -55,6 +55,38 @@ After a deliberate change to a kernel or its setup, regenerate both goldens:
 make tsvc-update
 ```
 
+## Benchmarks
+
+```sh
+make tsvc-bench
+```
+
+Baseline on AMD Ryzen 9 9950X3D (AVX-512), scalar vs. SIMD:
+
+```
+                 │ /tmp/tsvc_bench_scalar.txt │        /tmp/tsvc_bench_simd.txt        │
+                 │           sec/op           │    sec/op      vs base                 │
+Kernels/s000-32                   6.646µ ± 3%    1.259µ ±  2%   -81.05% (p=0.000 n=10)
+Kernels/s111-32                   5.823µ ± 2%    8.490µ ± 38%   +45.81% (p=0.000 n=10)
+Kernels/s1111-32                  8.818µ ± 4%   15.124µ ± 60%   +71.51% (p=0.000 n=10)
+Kernels/s112-32                   6.227µ ± 4%   13.953µ ± 36%  +124.08% (p=0.000 n=10)
+Kernels/s1112-32                  6.680µ ± 5%   12.678µ ± 26%   +89.80% (p=0.000 n=10)
+Kernels/s113-32                   6.893µ ± 1%   12.649µ ± 39%   +83.51% (p=0.000 n=10)
+Kernels/s1113-32                  6.480µ ± 5%    9.831µ ± 24%   +51.71% (p=0.000 n=10)
+Kernels/s114-32                   20.15µ ± 1%    23.38µ ± 10%   +16.02% (p=0.000 n=10)
+Kernels/s115-32                   12.18µ ± 2%    14.01µ ± 36%   +15.00% (p=0.000 n=10)
+Kernels/s1115-32                  49.30µ ± 2%    62.05µ ± 16%   +25.88% (p=0.000 n=10)
+geomean                           9.738µ         12.19µ         +25.15%
+```
+
+s000 is the only kernel loopvec rewrites, and it's the only one with a real,
+large win. The rest run unchanged scalar code; their swings (up to ±60%) are
+noise, not a regression — these kernels run in a few microseconds, so they're
+dominated by loop and benchmark-harness overhead, not by anything loopvec
+changed. Re-running with a higher `-count` on an idle machine narrows the
+spread but doesn't change the story: nothing to see until loopvec rewrites
+more of these loops.
+
 ## Generated code
 
 `Kernels`, the table driving the tests, is generated from the

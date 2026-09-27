@@ -6,51 +6,61 @@ package tsvc
 var Kernels = []Kernel{
 	{
 		Name: "s000", Category: CategoryDependence, Reps: 2, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS000, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s000(x.A, x.B) },
 	},
 	{
 		Name: "s111", Category: CategoryDependence, Reps: 2, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS111, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s111(x.A, x.B) },
 	},
 	{
 		Name: "s1111", Category: CategoryDependence, Reps: 2, Exact: ExactFused,
+		Bytes: 4*Len1D + 4*Len1D + 4*Len1D + 4*Len1D,
 		Setup: setupS111, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s1111(x.A, x.B, x.C, x.D) },
 	},
 	{
 		Name: "s112", Category: CategoryDependence, Reps: 3, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS112, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s112(x.A, x.B) },
 	},
 	{
 		Name: "s1112", Category: CategoryDependence, Reps: 3, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS112, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s1112(x.A, x.B) },
 	},
 	{
 		Name: "s113", Category: CategoryDependence, Reps: 4, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS113, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s113(x.A, x.B) },
 	},
 	{
 		Name: "s1113", Category: CategoryDependence, Reps: 2, Exact: ExactBits,
+		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS113, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s1113(x.A, x.B) },
 	},
 	{
 		Name: "s114", Category: CategoryDependence, Reps: 1, Exact: ExactBits,
+		Bytes: 4*Len2D*Len2D + 4*Len2D*Len2D,
 		Setup: setupS114, Checksum: sumAA, Hash: hashAA,
 		Run: func(x *Arrays) { s114(x.AA, x.BB) },
 	},
 	{
 		Name: "s115", Category: CategoryDependence, Reps: 1, Exact: ExactFused,
+		Bytes: 4*Len1D + 4*Len2D*Len2D,
 		Setup: setupS115, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { s115(x.A, x.AA) },
 	},
 	{
 		Name: "s1115", Category: CategoryDependence, Reps: 1, Exact: ExactFused,
+		Bytes: 4*Len2D*Len2D + 4*Len2D*Len2D + 4*Len2D*Len2D,
 		Setup: setupS115, Checksum: sumAA, Hash: hashAA,
 		Run: func(x *Arrays) { s1115(x.AA, x.BB, x.CC) },
 	},

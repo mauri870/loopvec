@@ -7,6 +7,9 @@ type Kernel struct {
 	Category Category
 	Reps     int
 	Exact    Exactness
+	// Bytes is the size, in bytes, of every array Run reads or writes once
+	// per element. It feeds b.SetBytes so benchmarks report throughput.
+	Bytes    int64
 	Setup    func(x *Arrays)
 	Run      func(x *Arrays)
 	Checksum func(x *Arrays) float64

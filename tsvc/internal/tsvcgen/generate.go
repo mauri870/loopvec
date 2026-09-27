@@ -8,11 +8,12 @@ import (
 	"text/template"
 )
 
-// arrayFields are the fields of tsvc.Arrays, used to validate and map a
-// kernel parameter name (a, aa, ...) to the field it reads or writes.
-var arrayFields = map[string]bool{
-	"A": true, "B": true, "C": true, "D": true, "E": true,
-	"AA": true, "BB": true, "CC": true,
+// arrayFieldBytes maps a field of tsvc.Arrays, used to validate and map a
+// kernel parameter name (a, aa, ...) to the field it reads or writes, to the
+// Go expression for that field's size in bytes.
+var arrayFieldBytes = map[string]string{
+	"A": "4*Len1D", "B": "4*Len1D", "C": "4*Len1D", "D": "4*Len1D", "E": "4*Len1D",
+	"AA": "4*Len2D*Len2D", "BB": "4*Len2D*Len2D", "CC": "4*Len2D*Len2D",
 }
 
 // checksumFuncs maps a checksum=<value> directive to the sum and hash
@@ -42,6 +43,7 @@ type entry struct {
 	Setup    string
 	Checksum string
 	Hash     string
+	Bytes    string
 	RunArgs  string
 	FuncName string
 }
@@ -61,12 +63,15 @@ func toEntry(d directive) (entry, error) {
 	}
 
 	args := make([]string, len(d.Params))
+	sizes := make([]string, len(d.Params))
 	for i, p := range d.Params {
 		field := strings.ToUpper(p)
-		if !arrayFields[field] {
+		size, ok := arrayFieldBytes[field]
+		if !ok {
 			return entry{}, fmt.Errorf("%s: parameter %q has no matching Arrays field", d.Pos, p)
 		}
 		args[i] = "x." + field
+		sizes[i] = size
 	}
 
 	return entry{
@@ -77,6 +82,7 @@ func toEntry(d directive) (entry, error) {
 		Setup:    "setup" + strings.ToUpper(d.Setup[:1]) + d.Setup[1:],
 		Checksum: checksum[0],
 		Hash:     checksum[1],
+		Bytes:    strings.Join(sizes, " + "),
 		RunArgs:  strings.Join(args, ", "),
 		FuncName: d.FuncName,
 	}, nil
@@ -90,6 +96,7 @@ package tsvc
 var Kernels = []Kernel{
 {{range .}}	{
 		Name: "{{.Name}}", Category: {{.Category}}, Reps: {{.Reps}}, Exact: {{.Exact}},
+		Bytes: {{.Bytes}},
 		Setup: {{.Setup}}, Checksum: {{.Checksum}}, Hash: {{.Hash}},
 		Run: func(x *Arrays) { {{.FuncName}}({{.RunArgs}}) },
 	},
