@@ -79,29 +79,13 @@ geomean                           9.738µ         12.19µ         +25.15%
 
 s000 is the only kernel loopvec rewrites, and it's the only one with a real
 win. The rest are unchanged scalar source, yet they're both slower and far
-noisier here (up to ±60%) than the same code compiled without `-toolexec`
-(±1-5%) — that's not measurement noise. Isolating each factor: `GOEXPERIMENT=simd`
-alone, with nothing ever rewritten, costs almost nothing; the slowdown and
-jitter appear specifically once something in the binary is actually rewritten
-into SIMD (`s000` here), and hit every kernel in the process, not just the
-one touched. The likely cause is Go's runtime: once any code in a binary
-uses the wider vector registers, goroutine preemption's signal-based
-register save/restore has to account for that wider state everywhere, not
-just in the function using it, raising cost and variance program-wide. This
-is a real cost of the SIMD experiment as it stands today, not an artifact of
-this benchmark.
+noisier here (up to ±60%) than the same code built without `GOEXPERIMENT=simd`
+(±1-5%). This seems to be an effect of the runtime saving the full register file
+for every preemption of every goroutine in the process, regardless of whether
+anything calls into SIMD. 
 
-Running each kernel's benchmark in its own process doesn't help: `s111`
-alone, filtered away from `s000`, is still slow, because the compiled test
-binary still contains `s000`'s rewritten SIMD code — all 10 kernels live in
-one file and compile into one package. Actually isolating them would mean
-splitting the SIMD-touched kernel into its own package, away from the
-scalar ones, which fights the point of this package (one file, TSVC_2
-source order) and would hide a real signal: any real program that runs
-`loopvec -toolexec` and vectorizes even a single hot loop pays this cost
-across its whole binary. Left as measured rather than engineered around;
-worth reporting upstream against Go's SIMD experiment rather than fixing
-here.
+`GODEBUG=asyncpreemptoff=1` recovers most of the regression, which heavily indicates
+that async preemption might be the culprint.
 
 ## Generated code
 
