@@ -473,6 +473,8 @@ func innerSliceAndOther(expr *ast.BinaryExpr, op Op, indexVar string) (sliceName
 // an outer leaf operand, and the outer op. innerOnRight marks non-commutative
 // outer ops where the inner result is the right operand (e.g. "leaf Sub inner").
 func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, innerOnRight bool, indexVar string, proto Loop) (Loop, bool) {
+	// Parentheses only group: (a[i] - mean) * inv has the same shape as a[i]*inv.
+	outerLeaf = ast.Unparen(outerLeaf)
 	innerOp, ok := tokenOpToLoopOp(innerBin.Op)
 	if !ok {
 		return Loop{}, false
@@ -481,6 +483,7 @@ func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, inn
 	if !ok {
 		return Loop{}, false
 	}
+	innerOther = ast.Unparen(innerOther)
 
 	var src2 string
 	var scalar ast.Expr
@@ -510,6 +513,7 @@ func buildExprTree(innerBin *ast.BinaryExpr, outerLeaf ast.Expr, outerOp Op, inn
 		if !ok3 {
 			return Loop{}, false
 		}
+		outerOther = ast.Unparen(outerOther)
 		switch outerOther.(type) {
 		case *ast.BasicLit, *ast.Ident:
 		default:
@@ -549,14 +553,14 @@ func tryExprTree(binExpr *ast.BinaryExpr, indexVar string, proto Loop) (Loop, bo
 	}
 
 	// Inner on left: (A op B) outerOp C
-	if innerBin, ok := binExpr.X.(*ast.BinaryExpr); ok {
+	if innerBin, ok := ast.Unparen(binExpr.X).(*ast.BinaryExpr); ok {
 		if l, ok := buildExprTree(innerBin, binExpr.Y, outerOp, false, indexVar, proto); ok {
 			return l, true
 		}
 	}
 
 	// Inner on right: A outerOp (B op C)
-	if innerBin, ok := binExpr.Y.(*ast.BinaryExpr); ok {
+	if innerBin, ok := ast.Unparen(binExpr.Y).(*ast.BinaryExpr); ok {
 		innerOnRight := true
 		switch outerOp {
 		case OpAdd, OpMul, OpAnd, OpOr, OpXor:
@@ -808,7 +812,7 @@ func isZeroConstant(expr ast.Expr, info *types.Info) bool {
 // asSliceIndex checks if expr is of the form slice[index] where index matches the given name.
 // Returns the slice identifier name on success.
 func asSliceIndex(expr ast.Expr, indexVar string) (string, bool) {
-	indexExpr, ok := expr.(*ast.IndexExpr)
+	indexExpr, ok := ast.Unparen(expr).(*ast.IndexExpr)
 	if !ok {
 		return "", false
 	}

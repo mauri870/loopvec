@@ -1,0 +1,140 @@
+# Parentheses only group: (a[i] - mean) * inv is a slice-scalar op followed by a
+# scalar op, and (a[i]) + (b[i]) is a plain add.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Normalize(dst, a []float64, mean, inv float64) {
+	for i := range dst {
+		dst[i] = (a[i] - mean) * inv
+	}
+}
+
+func SumScaled(dst, a, b []float32, k float32) {
+	for i := range dst {
+		dst[i] = (a[i] + b[i]) * k
+	}
+}
+
+func Parens(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = (a[i]) + (b[i])
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Normalize(dst, a []float64, mean, inv float64) {
+	_vcAFloat64s0 := simd.BroadcastFloat64s(mean)
+	_vcBFloat64s0 := simd.BroadcastFloat64s(inv)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat64sPart(a[_i:])
+		_v1.Sub(_vcAFloat64s0).Mul(_vcBFloat64s0).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func SumScaled(dst, a, b []float32, k float32) {
+	_vcBFloat32s1 := simd.BroadcastFloat32s(k)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(a[_i:])
+		_v2, _ := simd.LoadFloat32sPart(b[_i:])
+		_v1.Add(_v2).Mul(_vcBFloat32s1).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func Parens(dst, a, b []int32) {
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadInt32sPart(a[_i:])
+		_v2, _ := simd.LoadInt32sPart(b[_i:])
+		_v1.Add(_v2).StorePart(dst[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 3 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Normalize(dst, a []float64, mean, inv float64) {
+	for i := range dst {
+		dst[i] = (a[i] - mean) * inv
+	}
+}
+
+func SumScaled(dst, a, b []float32, k float32) {
+	for i := range dst {
+		dst[i] = (a[i] + b[i]) * k
+	}
+}
+
+func Parens(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = (a[i]) + (b[i])
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	a := make([]float64, 21)
+	for i := range a {
+		a[i] = float64(i + 1)
+	}
+	dst := make([]float64, 21)
+	test.Normalize(dst, a, 10, 0.5)
+	fmt.Println(dst)
+
+	x := make([]float32, 21)
+	y := make([]float32, 21)
+	for i := range x {
+		x[i], y[i] = float32(i), float32(2*i)
+	}
+	d32 := make([]float32, 21)
+	test.SumScaled(d32, x, y, 2)
+	fmt.Println(d32)
+
+	p := make([]int32, 21)
+	q := make([]int32, 21)
+	for i := range p {
+		p[i], q[i] = int32(i), int32(100*i)
+	}
+	sum := make([]int32, 21)
+	test.Parens(sum, p, q)
+	fmt.Println(sum)
+}
+-- testmain/output --
+[-4.5 -4 -3.5 -3 -2.5 -2 -1.5 -1 -0.5 0 0.5 1 1.5 2 2.5 3 3.5 4 4.5 5 5.5]
+[0 6 12 18 24 30 36 42 48 54 60 66 72 78 84 90 96 102 108 114 120]
+[0 101 202 303 404 505 606 707 808 909 1010 1111 1212 1313 1414 1515 1616 1717 1818 1919 2020]
