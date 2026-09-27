@@ -41,7 +41,10 @@ which is faster than a vector loop.
 
 ## Performance
 
-Benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512), `float32` and `uint8` operations:
+Benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a 78% speedup, resulting in a 4.56x throughput increase.
+
+<details>
+<summary>bench.txt</summary>
 
 ```
 goos: linux
@@ -122,9 +125,14 @@ ReverseIncFloat32s/4096-32              40.37Gi ±  3%    248.84Gi ± 2%   +516.
 ReverseIncFloat32s/1048576-32           39.09Gi ±  3%    136.53Gi ± 5%   +249.23% (p=0.000 n=10)
 geomean                                 33.32Gi           151.9Gi        +355.77%
 ```
+</details>
+
 
 Running `loopvec -methods -split` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
-detects 176 vectorizable loops, yielding the following speedups on AMD Ryzen 9 9950X3D (AVX-512):
+detects 176 vectorizable loops, yielding a ~71% speedup on a AMD Ryzen 9 9950X3D (AVX-512):
+
+<details>
+<summary>bench.txt</summary>
 
 ```
                           │    scalar     │              simd               │
@@ -149,22 +157,10 @@ VecMulI32/4096-32             948.4n ± 0%   193.9n ± 1%  -79.55% (p=0.002 n=6)
 VecMulI32/1048576-32         250.38µ ± 1%   64.80µ ± 1%  -74.12% (p=0.002 n=6)
 geomean                        1.303µ        373.4n       -71.33%
 ```
+</details>
 
 Running `loopvec -methods -split` on [gonum](https://github.com/gonum/gonum)
 detects loops in multiple packages (floats, blas, lapack, stat, and others).
-Benchmarks for `gonum/floats.Mul` and `MulTo` on AMD Ryzen 9 9950X3D (AVX-512):
-
-```
-              │    old.txt    │               new.txt               │
-              │    sec/op     │    sec/op     vs base               │
-MulMed-32        211.9n ± ∞ ¹   122.6n ± ∞ ¹  -42.14% (p=0.008 n=5)
-MulLarge-32      23.36µ ± ∞ ¹   16.80µ ± ∞ ¹  -28.09% (p=0.008 n=5)
-MulHuge-32       3.227m ± ∞ ¹   2.977m ± ∞ ¹        ~ (p=0.690 n=5)
-MulToMed-32     199.10n ± ∞ ¹   97.68n ± ∞ ¹  -50.94% (p=0.008 n=5)
-MulToLarge-32    20.37µ ± ∞ ¹   16.37µ ± ∞ ¹  -19.62% (p=0.008 n=5)
-MulToHuge-32     5.004m ± ∞ ¹   4.462m ± ∞ ¹        ~ (p=0.222 n=5)
-geomean          26.21µ         18.77µ        -28.38%
-```
 
 ## Installation
 
