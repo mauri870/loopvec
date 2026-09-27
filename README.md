@@ -44,9 +44,33 @@ which is faster than a vector loop.
 
 </details>
 
+## Correctness
+
+**Overlapping slices.** `dst[i] = a[i] + b[i]` is safe to vectorize when `dst`
+and `a` are the exact same slice, but not when they partially overlap (e.g.
+`dst = s[1:]`, `a = s[:len(s)-1]`): the scalar loop then carries values
+forward one element at a time, while a vector loop reads a whole chunk before
+writing any of it. This also applies to the reverse-loop pattern above —
+`for i := len(s)-1; i >= 0; i--` is often written specifically because the
+slices overlap, and rewriting it to run forward would change the result in
+exactly that case. loopvec guards against this: every rewritten loop with
+more than one distinct slice operand is wrapped in a runtime check
+(`_loopvecOverlap`, comparing `unsafe.SliceData` ranges) that falls back to
+the original scalar loop whenever the operands actually alias with an
+offset, regardless of loop direction.
+
+**FMA.** `dst[i] = a[i]*alpha + b[i]` (and the DAXPY/two-scalar-axpy
+patterns) lower to a single fused multiply-add instruction, not a separate
+multiply and add. The Go spec permits this, but the result can differ from
+the scalar loop in the last bit of the float, so scalar and simd builds are
+not guaranteed to be bitwise identical for these patterns. This isn't
+currently opt-in. An explicit conversion (`float64(a[i])*alpha + b[i]`, which
+the spec says forbids fusion) isn't recognized as this pattern in the first
+place, so it's never fused — it just doesn't get vectorized.
+
 ## Performance
 
-Synthetic benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a **78% speedup**, resulting in a **4.56x throughput increase**.
+Synthetic benchmarks from [bench/](bench/) on an AMD Ryzen 9 9950X3D (AVX-512) show **~4.6x faster**.
 
 <details>
 <summary>bench.txt</summary>
@@ -134,7 +158,7 @@ geomean                                 33.32Gi           151.9Gi        +355.77
 
 
 Running `loopvec -methods -split` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
-detects 176 vectorizable loops, yielding a **~71% speedup** on a AMD Ryzen 9 9950X3D (AVX-512):
+detects 176 vectorizable loops, yielding **~3.5x faster** on an AMD Ryzen 9 9950X3D (AVX-512):
 
 <details>
 <summary>bench.txt</summary>
@@ -215,7 +239,7 @@ go tool loopvec -split ./mypkg/...
 `-split` is the recommended mode. It writes the vectorized code to
 `ops_simd.go` (with `//go:build goexperiment.simd`) and adds
 `//go:build !goexperiment.simd` to the original `ops.go`. Both files stay in
-your repository, while scalar version builds by default the simd version
+your repository: the scalar version builds by default, and the simd version
 builds when `GOEXPERIMENT=simd` is set.
 
 ```sh
@@ -243,7 +267,7 @@ included, without touching any source file. See [toolexec.md](toolexec.md).
 
 ## Known Limitations
 
-SIMD support in Go is experimental, so there is likely several bugs lurking around, both in the Go compiler/runtime and this tool.
+SIMD support in Go is experimental, so there are likely several bugs lurking around, both in the Go compiler/runtime and this tool.
 
 <details>
 <summary>Details</summary>
