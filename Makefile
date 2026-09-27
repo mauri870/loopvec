@@ -53,7 +53,7 @@ tsvc-test-qemu-arm64: generate build
 
 tsvc-update: generate
 	go test ./tsvc/ -run TestGolden -update
-	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -exec=qemu-aarch64-static ./tsvc -run TestGolden -update ./tsvc/
+	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -exec=qemu-aarch64-static ./tsvc -run TestGolden -update
 
 # tsvc-coverage-update is deliberately separate from tsvc-update to catch coverage regressions
 tsvc-coverage-update: generate
