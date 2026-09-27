@@ -42,10 +42,6 @@ Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit
 Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
 which is faster than a vector loop.
 
-</details>
-
-## Correctness
-
 **Overlapping slices.** `dst[i] = a[i] + b[i]` is safe to vectorize when `dst`
 and `a` are the exact same slice, but not when they partially overlap (e.g.
 `dst = s[1:]`, `a = s[:len(s)-1]`): the scalar loop then carries values
@@ -67,6 +63,8 @@ not guaranteed to be bitwise identical for these patterns. This isn't
 currently opt-in. An explicit conversion (`float64(a[i])*alpha + b[i]`, which
 the spec says forbids fusion) isn't recognized as this pattern in the first
 place, so it's never fused — it just doesn't get vectorized.
+
+</details>
 
 ## Performance
 
@@ -305,6 +303,10 @@ a positive integer constant is accepted as a limit.
 `//go:build` (or legacy `// +build`) line is left untouched. This includes files
 already guarded by `-split`, so re-running `-split` on a package you have
 already split is a no-op.
+
+**No reductions.** `sum += a[i]`, `dot += a[i]*b[i]`, `min`/`max` accumulation,
+and similar are not rewritten. The `simd` package's `ReduceSum` and friends
+are only in `gotip`, not the current `go1.27` release.
 
 </details>
 
