@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"os/exec"
@@ -94,6 +95,10 @@ func updateScripts(t *testing.T, env []string, binary, toolexec, pattern string)
 			cmds["gotip"] = script.Program("gotip", nil, 0)
 			cmds["cmp"] = rec.cmd(false)
 			cmds["cmpenv"] = rec.cmd(true)
+			// scripttest.DefaultCmds's "skip" returns an unexported error type
+			// that only scripttest.Test knows how to turn into t.Skip. Replace
+			// it with a local skip command carrying skipUpdateError instead.
+			cmds["skip"] = skipUpdateCmd()
 
 			engine := &script.Engine{
 				Conds: scripttest.DefaultConds(),
@@ -123,6 +128,14 @@ func updateScripts(t *testing.T, env []string, binary, toolexec, pattern string)
 			if log.Len() > 0 {
 				t.Log(strings.TrimSuffix(log.String(), "\n"))
 			}
+			var skip skipUpdateError
+			if errors.As(runErr, &skip) {
+				if skip.msg == "" {
+					t.Skip("SKIP")
+				} else {
+					t.Skipf("SKIP: %v", skip.msg)
+				}
+			}
 			if runErr != nil {
 				t.Fatalf("running script: %v", runErr)
 			}
@@ -134,6 +147,36 @@ func updateScripts(t *testing.T, env []string, binary, toolexec, pattern string)
 			}
 		})
 	}
+}
+
+// skipUpdateError a local equivalent of scripttest's unexported skipError, so
+// a "skip" command's error can be recognized with errors.As from this package.
+type skipUpdateError struct{ msg string }
+
+func (s skipUpdateError) Error() string {
+	if s.msg == "" {
+		return "skip"
+	}
+	return s.msg
+}
+
+// skipUpdateCmd mirrors scripttest.Skip, returning skipUpdateError instead
+// of scripttest's unexported skipError.
+func skipUpdateCmd() script.Cmd {
+	return script.Command(
+		script.CmdUsage{
+			Summary: "skip the current test",
+			Args:    "[msg]",
+		},
+		func(_ *script.State, args ...string) (script.WaitFunc, error) {
+			if len(args) > 1 {
+				return nil, script.ErrUsage
+			}
+			if len(args) == 0 {
+				return nil, skipUpdateError{""}
+			}
+			return nil, skipUpdateError{args[0]}
+		})
 }
 
 // initUpdateScriptDirs mirrors the unexported setup scripttest.Test performs
