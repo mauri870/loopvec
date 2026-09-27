@@ -22,6 +22,12 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Install qemu-user-static
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
+      - name: Test tsvc (arm64, qemu)
+        run: make tsvc-test-qemu-arm64
+
       - name: Fmt
         run: |
           make fmt

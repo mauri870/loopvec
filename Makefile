@@ -2,9 +2,9 @@ export GOTOOLCHAIN := go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build install test fix fmt lint ci bench bench-regen
+.PHONY: build install test fix fmt lint ci bench bench-regen tsvc-test tsvc-test-qemu-arm64 tsvc-update
 
-test:
+test: build tsvc-test
 	go test ./... -count=1 -race
 
 fix:
@@ -38,3 +38,14 @@ bench:
 
 bench-regen: build
 	go run . -split ./bench/
+
+tsvc-test: build
+	go test -count=1 ./tsvc/...
+	GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -run TestGolden ./tsvc/
+
+tsvc-test-qemu-arm64:
+	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test -exec=qemu-aarch64-static ./tsvc/ -run TestGolden
+
+tsvc-update:
+	go test ./tsvc/ -run TestGolden -update
+	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test -exec=qemu-aarch64-static ./tsvc/ -run TestGolden -update
