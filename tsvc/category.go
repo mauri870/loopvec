@@ -6,12 +6,3 @@ type Category int
 const (
 	CategoryDependence Category = iota
 )
-
-func (c Category) String() string {
-	switch c {
-	case CategoryDependence:
-		return "dependence"
-	default:
-		return "unknown"
-	}
-}
