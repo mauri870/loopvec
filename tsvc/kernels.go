@@ -68,7 +68,7 @@ func s1113(a, b []float32) {
 //tsvc:kernel category=dependence reps=1 setup=s114 checksum=aa exact=bits
 func s114(aa, bb [][]float32) {
 	for i := range aa {
-		for j := 0; j < i; j++ {
+		for j := range i {
 			aa[i][j] = aa[j][i] + bb[i][j]
 		}
 	}
