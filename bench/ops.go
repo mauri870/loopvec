@@ -49,3 +49,15 @@ func DaxpyFloat32s(dst, a []float32, alpha float32) {
 		dst[i] += a[i] * alpha
 	}
 }
+
+func FillFloat32s(dst []float32) {
+	for i := range dst {
+		dst[i] = 2.5
+	}
+}
+
+func FillUint8s(dst []byte) {
+	for i := range dst {
+		dst[i] = 7
+	}
+}

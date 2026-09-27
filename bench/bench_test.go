@@ -114,3 +114,27 @@ func BenchmarkDaxpyFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkFillFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			b.ResetTimer()
+			for b.Loop() {
+				FillFloat32s(dst)
+			}
+		})
+	}
+}
+
+func BenchmarkFillUint8s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]byte, n)
+			b.ResetTimer()
+			for b.Loop() {
+				FillUint8s(dst)
+			}
+		})
+	}
+}

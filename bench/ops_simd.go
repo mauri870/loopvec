@@ -78,3 +78,19 @@ func DaxpyFloat32s(dst, a []float32, alpha float32) {
 		_i += _n
 	}
 }
+
+func FillFloat32s(dst []float32) {
+	_vcFloat32s := simd.BroadcastFloat32s(2.5)
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat32s.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func FillUint8s(dst []byte) {
+	_vcUint8s := simd.BroadcastUint8s(7)
+	for _i := 0; _i < len(dst); {
+		_n := _vcUint8s.StorePart(dst[_i:])
+		_i += _n
+	}
+}
