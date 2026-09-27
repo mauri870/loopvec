@@ -49,6 +49,8 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		return Result{Src: src}, nil
 	}
 
+	tf := fset.File(file.Pos())
+
 	// Collect replacements: map from loop node position to replacement text.
 	type replacement struct {
 		start token.Pos
@@ -60,6 +62,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		pos  token.Pos
 		text string
 	}
+	needsOverlapHelper := false
 
 	for _, loop := range loops {
 		var stmtNode ast.Node
@@ -72,6 +75,20 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		repl, pre, err := generateReplacement(loop, fset, info, len(replacements))
 		if err != nil {
 			continue
+		}
+
+		// Distinctly-named slices sharing a caller's backing array with
+		// DstSlice can overlap it at an offset (dst == src[1:], say), which
+		// the vectorized loop's block-at-a-time loads/stores does not
+		// preserve the scalar loop's element-by-element order for. Guard
+		// with a runtime check and fall back to the original scalar loop
+		// when any pair could overlap, the same way LLVM/GCC/HotSpot's own
+		// vectorizers version a loop on an unprovable aliasing check rather
+		// than require static proof. See AGENTS.md's correctness gaps.
+		if others := otherSlices(loop); len(others) > 0 {
+			origStart, origEnd := tf.Offset(stmtNode.Pos()), tf.Offset(stmtNode.End())
+			repl = wrapWithOverlapCheck(loop, others, string(src[origStart:origEnd]), repl)
+			needsOverlapHelper = true
 		}
 
 		replacements = append(replacements, replacement{
@@ -100,7 +117,6 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	})
 
 	// Apply text replacements to src.
-	tf := fset.File(file.Pos())
 	result := make([]byte, len(src))
 	copy(result, src)
 
@@ -124,6 +140,14 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	result, err := ensureImport(result, "simd")
 	if err != nil {
 		return Result{}, err
+	}
+
+	if needsOverlapHelper {
+		result, err = ensureImport(result, "unsafe")
+		if err != nil {
+			return Result{}, err
+		}
+		result = ensureOverlapHelper(result)
 	}
 
 	// Add build tag if not present.
@@ -173,27 +197,99 @@ func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.In
 	return applyBound(loop, text), pre, nil
 }
 
-// applyBound limits a generated loop to loop.Bound. The generators emit a loop
-// over len(dst) that slices every operand from _i; with an explicit bound the
-// loop stops there and every operand is sliced only up to it. Beforehand each
-// slice is checked to be long enough, so an out-of-range access still panics
-// with an index error as the original loop would, instead of reading or
-// writing past the data the original loop touched.
+// applyBound limits a generated loop to loop.Bound, or to len(DstSlice) when
+// Bound is empty. The generators emit a loop that slices every operand from
+// _i with no upper limit; with an explicit bound each operand is capped to
+// it too. Either way, every OTHER slice's length is checked against the
+// bound before the loop runs, so a slice shorter than the bound still
+// panics with an index error, as the original loop would, instead of the
+// simd load silently returning a short, zero-padded partial result. DstSlice
+// itself needs that check only in the explicit-bound case: in the default
+// case len(DstSlice) already is the bound, so it trivially satisfies it.
 func applyBound(loop analysis.Loop, text string) string {
-	if loop.Bound == "" {
-		return text
+	bound := loop.Bound
+	explicit := bound != ""
+	if !explicit {
+		bound = "len(" + loop.DstSlice + ")"
+	} else {
+		text = strings.Replace(text, "_i < len("+loop.DstSlice+"); {", "_i < "+bound+"; {", 1)
 	}
-	text = strings.Replace(text, "_i < len("+loop.DstSlice+"); {", "_i < "+loop.Bound+"; {", 1)
+
 	var checks strings.Builder
 	for _, name := range loop.Slices() {
-		operand := regexp.MustCompile(`([\s(,])` + regexp.QuoteMeta(name) + `\[_i:\]`)
-		text = operand.ReplaceAllString(text, "${1}"+name+"[_i:"+loop.Bound+"]")
-		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", name, loop.Bound)
+		if explicit {
+			operand := regexp.MustCompile(`([\s(,])` + regexp.QuoteMeta(name) + `\[_i:\]`)
+			text = operand.ReplaceAllString(text, "${1}"+name+"[_i:"+bound+"]")
+		} else if name == loop.DstSlice {
+			continue
+		}
+		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", name, bound)
+	}
+	if checks.Len() == 0 {
+		return text
 	}
 	if loop.BoundIsConst {
 		return checks.String() + text
 	}
-	return "if " + loop.Bound + " > 0 {\n" + checks.String() + text + "\n}"
+	return "if " + bound + " > 0 {\n" + checks.String() + text + "\n}"
+}
+
+// otherSlices returns the distinctly-named slices in loop besides DstSlice
+// itself. A non-empty result means DstSlice could alias one of them at an
+// offset if the caller passes overlapping slices, which the generated loop
+// needs a runtime check for.
+func otherSlices(loop analysis.Loop) []string {
+	var out []string
+	seen := map[string]bool{loop.DstSlice: true}
+	for _, name := range []string{loop.Src1Slice, loop.Src2Slice, loop.Src3Slice} {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+// wrapWithOverlapCheck guards simdText behind a runtime check that
+// DstSlice's backing memory doesn't overlap any of others, falling back to
+// origText (the loop's own original source) when it might. This is the
+// same technique LLVM, GCC, and (since 2025) HotSpot's C2 use for loops
+// they can't statically prove don't alias: a bounded runtime check plus a
+// scalar fallback, not a static proof requirement.
+func wrapWithOverlapCheck(loop analysis.Loop, others []string, origText, simdText string) string {
+	var cond strings.Builder
+	for i, name := range others {
+		if i > 0 {
+			cond.WriteString(" || ")
+		}
+		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", loop.DstSlice, name)
+	}
+	return "if " + cond.String() + " {\n" + origText + "\n} else {\n" + simdText + "\n}"
+}
+
+// overlapHelperSrc is _loopvecOverlap's source, appended once per rewritten
+// file that needs it.
+const overlapHelperSrc = `
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+`
+
+// ensureOverlapHelper appends _loopvecOverlap's definition to src if not
+// already present.
+func ensureOverlapHelper(src []byte) []byte {
+	if bytes.Contains(src, []byte("func _loopvecOverlap")) {
+		return src
+	}
+	return append(src, []byte(overlapHelperSrc)...)
 }
 
 func generateLoop(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {

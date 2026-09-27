@@ -50,4 +50,4 @@ func main() {
 -- want.out --
 [11 22 33]
 -- log.want --
-kept example.com/app/vec: rewritten source rejected: $WORK/vec/vec.go:14:19: simd.LoadInt32sPart undefined (type int has no field or method LoadInt32sPart)
+kept example.com/app/vec: rewritten source rejected: $WORK/vec/vec.go:25:21: simd.LoadInt32sPart undefined (type int has no field or method LoadInt32sPart)

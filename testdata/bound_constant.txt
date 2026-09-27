@@ -31,18 +31,38 @@ func Saxpy4(a float32, x, y []float32) {
 
 package test
 
-import "simd"
+import (
+	"simd"
+	"unsafe"
+)
 
 func Saxpy4(a float32, x, y []float32) {
 	_vcAFloat32s0 := simd.BroadcastFloat32s(a)
-	_ = y[4-1]
-	_ = x[4-1]
-	for _i := 0; _i < 4; {
-		_v1, _n := simd.LoadFloat32sPart(x[_i:4])
-		_v2, _ := simd.LoadFloat32sPart(y[_i:4])
-		_v1.MulAdd(_vcAFloat32s0, _v2).StorePart(y[_i:4])
-		_i += _n
+	if _loopvecOverlap(y, x) {
+		for i := 0; i < 4; i++ {
+			y[i] += a * x[i]
+		}
+	} else {
+		_ = y[4-1]
+		_ = x[4-1]
+		for _i := 0; _i < 4; {
+			_v1, _n := simd.LoadFloat32sPart(x[_i:4])
+			_v2, _ := simd.LoadFloat32sPart(y[_i:4])
+			_v1.MulAdd(_vcAFloat32s0, _v2).StorePart(y[_i:4])
+			_i += _n
+		}
 	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
 }
 -- stderr.want --
 loopvec: rewrote 1 loop(s) in $WORK/ops.go

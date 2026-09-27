@@ -29,15 +29,39 @@ func AddInt32s(dst, a, b []int32) {
 
 package test
 
-import "simd"
+import (
+	"simd"
+	"unsafe"
+)
 
 func AddInt32s(dst, a, b []int32) {
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadInt32sPart(a[_i:])
-		_v2, _ := simd.LoadInt32sPart(b[_i:])
-		_v1.Add(_v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v2, _ := simd.LoadInt32sPart(b[_i:])
+				_v1.Add(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
 }
 -- ops.go.guarded --
 //go:build !goexperiment.simd

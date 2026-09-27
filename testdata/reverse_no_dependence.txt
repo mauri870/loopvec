@@ -34,15 +34,38 @@ func FillFromReverse(a, b []float32) {
 
 package test
 
-import "simd"
+import (
+	"simd"
+	"unsafe"
+)
 
 func FillFromReverse(a, b []float32) {
 	_vcFloat32s0 := simd.BroadcastFloat32s(1)
-	for _i := 0; _i < len(a); {
-		_v1, _n := simd.LoadFloat32sPart(b[_i:])
-		_v1.Add(_vcFloat32s0).StorePart(a[_i:])
-		_i += _n
+	if _loopvecOverlap(a, b) {
+		for i := len(a) - 1; i >= 0; i-- {
+			a[i] = b[i] + 1
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadFloat32sPart(b[_i:])
+				_v1.Add(_vcFloat32s0).StorePart(a[_i:])
+				_i += _n
+			}
+		}
 	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
 }
 -- testmain/main.go --
 package main

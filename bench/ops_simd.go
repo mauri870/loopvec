@@ -2,23 +2,46 @@
 
 package bench
 
-import "simd"
+import (
+	"simd"
+	"unsafe"
+)
 
 func AddFloat32s(dst, a, b []float32) {
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.Add(_v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.Add(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
 func MulFloat32s(dst, a, b []float32) {
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.Mul(_v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i] * b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.Mul(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
@@ -33,49 +56,97 @@ func ScalFloat32s(x []float32, c float32) {
 
 func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
 	_vcAFloat32s3 := simd.BroadcastFloat32s(alpha)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.MulAdd(_vcAFloat32s3, _v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i]*alpha + b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.MulAdd(_vcAFloat32s3, _v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
 func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 	_vcAFloat32s4 := simd.BroadcastFloat32s(alpha)
 	_vcBFloat32s4 := simd.BroadcastFloat32s(beta)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.MulAdd(_vcAFloat32s4, _v2.Mul(_vcBFloat32s4)).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i]*alpha + b[i]*beta
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.MulAdd(_vcAFloat32s4, _v2.Mul(_vcBFloat32s4)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
 func NegFloat32s(dst, src []float32) {
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(src[_i:])
-		_v1.Neg().StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, src) {
+		for i := range dst {
+			dst[i] = -src[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = src[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(src[_i:])
+				_v1.Neg().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
 func DivFloat32s(dst, a, b []float32) {
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.Div(_v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i] / b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.Div(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
 func DaxpyFloat32s(dst, a []float32, alpha float32) {
 	_vcAFloat32s7 := simd.BroadcastFloat32s(alpha)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(a[_i:])
-		_v2, _ := simd.LoadFloat32sPart(dst[_i:])
-		_v1.MulAdd(_vcAFloat32s7, _v2).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] += a[i] * alpha
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(dst[_i:])
+				_v1.MulAdd(_vcAFloat32s7, _v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
 }
 
@@ -97,9 +168,29 @@ func FillUint8s(dst []byte) {
 
 func ReverseIncFloat32s(dst, src []float32) {
 	_vcFloat32s10 := simd.BroadcastFloat32s(1)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(src[_i:])
-		_v1.Add(_vcFloat32s10).StorePart(dst[_i:])
-		_i += _n
+	if _loopvecOverlap(dst, src) {
+		for i := len(dst) - 1; i >= 0; i-- {
+			dst[i] = src[i] + 1
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = src[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(src[_i:])
+				_v1.Add(_vcFloat32s10).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
 	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
 }
