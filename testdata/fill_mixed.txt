@@ -1,0 +1,56 @@
+# In one function, the zero fill stays as written and the non-zero fill is rewritten.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Mixed(a, b []float64) {
+	for i := range a {
+		a[i] = 0
+	}
+	for i := range b {
+		b[i] = 1
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Mixed(a, b []float64) {
+	for i := range a {
+		a[i] = 0
+	}
+	_vcFloat64s0 := simd.BroadcastFloat64s(1)
+	for _i := 0; _i < len(b); {
+		_n := _vcFloat64s0.StorePart(b[_i:])
+		_i += _n
+	}
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Mixed(a, b []float64) {
+	for i := range a {
+		a[i] = 0
+	}
+	for i := range b {
+		b[i] = 1
+	}
+}

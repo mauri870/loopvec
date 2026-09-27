@@ -16,9 +16,9 @@ go 1.27.1
 -- ops.go --
 package test
 
-func FillZeroBlankParams(_ int, _ byte, dst []float32) {
+func FillBlankParams(_ int, _ byte, dst []float32) {
 	for i := range dst {
-		dst[i] = 0
+		dst[i] = 1
 	}
 }
 -- ops_simd.go.want --
@@ -28,8 +28,8 @@ package test
 
 import "simd"
 
-func FillZeroBlankParams(_p0 int, _p1 byte, dst []float32) {
-	_vcFloat32s0 := simd.BroadcastFloat32s(0)
+func FillBlankParams(_p0 int, _p1 byte, dst []float32) {
+	_vcFloat32s0 := simd.BroadcastFloat32s(1)
 	for _i := 0; _i < len(dst); {
 		_n := _vcFloat32s0.StorePart(dst[_i:])
 		_i += _n
@@ -42,8 +42,8 @@ loopvec: rewrote 1 loop(s) in $WORK/ops.go
 
 package test
 
-func FillZeroBlankParams(_ int, _ byte, dst []float32) {
+func FillBlankParams(_ int, _ byte, dst []float32) {
 	for i := range dst {
-		dst[i] = 0
+		dst[i] = 1
 	}
 }

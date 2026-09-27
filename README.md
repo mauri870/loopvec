@@ -16,7 +16,7 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 | `for i := range dst { dst[i] = a[i] + b[i] }` | element-wise binary op |
 | `for i := range dst { dst[i] += src[i] }` | in-place binary op |
 | `for i := range dst { dst[i] *= scalar }` | scalar broadcast op |
-| `for i := range dst { dst[i] = 0 }` | fill (broadcast literal) |
+| `for i := range dst { dst[i] = 7 }` | fill (broadcast non-zero literal) |
 | `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i] }` | `MulAdd` (FMA) |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i]*beta }` | `MulAdd` + `Mul` (two-scalar axpy) |
@@ -34,6 +34,8 @@ Supported binary operators: `+`, `-`, `*`, `/`, `&`, `|`, `^` (and their `op=` f
 Supported unary operators: `-` (negation, all except unsigned integers), `^` (bitwise NOT, all integer types).
 `MulAdd`/FMA patterns require `float32` or `float64`.
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
+Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
+which is faster than a vector loop.
 
 ## Performance
 

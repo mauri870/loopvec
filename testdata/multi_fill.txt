@@ -1,4 +1,5 @@
-# Multiple fill-zero loops in the same function scope get unique broadcast variable names.
+# Multiple non-zero fill loops in the same function scope get unique broadcast
+# variable names.
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -14,15 +15,15 @@ go 1.27.1
 -- ops.go --
 package test
 
-func ZeroAll(a, b, c []float64) {
+func FillAll(a, b, c []float64) {
 	for i := range a {
-		a[i] = 0
+		a[i] = 1
 	}
 	for i := range b {
-		b[i] = 0
+		b[i] = 2
 	}
 	for i := range c {
-		c[i] = 0
+		c[i] = 3
 	}
 }
 -- ops_simd.go.want --
@@ -32,18 +33,18 @@ package test
 
 import "simd"
 
-func ZeroAll(a, b, c []float64) {
-	_vcFloat64s0 := simd.BroadcastFloat64s(0)
+func FillAll(a, b, c []float64) {
+	_vcFloat64s0 := simd.BroadcastFloat64s(1)
 	for _i := 0; _i < len(a); {
 		_n := _vcFloat64s0.StorePart(a[_i:])
 		_i += _n
 	}
-	_vcFloat64s1 := simd.BroadcastFloat64s(0)
+	_vcFloat64s1 := simd.BroadcastFloat64s(2)
 	for _i := 0; _i < len(b); {
 		_n := _vcFloat64s1.StorePart(b[_i:])
 		_i += _n
 	}
-	_vcFloat64s2 := simd.BroadcastFloat64s(0)
+	_vcFloat64s2 := simd.BroadcastFloat64s(3)
 	for _i := 0; _i < len(c); {
 		_n := _vcFloat64s2.StorePart(c[_i:])
 		_i += _n
@@ -56,14 +57,14 @@ loopvec: rewrote 3 loop(s) in $WORK/ops.go
 
 package test
 
-func ZeroAll(a, b, c []float64) {
+func FillAll(a, b, c []float64) {
 	for i := range a {
-		a[i] = 0
+		a[i] = 1
 	}
 	for i := range b {
-		b[i] = 0
+		b[i] = 2
 	}
 	for i := range c {
-		c[i] = 0
+		c[i] = 3
 	}
 }

@@ -1,0 +1,46 @@
+# A fill with zero is left to the compiler, which turns it into memclr: on a 4 KiB
+# byte slice memclr takes 16 ns, a vector loop 27 ns. All spellings of zero count.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ZeroInt(dst []int32) {
+	for i := range dst {
+		dst[i] = 0
+	}
+}
+
+func ZeroFloat(dst []float64) {
+	for i := range dst {
+		dst[i] = 0.0
+	}
+}
+
+func ZeroHex(dst []uint16) {
+	for i := range dst {
+		dst[i] = 0x0
+	}
+}
+
+func ZeroRune(dst []byte) {
+	for i := range dst {
+		dst[i] = '\x00'
+	}
+}
+
+func ZeroExp(dst []float32) {
+	for i := range dst {
+		dst[i] = 0e0
+	}
+}

@@ -684,9 +684,14 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 		} else if ident, ok := assignStmt.Rhs[0].(*ast.Ident); ok && ident.Name == indexVar {
 			// dst[i] = i  (index fill — not a constant, skip)
 			return Loop{}, false
-		} else if _, ok := assignStmt.Rhs[0].(*ast.BasicLit); ok {
-			// dst[i] = literal constant  (fill broadcast; Src1Slice left empty)
-			loop.Scalar = assignStmt.Rhs[0]
+		} else if lit, ok := assignStmt.Rhs[0].(*ast.BasicLit); ok {
+			// dst[i] = literal constant  (fill broadcast; Src1Slice left empty).
+			// The compiler already turns a zero fill into memclr, which beats a
+			// vector loop, so only non-zero fills are rewritten.
+			if isZeroConstant(lit, info) {
+				return Loop{}, false
+			}
+			loop.Scalar = lit
 		} else if unaryExpr, ok := assignStmt.Rhs[0].(*ast.UnaryExpr); ok {
 			// dst[i] = -src[i]  or  dst[i] = ^src[i]
 			var unaryOp Op
@@ -785,6 +790,19 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 	}
 
 	return loop, true
+}
+
+// isZeroConstant reports whether expr is a numeric constant equal to zero.
+func isZeroConstant(expr ast.Expr, info *types.Info) bool {
+	tv, ok := info.Types[expr]
+	if !ok || tv.Value == nil {
+		return false
+	}
+	switch tv.Value.Kind() {
+	case constant.Int, constant.Float:
+		return constant.Sign(tv.Value) == 0
+	}
+	return false
 }
 
 // asSliceIndex checks if expr is of the form slice[index] where index matches the given name.
