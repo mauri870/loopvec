@@ -22,6 +22,13 @@ make test    # full suite, -race
 make ci      # what CI runs, in one command (needs qemu-aarch64-static locally)
 ```
 
+Prefer a `make` target over the equivalent raw `go` command whenever one
+exists — they encode flags, env vars (`GOTOOLCHAIN`, `GOEXPERIMENT`,
+`-toolexec` paths, `GOARCH`/`qemu-aarch64-static`) and dependencies
+(`generate`, `build`) that are easy to get wrong or forget by hand. Reach
+for a raw `go test -run ...`/`go build` only for tight iteration on a single
+test or file where no target is scoped that narrowly.
+
 Always set GOTOOLCHAIN for this repo (match the Makefile). Exception:
 `gotip`, the Go language tip, never set `GOTOOLCHAIN` there.
 
@@ -106,3 +113,53 @@ the day-to-day commands (`make tsvc-test`, `tsvc-test-qemu-arm64`,
   the `//tsvc:kernel` directives in `kernels.go` — never hand-edit either;
   run `go generate ./tsvc/...` (or `make generate`, which every `tsvc-*`
   target already depends on).
+
+## Adding a new optimization (checklist)
+
+Order that actually works, based on adding reverse-loop support (`s1112`):
+
+1. **Establish the safety argument first, in words, before writing any
+   code.** The question is always: does every body shape the analyzer would
+   accept for this new loop-clause/access shape already guarantee no two
+   iterations touch the same element? If yes, no dependence analysis is
+   needed — just widen the match. If you can't answer this cleanly, don't
+   add the shape yet.
+2. **Extend `internal/analysis/analyzer.go`** to accept the new AST shape.
+   Reuse `analyzeBody`/`analyzeBodyShape` unchanged if possible — most new
+   *loop-clause* shapes (direction, alternate bounds) don't need to touch
+   body-matching at all.
+3. **Check whether `internal/rewrite/rewriter.go` needs any change.** If the
+   new shape produces the same kind of `Loop` struct as an existing
+   supported pattern, it doesn't — the rewriter is direction- and
+   clause-agnostic (see above). Only a genuinely new body/access shape needs
+   new codegen.
+4. **Add txtar tests**, not unit tests: `testdata/<pattern>.txt` (positive:
+   check the exact rewritten output *and* run the scalar/SIMD binary to
+   confirm matching runtime behavior) and, if there's a shape that looks
+   similar but is actually unsafe, `testdata/<pattern>_no_rewrite.txt` to
+   pin that it stays rejected.
+5. **Update the root `README.md` pattern table** with the new row, plus a
+   short safety-rationale sentence if it's non-obvious why the shape is
+   safe.
+6. **Demonstrate it in `bench/`** if it's a general-purpose pattern (not
+   `tsvc`-specific): add the function to `ops.go`, temporarily remove its
+   `//go:build !goexperiment.simd` guard, run `make bench-regen` to
+   regenerate `ops_simd.go` (it re-adds the guard), add the matching
+   `Benchmark*` in `bench_test.go`. Manually diff scalar vs.
+   `GOEXPERIMENT=simd` output once before trusting any benchmark number —
+   benchmarks measure speed, not correctness.
+7. **If a `tsvc/` kernel now gets rewritten**, that's the real correctness
+   proof: run `make tsvc-test` and `make tsvc-test-qemu-arm64` and confirm
+   the new rewrite is bit-exact against the existing golden on both amd64
+   and arm64. Update `tsvc/README.md`'s coverage table/count.
+8. **Re-run benchmarks last** (`make bench`, `make tsvc-bench`) and update
+   README numbers. Watch for stale output: these targets redirect into fixed
+   `/tmp/*.txt` paths, so a previous run that got killed can leave
+   overlapping writes that corrupt the next one — `benchstat` will warn
+   (`parsing measurement: invalid syntax`) or show mismatched sample counts
+   (`n=9+10`) instead of a clean `n=10`; if you see either, delete the
+   `/tmp` files and rerun before trusting the numbers.
+9. **Final pass**: `make ci` (build, test, `tsvc` on amd64 and arm64, fmt,
+   lint, all in one command) before calling it done. Fall back to
+   `make test && make fmt && make lint` only if `qemu-aarch64-static` isn't
+   available locally.
