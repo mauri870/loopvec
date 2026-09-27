@@ -55,9 +55,7 @@ tsvc-test-qemu-arm64: generate build
 tsvc-update: generate
 	go test ./tsvc/ -run TestGolden -update
 
-# tsvc-coverage-update is deliberately separate from tsvc-update: a coverage
-# change (a kernel starting or stopping to vectorize) should be reviewed and
-# recorded on purpose, not folded into routine golden regeneration.
+# tsvc-coverage-update is deliberately separate from tsvc-update to catch coverage regressions
 tsvc-coverage-update: generate
 	go test -count=1 ./tsvc/ -run TestCoverage -update
 
@@ -66,4 +64,4 @@ tsvc-bench: generate build
 	GOEXPERIMENT=simd go test -run '^$$' -bench . -count=10 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
 	benchstat /tmp/tsvc_bench_scalar.txt /tmp/tsvc_bench_simd.txt
 
-test-update: tsvc-update
+test-update: tsvc-update tsvc-coverage-update

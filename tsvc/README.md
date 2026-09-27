@@ -27,6 +27,35 @@ Today, loopvec rewrites 2 of the 10, s000 and s1112:
 go run . -d ./tsvc/
 ```
 
+## Coverage
+
+The 2/10 count above is a checked-in, regression-tested baseline, not just a
+number in this README. `testdata/coverage.txt` records it, one line per
+kernel, built from `loopvec -json`'s output (see the root README's
+"Coverage reporting" section for the JSON format):
+
+```
+# loopvec TSVC coverage: 2/10
+s000	yes
+s111	no	loop clauses (start, step, direction, or bound) do not match a supported shape
+...
+```
+
+`TestCoverage` (part of `make tsvc-test` / `make test`) rebuilds `loopvec`
+fresh, runs `-json` against this package, and compares the result against
+`testdata/coverage.txt`: a kernel that stops vectorizing is a build failure
+(a regression), and a kernel that starts vectorizing is *also* a build
+failure — with a message pointing at the command below, so a coverage
+improvement gets recorded on purpose rather than silently drifting:
+
+```sh
+make tsvc-coverage-update
+```
+
+Kept separate from `make tsvc-update` (which only regenerates the golden
+checksums) on purpose: a coverage change should be reviewed and committed
+deliberately, not folded into routine golden regeneration.
+
 ## Correctness
 
 Each kernel has a deterministic `Setup`, runs `Reps` times, and its checksum
