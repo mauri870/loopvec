@@ -25,6 +25,7 @@ operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 | `for i := range dst { dst[i] = -src[i] }` | `Neg` (unary negation) |
 | `for i := range dst { dst[i] = ^src[i] }` | `Not` (unary bitwise NOT) |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
+| `for i := len(s) - 1; i >= 0; i-- { ... }` | reverse three-clause for (rewritten to run forward) |
 | `for i := 0; i < n; i++ { ... }`, `for i := range n { ... }` | explicit int limit; slices are length-checked first |
 | `for i := 0; i < 4; i++ { ... }` | constant limit |
 

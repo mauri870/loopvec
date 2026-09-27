@@ -1,0 +1,24 @@
+# A reversed loop whose destination is offset from the index (a[i+1], not
+# a[i]) is a genuine loop-carried dependence: reversing it, rather than the
+# no-dependence case in reverse_no_dependence.txt, is exactly why TSVC_2
+# tests this shape. It must be left alone regardless of direction.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ShiftReverse(a, b []float32) {
+	for i := len(a) - 2; i >= 0; i-- {
+		a[i+1] = a[i] + b[i]
+	}
+}

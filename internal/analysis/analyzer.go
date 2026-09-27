@@ -303,14 +303,20 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 }
 
 // analyzeFor checks if a three-clause for loop is vectorizable.
-// Accepted pattern:
+// Accepted patterns:
 //
 //	for i := 0; i < len(s); i++ { s[i] = ... }
+//	for i := len(s) - 1; i >= 0; i-- { s[i] = ... }
+//
+// The reverse form is accepted for the same reason it's safe in the forward
+// case: analyzeBody only accepts body shapes where every slice is read or
+// written at exactly index i, so different iterations never touch the same
+// element and the direction cannot change the result. The rewritten loop
+// always runs forward regardless of which form matched.
 func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 	if stmt.Init == nil || stmt.Cond == nil || stmt.Post == nil {
 		return Loop{}, false
 	}
-	// Init: i := 0
 	initAssign, ok := stmt.Init.(*ast.AssignStmt)
 	if !ok || initAssign.Tok != token.DEFINE || len(initAssign.Lhs) != 1 || len(initAssign.Rhs) != 1 {
 		return Loop{}, false
@@ -319,23 +325,38 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 	if !ok {
 		return Loop{}, false
 	}
-	initLit, ok := initAssign.Rhs[0].(*ast.BasicLit)
-	if !ok || initLit.Value != "0" {
-		return Loop{}, false
-	}
-
-	// Cond: i < len(s)
 	cond, ok := stmt.Cond.(*ast.BinaryExpr)
-	if !ok || cond.Op != token.LSS {
+	if !ok {
 		return Loop{}, false
 	}
 	condLhs, ok := cond.X.(*ast.Ident)
 	if !ok || condLhs.Name != indexIdent.Name {
 		return Loop{}, false
 	}
-	// The limit is either len(slice) or an integer expression.
+
+	if lit, ok := initAssign.Rhs[0].(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.LSS {
+		return analyzeForForward(stmt, indexIdent.Name, cond.Y, info)
+	}
+	if lit, ok := cond.Y.(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.GEQ {
+		return analyzeForReverse(stmt, indexIdent.Name, initAssign.Rhs[0], info)
+	}
+	return Loop{}, false
+}
+
+// analyzeForForward handles for i := 0; i < limit; i++, where limit is
+// either len(slice) or an integer expression.
+func analyzeForForward(stmt *ast.ForStmt, indexName string, limit ast.Expr, info *types.Info) (Loop, bool) {
+	incStmt, ok := stmt.Post.(*ast.IncDecStmt)
+	if !ok || incStmt.Tok != token.INC {
+		return Loop{}, false
+	}
+	incIdent, ok := incStmt.X.(*ast.Ident)
+	if !ok || incIdent.Name != indexName {
+		return Loop{}, false
+	}
+
 	var sliceIdent *ast.Ident
-	if lenCall, ok := cond.Y.(*ast.CallExpr); ok {
+	if lenCall, ok := limit.(*ast.CallExpr); ok {
 		lenIdent, ok := lenCall.Fun.(*ast.Ident)
 		if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
 			return Loop{}, false
@@ -346,20 +367,47 @@ func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
 		}
 	}
 
-	// Post: i++
-	incStmt, ok := stmt.Post.(*ast.IncDecStmt)
-	if !ok || incStmt.Tok != token.INC {
+	if sliceIdent == nil {
+		return analyzeBounded(nil, stmt, indexName, limit, stmt.Body, info)
+	}
+	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info)
+	return limitedBySlice(loop, ok, sliceIdent.Name)
+}
+
+// analyzeForReverse handles for i := len(s) - 1; i >= 0; i--.
+func analyzeForReverse(stmt *ast.ForStmt, indexName string, initExpr ast.Expr, info *types.Info) (Loop, bool) {
+	decStmt, ok := stmt.Post.(*ast.IncDecStmt)
+	if !ok || decStmt.Tok != token.DEC {
 		return Loop{}, false
 	}
-	incIdent, ok := incStmt.X.(*ast.Ident)
-	if !ok || incIdent.Name != indexIdent.Name {
+	decIdent, ok := decStmt.X.(*ast.Ident)
+	if !ok || decIdent.Name != indexName {
 		return Loop{}, false
 	}
 
-	if sliceIdent == nil {
-		return analyzeBounded(nil, stmt, indexIdent.Name, cond.Y, stmt.Body, info)
+	// i := len(s) - 1
+	sub, ok := initExpr.(*ast.BinaryExpr)
+	if !ok || sub.Op != token.SUB {
+		return Loop{}, false
 	}
-	loop, ok := analyzeBody(nil, stmt, indexIdent.Name, sliceIdent, "", stmt.Body, info)
+	oneLit, ok := sub.Y.(*ast.BasicLit)
+	if !ok || oneLit.Value != "1" {
+		return Loop{}, false
+	}
+	lenCall, ok := sub.X.(*ast.CallExpr)
+	if !ok {
+		return Loop{}, false
+	}
+	lenIdent, ok := lenCall.Fun.(*ast.Ident)
+	if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
+		return Loop{}, false
+	}
+	sliceIdent, ok := lenCall.Args[0].(*ast.Ident)
+	if !ok {
+		return Loop{}, false
+	}
+
+	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info)
 	return limitedBySlice(loop, ok, sliceIdent.Name)
 }
 

@@ -8,20 +8,20 @@ The loop shapes are kept exactly as TSVC_2.
 
 ## Kernel inventory
 
-| Kernel | What it tests | Exactness |
-| --- | --- | --- |
-| s000 | no dependence | bits |
-| s111 | no dependence, stride 2 | bits |
-| s1111 | no dependence, jump in data access (strided store) | fused |
-| s112 | loop reversal, anti-dependence | bits |
-| s1112 | loop reversal, no dependence | bits |
-| s113 | `a[0]` looks loop-carried but is invariant | bits |
-| s1113 | one-iteration dependency on `a[len(a)/2]`, still vectorizable | bits |
-| s114 | 2-D triangular transpose (column) access | bits |
-| s115 | 2-D triangular saxpy loop | fused |
-| s1115 | 2-D triangular saxpy loop with a transposed read | fused |
+| Kernel | What it tests | Exactness | Vectorized |
+| --- | --- | --- | --- |
+| s000 | no dependence | bits | yes |
+| s111 | no dependence, stride 2 | bits | no |
+| s1111 | no dependence, jump in data access (strided store) | fused | no |
+| s112 | loop reversal, anti-dependence | bits | no |
+| s1112 | loop reversal, no dependence | bits | yes |
+| s113 | `a[0]` looks loop-carried but is invariant | bits | no |
+| s1113 | one-iteration dependency on `a[len(a)/2]`, still vectorizable | bits | no |
+| s114 | 2-D triangular transpose (column) access | bits | no |
+| s115 | 2-D triangular saxpy loop | fused | no |
+| s1115 | 2-D triangular saxpy loop with a transposed read | fused | no |
 
-Today, loopvec rewrites 1 of the 10, s000:
+Today, loopvec rewrites 2 of the 10, s000 and s1112:
 
 ```sh
 go run . -d ./tsvc/
