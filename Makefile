@@ -4,7 +4,7 @@ export GOTOOLCHAIN := go1.27.1
 
 .PHONY: build install test fix fmt lint ci bench bench-regen generate tsvc-test tsvc-test-qemu-arm64 tsvc-update
 
-test: build tsvc-test
+test: build
 	go test ./... -count=1 -race
 
 fix:
@@ -27,9 +27,10 @@ build:
 install:
 	go install . ./cmd/loopvec-toolexec
 
-ci: test
+ci: test tsvc-test tsvc-test-qemu-arm64
 	$(MAKE) fmt
 	git diff --exit-code
+	$(MAKE) lint
 
 bench:
 	go test -bench=. -count=10 ./bench/ > /tmp/bench_scalar.txt

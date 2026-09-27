@@ -22,6 +22,9 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Test tsvc (amd64, SIMD)
+        run: make tsvc-test
+
       - name: Install qemu-user-static
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
