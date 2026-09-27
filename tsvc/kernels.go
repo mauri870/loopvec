@@ -4,7 +4,7 @@ package tsvc
 //
 //tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits
 func s000(a, b []float32) {
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		a[i] = b[i] + 1
 	}
 }
@@ -58,7 +58,7 @@ func s113(a, b []float32) {
 //
 //tsvc:kernel category=dependence reps=2 setup=s113 checksum=a exact=bits
 func s1113(a, b []float32) {
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		a[i] = a[len(a)/2] + b[i]
 	}
 }
@@ -67,7 +67,7 @@ func s1113(a, b []float32) {
 //
 //tsvc:kernel category=dependence reps=1 setup=s114 checksum=aa exact=bits
 func s114(aa, bb [][]float32) {
-	for i := 0; i < len(aa); i++ {
+	for i := range aa {
 		for j := 0; j < i; j++ {
 			aa[i][j] = aa[j][i] + bb[i][j]
 		}
@@ -78,7 +78,7 @@ func s114(aa, bb [][]float32) {
 //
 //tsvc:kernel category=dependence reps=1 setup=s115 checksum=a exact=fused
 func s115(a []float32, aa [][]float32) {
-	for j := 0; j < len(aa); j++ {
+	for j := range aa {
 		for i := j + 1; i < len(aa); i++ {
 			a[i] -= aa[j][i] * a[j]
 		}
@@ -89,8 +89,8 @@ func s115(a []float32, aa [][]float32) {
 //
 //tsvc:kernel category=dependence reps=1 setup=s115 checksum=aa exact=fused
 func s1115(aa, bb, cc [][]float32) {
-	for i := 0; i < len(aa); i++ {
-		for j := 0; j < len(aa); j++ {
+	for i := range aa {
+		for j := range aa {
 			aa[i][j] = aa[i][j]*cc[j][i] + bb[i][j]
 		}
 	}

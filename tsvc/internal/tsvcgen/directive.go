@@ -77,7 +77,7 @@ func paramNames(fl *ast.FieldList) []string {
 
 func parseDirectiveLine(text string, pos token.Position) (directive, error) {
 	fields := make(map[string]string)
-	for _, tok := range strings.Fields(text) {
+	for tok := range strings.FieldsSeq(text) {
 		key, value, ok := strings.Cut(tok, "=")
 		if !ok {
 			return directive{}, fmt.Errorf("%s: malformed directive token %q", pos, tok)
