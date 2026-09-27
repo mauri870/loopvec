@@ -11,6 +11,9 @@ Go blog post: https://go.dev/blog/simd-experiment
 The tool recognizes these loop shapes and rewrites them to use portable SIMD
 operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
 
+<details>
+<summary>Patterns</summary>
+
 | Pattern | Emitted operation |
 |---|---|
 | `for i := range dst { dst[i] = a[i] + b[i] }` | element-wise binary op |
@@ -38,6 +41,8 @@ Supported unary operators: `-` (negation, all except unsigned integers), `^` (bi
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
 Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
 which is faster than a vector loop.
+
+</details>
 
 ## Performance
 
@@ -226,7 +231,10 @@ go test ./mypkg/...
 GOEXPERIMENT=simd go test -bench=. ./mypkg/
 ```
 
-## Example
+## Example with -split
+
+<details>
+<summary>Details</summary>
 
 **Input (`ops.go`):**
 
@@ -273,6 +281,8 @@ func AddFloat32s(dst, a, b []float32) {
 }
 ```
 
+</details>
+
 ## Whole-program mode: `-toolexec`
 
 `loopvec-toolexec` is an experimental `go build -toolexec` wrapper that vectorizes
@@ -285,6 +295,11 @@ included, without touching any source file. See [toolexec.md](toolexec.md).
 - `GOEXPERIMENT=simd` at build time for the rewritten code
 
 ## Known Limitations
+
+SIMD support in Go is experimental, so there is likely several bugs lurking around, both in the Go compiler/runtime and this tool.
+
+<details>
+<summary>Details</summary>
 
 **Blank identifier parameters are renamed in the simd file.** The gotip
 `GOEXPERIMENT=simd` compiler rejects blank identifier (`_`) parameters in
@@ -319,6 +334,8 @@ a positive integer constant is accepted as a limit.
 `//go:build` (or legacy `// +build`) line is left untouched. This includes files
 already guarded by `-split`, so re-running `-split` on a package you have
 already split is a no-op.
+
+</details>
 
 ## Testing
 
