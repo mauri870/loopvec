@@ -38,7 +38,7 @@ jobs:
 
       - name: Fmt
         run: |
-          make fmt
+          make fix
           git diff --exit-code
 
       - name: Lint

@@ -37,7 +37,7 @@ install:
 	go install . ./cmd/loopvec-toolexec
 
 ci: test-update test bench-fuzz tsvc-test tsvc-test-qemu-arm64
-	$(MAKE) fmt
+	$(MAKE) fix
 	git diff --exit-code
 	$(MAKE) lint
 
