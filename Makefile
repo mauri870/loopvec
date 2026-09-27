@@ -2,10 +2,19 @@ export GOTOOLCHAIN := go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build install test fix fmt lint ci bench bench-regen generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-coverage-update tsvc-bench test-update
+.PHONY: build install test fix fmt lint ci bench bench-regen bench-fuzz fuzz-slow generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-coverage-update tsvc-bench test-update
 
 test: build
 	go test ./... -count=1 -race
+
+bench-fuzz:
+	GOEXPERIMENT=simd go test ./bench/ -count=1 -run Fuzz
+
+fuzz-slow:
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzAddFloat32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzNegFloat32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzReverseIncFloat32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzDaxpyFloat32s -fuzztime=60s
 
 fix:
 	go fix ./...
@@ -27,7 +36,7 @@ build:
 install:
 	go install . ./cmd/loopvec-toolexec
 
-ci: test-update test tsvc-test tsvc-test-qemu-arm64
+ci: test-update test bench-fuzz tsvc-test tsvc-test-qemu-arm64
 	$(MAKE) fmt
 	git diff --exit-code
 	$(MAKE) lint

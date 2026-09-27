@@ -187,8 +187,7 @@ loopvec -json ./...       # print one JSON line per candidate loop; see below
 
 ### Coverage reporting: `-json`
 
-`-json` prints one JSON line per loop that at least looks like an
-element-wise indexed-store loop, whether or not loopvec actually rewrote it:
+`-json` prints one JSON line per loop detected with context about vectorizer decisions
 
 ```sh
 $ loopvec -json ./mypkg/
@@ -216,7 +215,7 @@ go tool loopvec -split ./mypkg/...
 `-split` is the recommended mode. It writes the vectorized code to
 `ops_simd.go` (with `//go:build goexperiment.simd`) and adds
 `//go:build !goexperiment.simd` to the original `ops.go`. Both files stay in
-your repository — the scalar version builds by default, and the simd version
+your repository, while scalar version builds by default the simd version
 builds when `GOEXPERIMENT=simd` is set.
 
 ```sh
@@ -230,58 +229,6 @@ go tool loopvec -split ./mypkg/...
 go test ./mypkg/...
 GOEXPERIMENT=simd go test -bench=. ./mypkg/
 ```
-
-## Example with -split
-
-<details>
-<summary>Details</summary>
-
-**Input (`ops.go`):**
-
-```go
-package ops
-
-func AddFloat32s(dst, a, b []float32) {
-    for i := range dst {
-        dst[i] = a[i] + b[i]
-    }
-}
-```
-
-**After `loopvec -split ops.go`:**
-
-`ops.go` (original, now guarded):
-```go
-//go:build !goexperiment.simd
-
-package ops
-
-func AddFloat32s(dst, a, b []float32) {
-    for i := range dst {
-        dst[i] = a[i] + b[i]
-    }
-}
-```
-
-`ops_simd.go` (new file):
-```go
-//go:build goexperiment.simd
-
-package ops
-
-import "simd"
-
-func AddFloat32s(dst, a, b []float32) {
-    for _i := 0; _i < len(dst); {
-        _v1, _n := simd.LoadFloat32sPart(a[_i:])
-        _v2, _ := simd.LoadFloat32sPart(b[_i:])
-        _v1.Add(_v2).StorePart(dst[_i:])
-        _i += _n
-    }
-}
-```
-
-</details>
 
 ## Whole-program mode: `-toolexec`
 
