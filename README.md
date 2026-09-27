@@ -269,9 +269,8 @@ already split is a no-op.
 
 ## Testing
 
-The test suite builds the real `loopvec` binary and drives it with
-[rsc.io/script](https://pkg.go.dev/rsc.io/script) scripts in `testdata/*.txt`,
-the same approach used by `go` command tests.
+The testing suite is built on top of [rsc.io/script](https://pkg.go.dev/rsc.io/script) with test scripts in `testdata/*.txt`,
+the same approach used by [`go` command tests](https://github.com/golang/go/tree/f2d76b7/src/cmd/go/testdata/script).
 
 ```sh
 make test
