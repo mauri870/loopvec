@@ -154,15 +154,6 @@ $ loopvec -json ./mypkg/
 {"file":"/path/to/mypkg/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop clauses (start, step, direction, or bound) do not match a supported shape"}
 ```
 
-`reason` is one of a small, fixed set of strings naming which stage of
-matching first rejected the loop (loop clauses, destination shape, body
-shape, operand shape, element type, or unsupported operation) — coarse by
-design, meant to say *why not* at a glance rather than pinpoint the exact
-AST node. A loop with no line in the output at all was never even
-considered a candidate (no indexed-assignment body found). This is what
-[tsvc/](tsvc/) uses to track loopvec's coverage against TSVC_2 as a checked-in,
-regression-tested baseline.
-
 ### As a `go tool` (Go 1.24+)
 
 Add `loopvec` as a tool dependency in your module:
