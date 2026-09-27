@@ -14,6 +14,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/format"
@@ -24,6 +25,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
+	"github.com/mauri870/loopvec/internal/analysis"
 	"github.com/mauri870/loopvec/internal/rewrite"
 )
 
@@ -31,6 +33,7 @@ var (
 	writeBack    = flag.Bool("w", false, "write result to source files in place")
 	splitMode    = flag.Bool("split", false, "write simd variant to file_simd.go and add //go:build !goexperiment.simd to original")
 	diffMode     = flag.Bool("d", false, "display unified diff instead of rewritten source")
+	jsonMode     = flag.Bool("json", false, "print one JSON line per candidate loop (file, line, func, vectorized, reason) instead of rewriting")
 	allowMethods = flag.Bool("methods", false, "rewrite loops inside methods (requires Go 1.28+ / gotip CL 839405 to avoid compiler crash)")
 )
 
@@ -78,7 +81,11 @@ func run(patterns []string) error {
 			hasErr = true
 			continue
 		}
-		if err := processPkg(fset, pkg, *allowMethods); err != nil {
+		process := processPkg
+		if *jsonMode {
+			process = processPkgJSON
+		}
+		if err := process(fset, pkg, *allowMethods); err != nil {
 			fmt.Fprintf(os.Stderr, "loopvec: %s: %v\n", pkg.ID, err)
 			hasErr = true
 		}
@@ -169,6 +176,45 @@ func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) e
 			}
 		default:
 			if _, err := os.Stdout.Write(result.Src); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// jsonCandidate is one line of -json output.
+type jsonCandidate struct {
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Func       string `json:"func"`
+	Vectorized bool   `json:"vectorized"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// processPkgJSON prints one JSON line per candidate loop in pkg to stdout:
+// every loop with at least an indexed-assignment body, whether or not it got
+// vectorized. Files with a build constraint are skipped, matching rewrite.File.
+func processPkgJSON(fset *token.FileSet, pkg *packages.Package, allowMethods bool) error {
+	info := pkg.TypesInfo
+	if info == nil {
+		return fmt.Errorf("no type info available")
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	for _, file := range pkg.Syntax {
+		if rewrite.HasBuildConstraint(file) {
+			continue
+		}
+		for _, c := range analysis.AnalyzeExplain(fset, file, info, allowMethods) {
+			line := jsonCandidate{
+				File:       c.File,
+				Line:       c.Line,
+				Func:       c.Func,
+				Vectorized: c.Vectorized,
+				Reason:     string(c.Reason),
+			}
+			if err := enc.Encode(line); err != nil {
 				return err
 			}
 		}

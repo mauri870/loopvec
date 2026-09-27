@@ -151,7 +151,11 @@ Order that actually works, based on adding reverse-loop support (`s1112`):
 7. **If a `tsvc/` kernel now gets rewritten**, that's the real correctness
    proof: run `make tsvc-test` and `make tsvc-test-qemu-arm64` and confirm
    the new rewrite is bit-exact against the existing golden on both amd64
-   and arm64. Update `tsvc/README.md`'s coverage table/count.
+   and arm64. Then run `make tsvc-coverage-update` — `TestCoverage` compares
+   `loopvec -json`'s output against `tsvc/testdata/coverage.txt` and fails
+   on *any* change, improvement or regression, so this is required, not
+   optional, once coverage moves. Update `tsvc/README.md`'s coverage
+   table/count too.
 8. **Re-run benchmarks last** (`make bench`, `make tsvc-bench`) and update
    README numbers. Watch for stale output: these targets redirect into fixed
    `/tmp/*.txt` paths, so a previous run that got killed can leave

@@ -41,7 +41,7 @@ type Options struct {
 // fset and file must correspond to the parsed src. info must have type
 // information populated for the file.
 func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opts Options) (Result, error) {
-	if !opts.Compiler && hasBuildConstraint(file) {
+	if !opts.Compiler && HasBuildConstraint(file) {
 		return Result{Src: src}, nil
 	}
 	loops := analysis.Analyze(file, info, opts.AllowMethods)
@@ -145,9 +145,9 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	return Result{Src: formatted, Rewrites: len(replacements)}, nil
 }
 
-// hasBuildConstraint reports whether file carries a //go:build or // +build
+// HasBuildConstraint reports whether file carries a //go:build or // +build
 // line before its package clause. Such files are left untouched.
-func hasBuildConstraint(file *ast.File) bool {
+func HasBuildConstraint(file *ast.File) bool {
 	for _, group := range file.Comments {
 		if group.Pos() >= file.Package {
 			break

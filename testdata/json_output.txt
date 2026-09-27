@@ -1,0 +1,51 @@
+# -json prints one JSON line per candidate loop: file, line, func, whether it
+# was vectorized, and (if not) why. Files with a build constraint and loops
+# with no indexed-assignment body at all are skipped entirely.
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func AddFloat32s(dst, a, b []float32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func Stride(dst, a []float32) {
+	for i := 1; i < len(dst); i += 2 {
+		dst[i] = a[i]
+	}
+}
+
+type T struct{}
+
+func (T) Neg(dst, src []float32) {
+	for i := range dst {
+		dst[i] = -src[i]
+	}
+}
+
+func NoLoop(x int) int {
+	return x + 1
+}
+-- guarded.go --
+//go:build !goexperiment.simd
+
+package test
+
+func Guarded(dst, a []float32) {
+	for i := range dst {
+		dst[i] = a[i]
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"AddFloat32s","vectorized":true}
+{"file":"$WORK/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop clauses (start, step, direction, or bound) do not match a supported shape"}
+{"file":"$WORK/ops.go","line":18,"func":"Neg","vectorized":false,"reason":"loops inside methods are skipped without -methods"}

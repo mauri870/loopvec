@@ -2,7 +2,7 @@ export GOTOOLCHAIN := go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build install test fix fmt lint ci bench bench-regen generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-bench test-update
+.PHONY: build install test fix fmt lint ci bench bench-regen generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-coverage-update tsvc-bench test-update
 
 test: build
 	go test ./... -count=1 -race
@@ -54,6 +54,12 @@ tsvc-test-qemu-arm64: generate build
 
 tsvc-update: generate
 	go test ./tsvc/ -run TestGolden -update
+
+# tsvc-coverage-update is deliberately separate from tsvc-update: a coverage
+# change (a kernel starting or stopping to vectorize) should be reviewed and
+# recorded on purpose, not folded into routine golden regeneration.
+tsvc-coverage-update: generate
+	go test -count=1 ./tsvc/ -run TestCoverage -update
 
 tsvc-bench: generate build
 	go test -run '^$$' -bench . -count=10 ./tsvc/ > /tmp/tsvc_bench_scalar.txt

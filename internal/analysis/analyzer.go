@@ -245,13 +245,13 @@ func Analyze(file *ast.File, info *types.Info, allowMethods bool) []Loop {
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			switch stmt := n.(type) {
 			case *ast.RangeStmt:
-				if l, ok := analyzeRange(stmt, info); ok &&
+				if l, ok := analyzeRange(stmt, info, nil); ok &&
 					simdSupportsOp(l.ElemType, l.Op) &&
 					(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
 					loops = append(loops, l)
 				}
 			case *ast.ForStmt:
-				if l, ok := analyzeFor(stmt, info); ok &&
+				if l, ok := analyzeFor(stmt, info, nil); ok &&
 					simdSupportsOp(l.ElemType, l.Op) &&
 					(!l.IsExprTree || simdSupportsOp(l.ElemType, l.Op2)) {
 					loops = append(loops, l)
@@ -271,10 +271,11 @@ func Analyze(file *ast.File, info *types.Info, allowMethods bool) []Loop {
 //	for i := range dst { dst[i] op= scalar }
 //	for i := range dst { dst[i] = constant }   (fill broadcast)
 //	for i, v := range src { dst[i] = v op scalar }  (two-variable range)
-func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
+func analyzeRange(stmt *ast.RangeStmt, info *types.Info, why *reasonSink) (Loop, bool) {
 	// Key must be an identifier.
 	keyIdent, ok := stmt.Key.(*ast.Ident)
 	if !ok {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	// Value may be absent, blank, or a named variable (two-variable range).
@@ -282,6 +283,7 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 	if stmt.Value != nil {
 		ident, ok := stmt.Value.(*ast.Ident)
 		if !ok {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		if ident.Name != "_" {
@@ -293,12 +295,13 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 	rangeIdent, isIdent := stmt.X.(*ast.Ident)
 	if !isIdent || !isSlice(rangeIdent, info) {
 		if stmt.Value != nil {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
-		return analyzeBounded(stmt, nil, keyIdent.Name, stmt.X, stmt.Body, info)
+		return analyzeBounded(stmt, nil, keyIdent.Name, stmt.X, stmt.Body, info, why)
 	}
 
-	loop, ok := analyzeBody(stmt, nil, keyIdent.Name, rangeIdent, valueVar, stmt.Body, info)
+	loop, ok := analyzeBody(stmt, nil, keyIdent.Name, rangeIdent, valueVar, stmt.Body, info, why)
 	return limitedBySlice(loop, ok, rangeIdent.Name)
 }
 
@@ -313,45 +316,53 @@ func analyzeRange(stmt *ast.RangeStmt, info *types.Info) (Loop, bool) {
 // written at exactly index i, so different iterations never touch the same
 // element and the direction cannot change the result. The rewritten loop
 // always runs forward regardless of which form matched.
-func analyzeFor(stmt *ast.ForStmt, info *types.Info) (Loop, bool) {
+func analyzeFor(stmt *ast.ForStmt, info *types.Info, why *reasonSink) (Loop, bool) {
 	if stmt.Init == nil || stmt.Cond == nil || stmt.Post == nil {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	initAssign, ok := stmt.Init.(*ast.AssignStmt)
 	if !ok || initAssign.Tok != token.DEFINE || len(initAssign.Lhs) != 1 || len(initAssign.Rhs) != 1 {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	indexIdent, ok := initAssign.Lhs[0].(*ast.Ident)
 	if !ok {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	cond, ok := stmt.Cond.(*ast.BinaryExpr)
 	if !ok {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	condLhs, ok := cond.X.(*ast.Ident)
 	if !ok || condLhs.Name != indexIdent.Name {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 
 	if lit, ok := initAssign.Rhs[0].(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.LSS {
-		return analyzeForForward(stmt, indexIdent.Name, cond.Y, info)
+		return analyzeForForward(stmt, indexIdent.Name, cond.Y, info, why)
 	}
 	if lit, ok := cond.Y.(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.GEQ {
-		return analyzeForReverse(stmt, indexIdent.Name, initAssign.Rhs[0], info)
+		return analyzeForReverse(stmt, indexIdent.Name, initAssign.Rhs[0], info, why)
 	}
+	why.set(ReasonUnsupportedClauses)
 	return Loop{}, false
 }
 
 // analyzeForForward handles for i := 0; i < limit; i++, where limit is
 // either len(slice) or an integer expression.
-func analyzeForForward(stmt *ast.ForStmt, indexName string, limit ast.Expr, info *types.Info) (Loop, bool) {
+func analyzeForForward(stmt *ast.ForStmt, indexName string, limit ast.Expr, info *types.Info, why *reasonSink) (Loop, bool) {
 	incStmt, ok := stmt.Post.(*ast.IncDecStmt)
 	if !ok || incStmt.Tok != token.INC {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	incIdent, ok := incStmt.X.(*ast.Ident)
 	if !ok || incIdent.Name != indexName {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 
@@ -359,55 +370,64 @@ func analyzeForForward(stmt *ast.ForStmt, indexName string, limit ast.Expr, info
 	if lenCall, ok := limit.(*ast.CallExpr); ok {
 		lenIdent, ok := lenCall.Fun.(*ast.Ident)
 		if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		sliceIdent, ok = lenCall.Args[0].(*ast.Ident)
 		if !ok {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 	}
 
 	if sliceIdent == nil {
-		return analyzeBounded(nil, stmt, indexName, limit, stmt.Body, info)
+		return analyzeBounded(nil, stmt, indexName, limit, stmt.Body, info, why)
 	}
-	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info)
+	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info, why)
 	return limitedBySlice(loop, ok, sliceIdent.Name)
 }
 
 // analyzeForReverse handles for i := len(s) - 1; i >= 0; i--.
-func analyzeForReverse(stmt *ast.ForStmt, indexName string, initExpr ast.Expr, info *types.Info) (Loop, bool) {
+func analyzeForReverse(stmt *ast.ForStmt, indexName string, initExpr ast.Expr, info *types.Info, why *reasonSink) (Loop, bool) {
 	decStmt, ok := stmt.Post.(*ast.IncDecStmt)
 	if !ok || decStmt.Tok != token.DEC {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	decIdent, ok := decStmt.X.(*ast.Ident)
 	if !ok || decIdent.Name != indexName {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 
 	// i := len(s) - 1
 	sub, ok := initExpr.(*ast.BinaryExpr)
 	if !ok || sub.Op != token.SUB {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	oneLit, ok := sub.Y.(*ast.BasicLit)
 	if !ok || oneLit.Value != "1" {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	lenCall, ok := sub.X.(*ast.CallExpr)
 	if !ok {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	lenIdent, ok := lenCall.Fun.(*ast.Ident)
 	if !ok || lenIdent.Name != "len" || len(lenCall.Args) != 1 {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	sliceIdent, ok := lenCall.Args[0].(*ast.Ident)
 	if !ok {
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 
-	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info)
+	loop, ok := analyzeBody(nil, stmt, indexName, sliceIdent, "", stmt.Body, info, why)
 	return limitedBySlice(loop, ok, sliceIdent.Name)
 }
 
@@ -436,34 +456,40 @@ func limitedBySlice(loop Loop, ok bool, bounds string) (Loop, bool) {
 // slice length: for i := 0; i < n; i++ and for i := range n. The limit must be
 // a variable of type int or a positive integer constant, so it is the same
 // value every time the loop condition would evaluate it.
-func analyzeBounded(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, limit ast.Expr, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+func analyzeBounded(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, limit ast.Expr, body *ast.BlockStmt, info *types.Info, why *reasonSink) (Loop, bool) {
 	isConst := false
 	switch expr := limit.(type) {
 	case *ast.BasicLit:
 		if expr.Kind != token.INT {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		isConst = true
 	case *ast.Ident:
 		tv, ok := info.Types[expr]
 		if !ok || expr.Name == indexVar {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		basic, ok := tv.Type.(*types.Basic)
 		if !ok || (basic.Kind() != types.Int && basic.Kind() != types.UntypedInt) {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		isConst = tv.Value != nil
 	default:
+		why.set(ReasonUnsupportedClauses)
 		return Loop{}, false
 	}
 	if isConst {
 		tv, ok := info.Types[limit]
 		if !ok || tv.Value == nil {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 		n, exact := constant.Int64Val(tv.Value)
 		if !exact || n <= 0 {
+			why.set(ReasonUnsupportedClauses)
 			return Loop{}, false
 		}
 	}
@@ -472,9 +498,10 @@ func analyzeBounded(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar str
 	// destination.
 	dst := destinationIdent(body)
 	if dst == nil {
+		why.set(ReasonUnsupportedDestination)
 		return Loop{}, false
 	}
-	loop, ok := analyzeBody(rangeStmt, forStmt, indexVar, dst, "", body, info)
+	loop, ok := analyzeBody(rangeStmt, forStmt, indexVar, dst, "", body, info, why)
 	if !ok {
 		return Loop{}, false
 	}
@@ -626,13 +653,14 @@ func tryExprTree(binExpr *ast.BinaryExpr, indexVar string, proto Loop) (Loop, bo
 // analyzeBody checks the loop body for vectorizable assignments and rejects
 // loops whose broadcast scalars depend on the index or range value variable,
 // since those change per iteration and cannot be hoisted.
-func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
-	loop, ok := analyzeBodyShape(rangeStmt, forStmt, indexVar, boundsIdent, valueVar, body, info)
+func analyzeBody(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info, why *reasonSink) (Loop, bool) {
+	loop, ok := analyzeBodyShape(rangeStmt, forStmt, indexVar, boundsIdent, valueVar, body, info, why)
 	if !ok {
 		return Loop{}, false
 	}
 	for _, scalar := range []ast.Expr{loop.Scalar, loop.Scalar2} {
 		if scalar != nil && refersTo(scalar, indexVar, valueVar) {
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		}
 	}
@@ -658,9 +686,10 @@ func refersTo(expr ast.Expr, names ...string) bool {
 // analyzeBodyShape matches the loop body against the supported statement shapes.
 // boundsIdent is the identifier node for the slice that determines the loop bounds (used for type lookup).
 // valueVar is the range value variable name (e.g. "v" in "for i, v := range src"), or "".
-func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info) (Loop, bool) {
+func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar string, boundsIdent *ast.Ident, valueVar string, body *ast.BlockStmt, info *types.Info, why *reasonSink) (Loop, bool) {
 	boundsSlice := boundsIdent.Name
 	if len(body.List) != 1 {
+		why.set(ReasonUnsupportedBody)
 		return Loop{}, false
 	}
 
@@ -672,6 +701,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 
 	assignStmt, ok := body.List[0].(*ast.AssignStmt)
 	if !ok || len(assignStmt.Lhs) != 1 || len(assignStmt.Rhs) != 1 {
+		why.set(ReasonUnsupportedBody)
 		return Loop{}, false
 	}
 
@@ -690,6 +720,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 	if assignStmt.Tok == token.ASSIGN {
 		lhsIndex, ok := asSliceIndex(assignStmt.Lhs[0], indexVar)
 		if !ok {
+			why.set(ReasonUnsupportedDestination)
 			return Loop{}, false
 		}
 		loop.DstSlice = lhsIndex
@@ -699,6 +730,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			if depth2, ok := tryExprTree(binExpr, indexVar, loop); ok {
 				elemType, ok := resolveSliceElemType(boundsIdent, info)
 				if !ok || simdElemType(elemType) == "" {
+					why.set(ReasonUnsupportedType)
 					return Loop{}, false
 				}
 				depth2.ElemType = elemType
@@ -708,6 +740,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			// dst[i] = X op Y where X/Y may be slice[i] or range value var or scalar
 			op, ok := tokenOpToLoopOp(binExpr.Op)
 			if !ok {
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 			loop.Op = op
@@ -717,6 +750,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			} else if src1, ok := asValueVar(binExpr.X); ok {
 				loop.Src1Slice = src1
 			} else {
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 
@@ -729,18 +763,22 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			}
 		} else if _, isSliceIdx := asSliceIndex(assignStmt.Rhs[0], indexVar); isSliceIdx {
 			// dst[i] = src[i]  (plain copy — skip for now)
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		} else if _, isValueVar := asValueVar(assignStmt.Rhs[0]); isValueVar {
 			// dst[i] = v  (range value copy — skip for now)
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		} else if ident, ok := assignStmt.Rhs[0].(*ast.Ident); ok && ident.Name == indexVar {
 			// dst[i] = i  (index fill — not a constant, skip)
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		} else if lit, ok := assignStmt.Rhs[0].(*ast.BasicLit); ok {
 			// dst[i] = literal constant  (fill broadcast; Src1Slice left empty).
 			// The compiler already turns a zero fill into memclr, which beats a
 			// vector loop, so only non-zero fills are rewritten.
 			if isZeroConstant(lit, info) {
+				why.set(ReasonZeroFillSkipped)
 				return Loop{}, false
 			}
 			loop.Scalar = lit
@@ -753,10 +791,12 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			case token.XOR:
 				unaryOp = OpNot
 			default:
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 			src, ok := asSliceIndex(unaryExpr.X, indexVar)
 			if !ok {
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 			loop.Src1Slice = src
@@ -764,18 +804,21 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			loop.IsUnary = true
 		} else {
 			// Complex or non-constant expression — skip
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		}
 	} else {
 		// dst[i] op= src[i]  or  dst[i] op= scalar
 		op, ok := tokenOpToLoopOp(assignStmt.Tok)
 		if !ok {
+			why.set(ReasonUnsupportedOperand)
 			return Loop{}, false
 		}
 		loop.Op = op
 
 		lhsSlice, ok := asSliceIndex(assignStmt.Lhs[0], indexVar)
 		if !ok {
+			why.set(ReasonUnsupportedDestination)
 			return Loop{}, false
 		}
 		loop.DstSlice = lhsSlice
@@ -797,10 +840,12 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			}
 			depth2, ok2 := buildExprTree(binRHS, assignStmt.Lhs[0], op, innerOnRight, indexVar, loop)
 			if !ok2 {
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 			elemType2, ok2 := resolveSliceElemType(boundsIdent, info)
 			if !ok2 || simdElemType(elemType2) == "" {
+				why.set(ReasonUnsupportedType)
 				return Loop{}, false
 			}
 			depth2.ElemType = elemType2
@@ -812,6 +857,7 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 			case *ast.BasicLit, *ast.Ident:
 				loop.Scalar = assignStmt.Rhs[0]
 			default:
+				why.set(ReasonUnsupportedOperand)
 				return Loop{}, false
 			}
 		}
@@ -821,9 +867,11 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 	// false matches when multiple functions have same-named slices of different types.
 	elemType, ok := resolveSliceElemType(boundsIdent, info)
 	if !ok {
+		why.set(ReasonUnsupportedType)
 		return Loop{}, false
 	}
 	if simdElemType(elemType) == "" {
+		why.set(ReasonUnsupportedType)
 		return Loop{}, false
 	}
 	loop.ElemType = elemType
@@ -832,10 +880,12 @@ func analyzeBodyShape(rangeStmt *ast.RangeStmt, forStmt *ast.ForStmt, indexVar s
 		switch loop.Op {
 		case OpNeg:
 			if !negSupported(elemType) {
+				why.set(ReasonUnsupportedOp)
 				return Loop{}, false
 			}
 		case OpNot:
 			if !notSupported(elemType) {
+				why.set(ReasonUnsupportedOp)
 				return Loop{}, false
 			}
 		}
