@@ -93,6 +93,18 @@ just in the function using it, raising cost and variance program-wide. This
 is a real cost of the SIMD experiment as it stands today, not an artifact of
 this benchmark.
 
+Running each kernel's benchmark in its own process doesn't help: `s111`
+alone, filtered away from `s000`, is still slow, because the compiled test
+binary still contains `s000`'s rewritten SIMD code — all 10 kernels live in
+one file and compile into one package. Actually isolating them would mean
+splitting the SIMD-touched kernel into its own package, away from the
+scalar ones, which fights the point of this package (one file, TSVC_2
+source order) and would hide a real signal: any real program that runs
+`loopvec -toolexec` and vectorizes even a single hot loop pays this cost
+across its whole binary. Left as measured rather than engineered around;
+worth reporting upstream against Go's SIMD experiment rather than fixing
+here.
+
 ## Generated code
 
 `Kernels`, the table driving the tests, is generated from the
