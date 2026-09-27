@@ -68,7 +68,8 @@ place, so it's never fused — it just doesn't get vectorized.
 
 ## Performance
 
-Synthetic benchmarks from [bench/](bench/) on an AMD Ryzen 9 9950X3D (AVX-512) show **~4.6x faster**.
+Synthetic benchmarks from [bench/](bench/) on an AMD Ryzen 9 9950X3D (AVX-512) show **~4.6x faster**,
+ranging from 2.3x to 30x depending on the kernel
 
 <details>
 <summary>bench.txt</summary>
