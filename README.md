@@ -1,15 +1,15 @@
 # loopvec
 
 `loopvec` analyzes Go source packages and rewrites element-wise loops to use Go's
-experimental [simd](https://pkg.go.dev/simd) package for automatic SIMD
-vectorization. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
+experimental [simd](https://pkg.go.dev/simd) package for **automatic SIMD
+vectorization**. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
 
 Go blog post: https://go.dev/blog/simd-experiment
 
 ## What it detects
 
 The tool recognizes these loop shapes and rewrites them to use portable SIMD
-operations that lower to AVX-512/AVX2/NEON depending on the target CPU:
+operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 
 <details>
 <summary>Patterns</summary>
@@ -46,7 +46,7 @@ which is faster than a vector loop.
 
 ## Performance
 
-Synthetic benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a 78% speedup, resulting in a 4.56x throughput increase.
+Synthetic benchmarks from [bench/](bench/) on AMD Ryzen 9 9950X3D (AVX-512) show a **78% speedup**, resulting in a **4.56x throughput increase**.
 
 <details>
 <summary>bench.txt</summary>
@@ -134,7 +134,7 @@ geomean                                 33.32Gi           151.9Gi        +355.77
 
 
 Running `loopvec -methods -split` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
-detects 176 vectorizable loops, yielding a ~71% speedup on a AMD Ryzen 9 9950X3D (AVX-512):
+detects 176 vectorizable loops, yielding a **~71% speedup** on a AMD Ryzen 9 9950X3D (AVX-512):
 
 <details>
 <summary>bench.txt</summary>
