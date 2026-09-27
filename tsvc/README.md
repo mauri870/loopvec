@@ -79,13 +79,19 @@ Kernels/s1115-32                  49.30µ ± 2%    62.05µ ± 16%   +25.88% (p=0
 geomean                           9.738µ         12.19µ         +25.15%
 ```
 
-s000 is the only kernel loopvec rewrites, and it's the only one with a real,
-large win. The rest run unchanged scalar code; their swings (up to ±60%) are
-noise, not a regression — these kernels run in a few microseconds, so they're
-dominated by loop and benchmark-harness overhead, not by anything loopvec
-changed. Re-running with a higher `-count` on an idle machine narrows the
-spread but doesn't change the story: nothing to see until loopvec rewrites
-more of these loops.
+s000 is the only kernel loopvec rewrites, and it's the only one with a real
+win. The rest are unchanged scalar source, yet they're both slower and far
+noisier here (up to ±60%) than the same code compiled without `-toolexec`
+(±1-5%) — that's not measurement noise. Isolating each factor: `GOEXPERIMENT=simd`
+alone, with nothing ever rewritten, costs almost nothing; the slowdown and
+jitter appear specifically once something in the binary is actually rewritten
+into SIMD (`s000` here), and hit every kernel in the process, not just the
+one touched. The likely cause is Go's runtime: once any code in a binary
+uses the wider vector registers, goroutine preemption's signal-based
+register save/restore has to account for that wider state everywhere, not
+just in the function using it, raising cost and variance program-wide. This
+is a real cost of the SIMD experiment as it stands today, not an artifact of
+this benchmark.
 
 ## Generated code
 
