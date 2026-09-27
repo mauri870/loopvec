@@ -274,5 +274,8 @@ The test suite builds the real `loopvec` binary and drives it with
 the same approach used by `go` command tests.
 
 ```sh
-GOTOOLCHAIN=go1.27.1 go test -count=1 ./...
+make test
 ```
+
+[tsvc/](tsvc/) is a Go port of the [TSVC_2](https://github.com/UoB-HPC/TSVC_2)
+vectorizer kernel suite. It exists to test rewrites, and a correctness gate for drift in the scalar vs SIMD build. See [tsvc/README.md](tsvc/README.md).
