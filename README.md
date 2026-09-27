@@ -277,4 +277,4 @@ make test
 ```
 
 [tsvc/](tsvc/) is a Go port of the [TSVC_2](https://github.com/UoB-HPC/TSVC_2)
-vectorizer kernel suite. It exists to test rewrites, and a correctness gate for drift in the scalar vs SIMD build. See [tsvc/README.md](tsvc/README.md).
+vectorizer kernel suite. It exists to test rewrites, and as a guardrail for drifts in the scalar vs SIMD builds. See [tsvc/README.md](tsvc/README.md).
