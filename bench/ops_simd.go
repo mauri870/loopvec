@@ -23,31 +23,31 @@ func MulFloat32s(dst, a, b []float32) {
 }
 
 func ScalFloat32s(x []float32, c float32) {
-	_vcFloat32s := simd.BroadcastFloat32s(c)
+	_vcFloat32s2 := simd.BroadcastFloat32s(c)
 	for _i := 0; _i < len(x); {
 		_v1, _n := simd.LoadFloat32sPart(x[_i:])
-		_v1.Mul(_vcFloat32s).StorePart(x[_i:])
+		_v1.Mul(_vcFloat32s2).StorePart(x[_i:])
 		_i += _n
 	}
 }
 
 func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
-	_vcAFloat32s := simd.BroadcastFloat32s(alpha)
+	_vcAFloat32s3 := simd.BroadcastFloat32s(alpha)
 	for _i := 0; _i < len(dst); {
 		_v1, _n := simd.LoadFloat32sPart(a[_i:])
 		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.MulAdd(_vcAFloat32s, _v2).StorePart(dst[_i:])
+		_v1.MulAdd(_vcAFloat32s3, _v2).StorePart(dst[_i:])
 		_i += _n
 	}
 }
 
 func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
-	_vcAFloat32s := simd.BroadcastFloat32s(alpha)
-	_vcBFloat32s := simd.BroadcastFloat32s(beta)
+	_vcAFloat32s4 := simd.BroadcastFloat32s(alpha)
+	_vcBFloat32s4 := simd.BroadcastFloat32s(beta)
 	for _i := 0; _i < len(dst); {
 		_v1, _n := simd.LoadFloat32sPart(a[_i:])
 		_v2, _ := simd.LoadFloat32sPart(b[_i:])
-		_v1.MulAdd(_vcAFloat32s, _v2.Mul(_vcBFloat32s)).StorePart(dst[_i:])
+		_v1.MulAdd(_vcAFloat32s4, _v2.Mul(_vcBFloat32s4)).StorePart(dst[_i:])
 		_i += _n
 	}
 }
@@ -70,27 +70,36 @@ func DivFloat32s(dst, a, b []float32) {
 }
 
 func DaxpyFloat32s(dst, a []float32, alpha float32) {
-	_vcAFloat32s := simd.BroadcastFloat32s(alpha)
+	_vcAFloat32s7 := simd.BroadcastFloat32s(alpha)
 	for _i := 0; _i < len(dst); {
 		_v1, _n := simd.LoadFloat32sPart(a[_i:])
 		_v2, _ := simd.LoadFloat32sPart(dst[_i:])
-		_v1.MulAdd(_vcAFloat32s, _v2).StorePart(dst[_i:])
+		_v1.MulAdd(_vcAFloat32s7, _v2).StorePart(dst[_i:])
 		_i += _n
 	}
 }
 
 func FillFloat32s(dst []float32) {
-	_vcFloat32s := simd.BroadcastFloat32s(2.5)
+	_vcFloat32s8 := simd.BroadcastFloat32s(2.5)
 	for _i := 0; _i < len(dst); {
-		_n := _vcFloat32s.StorePart(dst[_i:])
+		_n := _vcFloat32s8.StorePart(dst[_i:])
 		_i += _n
 	}
 }
 
 func FillUint8s(dst []byte) {
-	_vcUint8s := simd.BroadcastUint8s(7)
+	_vcUint8s9 := simd.BroadcastUint8s(7)
 	for _i := 0; _i < len(dst); {
-		_n := _vcUint8s.StorePart(dst[_i:])
+		_n := _vcUint8s9.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func ReverseIncFloat32s(dst, src []float32) {
+	_vcFloat32s10 := simd.BroadcastFloat32s(1)
+	for _i := 0; _i < len(dst); {
+		_v1, _n := simd.LoadFloat32sPart(src[_i:])
+		_v1.Add(_vcFloat32s10).StorePart(dst[_i:])
 		_i += _n
 	}
 }

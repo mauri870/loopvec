@@ -34,8 +34,8 @@ ci: test tsvc-test tsvc-test-qemu-arm64
 	$(MAKE) lint
 
 bench:
-	go test -bench=. -count=10 ./bench/ > /tmp/bench_scalar.txt
-	GOEXPERIMENT=simd go test -bench=. -count=10 ./bench/ > /tmp/bench_simd.txt
+	go test -bench=. -benchtime=100ms -count=10 ./bench/ > /tmp/bench_scalar.txt
+	GOEXPERIMENT=simd go test -bench=. -benchtime=100ms -count=10 ./bench/ > /tmp/bench_simd.txt
 	benchstat /tmp/bench_scalar.txt /tmp/bench_simd.txt
 
 bench-regen: build

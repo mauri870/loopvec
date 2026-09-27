@@ -61,3 +61,9 @@ func FillUint8s(dst []byte) {
 		dst[i] = 7
 	}
 }
+
+func ReverseIncFloat32s(dst, src []float32) {
+	for i := len(dst) - 1; i >= 0; i-- {
+		dst[i] = src[i] + 1
+	}
+}

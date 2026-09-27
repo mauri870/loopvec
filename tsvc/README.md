@@ -63,26 +63,27 @@ Baseline on AMD Ryzen 9 9950X3D (AVX-512), scalar vs. SIMD:
 
 ```
                  │ /tmp/tsvc_bench_scalar.txt │        /tmp/tsvc_bench_simd.txt        │
-                 │           sec/op           │    sec/op      vs base                 │
-Kernels/s000-32                   6.646µ ± 3%    1.259µ ±  2%   -81.05% (p=0.000 n=10)
-Kernels/s111-32                   5.823µ ± 2%    8.490µ ± 38%   +45.81% (p=0.000 n=10)
-Kernels/s1111-32                  8.818µ ± 4%   15.124µ ± 60%   +71.51% (p=0.000 n=10)
-Kernels/s112-32                   6.227µ ± 4%   13.953µ ± 36%  +124.08% (p=0.000 n=10)
-Kernels/s1112-32                  6.680µ ± 5%   12.678µ ± 26%   +89.80% (p=0.000 n=10)
-Kernels/s113-32                   6.893µ ± 1%   12.649µ ± 39%   +83.51% (p=0.000 n=10)
-Kernels/s1113-32                  6.480µ ± 5%    9.831µ ± 24%   +51.71% (p=0.000 n=10)
-Kernels/s114-32                   20.15µ ± 1%    23.38µ ± 10%   +16.02% (p=0.000 n=10)
-Kernels/s115-32                   12.18µ ± 2%    14.01µ ± 36%   +15.00% (p=0.000 n=10)
-Kernels/s1115-32                  49.30µ ± 2%    62.05µ ± 16%   +25.88% (p=0.000 n=10)
-geomean                           9.738µ         12.19µ         +25.15%
+                 │           sec/op           │     sec/op      vs base                │
+Kernels/s000-32                   7.532µ ± 4%    1.343µ ±   5%  -82.18% (p=0.000 n=10)
+Kernels/s111-32                   6.012µ ± 4%    6.582µ ±  20%        ~ (p=0.393 n=10)
+Kernels/s1111-32                  9.025µ ± 3%   13.886µ ±  36%  +53.88% (p=0.000 n=10)
+Kernels/s112-32                   7.002µ ± 9%    7.827µ ± 244%  +11.78% (p=0.009 n=10)
+Kernels/s1112-32                  7.203µ ± 4%    1.272µ ±  28%  -82.35% (p=0.000 n=10)
+Kernels/s113-32                   7.178µ ± 7%   11.520µ ±  57%  +60.48% (p=0.000 n=10)
+Kernels/s1113-32                  6.708µ ± 6%   12.811µ ±  30%  +90.97% (p=0.000 n=10)
+Kernels/s114-32                   20.84µ ± 7%    24.07µ ±  17%  +15.53% (p=0.000 n=10)
+Kernels/s115-32                   12.31µ ± 5%    17.20µ ±  56%  +39.69% (p=0.000 n=10)
+Kernels/s1115-32                  50.30µ ± 2%    64.19µ ±  27%  +27.62% (p=0.023 n=10)
+geomean                           10.25µ         9.290µ          -9.37%
 ```
 
-s000 is the only kernel loopvec rewrites, and it's the only one with a real
-win. The rest are unchanged scalar source, yet they're both slower and far
-noisier here (up to ±60%) than the same code built without `GOEXPERIMENT=simd`
-(±1-5%). This seems to be an effect of the runtime saving the full register file
-for every preemption of every goroutine in the process, regardless of whether
-anything calls into SIMD. 
+s000 and s1112 are the two kernels loopvec rewrites, and they're the only
+ones with a real win (both around -82%). The rest are unchanged scalar
+source, yet they're both slower and far noisier here (up to ±244%) than the
+same code built without `GOEXPERIMENT=simd` (±1-9%). This seems to be an
+effect of the runtime saving the full register file for every preemption of
+every goroutine in the process, regardless of whether anything calls into
+SIMD.
 
 `GODEBUG=asyncpreemptoff=1` recovers most of the regression, which heavily indicates
 that async preemption might be the culprint.

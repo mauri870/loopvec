@@ -157,3 +157,17 @@ func BenchmarkFillUint8s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkReverseIncFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			src := make([]float32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ReverseIncFloat32s(dst, src)
+			}
+		})
+	}
+}
