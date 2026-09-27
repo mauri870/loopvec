@@ -128,8 +128,7 @@ func updateScripts(t *testing.T, env []string, binary, toolexec, pattern string)
 			if log.Len() > 0 {
 				t.Log(strings.TrimSuffix(log.String(), "\n"))
 			}
-			var skip skipUpdateError
-			if errors.As(runErr, &skip) {
+			if skip, ok := errors.AsType[skipUpdateError](runErr); ok {
 				if skip.msg == "" {
 					t.Skip("SKIP")
 				} else {
