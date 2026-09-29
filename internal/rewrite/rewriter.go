@@ -10,13 +10,13 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-	"regexp"
 	"sort"
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
 
 	"github.com/mauri870/loopvec/internal/analysis"
+	"github.com/mauri870/loopvec/internal/loopir"
 )
 
 // Result holds the rewritten file source.
@@ -44,8 +44,8 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	if !opts.Compiler && HasBuildConstraint(file) {
 		return Result{Src: src}, nil
 	}
-	loops := analysis.Analyze(file, info, opts.AllowMethods)
-	if len(loops) == 0 {
+	plans := analysis.Analyze(file, info, opts.AllowMethods)
+	if len(plans) == 0 {
 		return Result{Src: src}, nil
 	}
 
@@ -64,30 +64,25 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	}
 	needsOverlapHelper := false
 
-	for _, loop := range loops {
-		var stmtNode ast.Node
-		if loop.RangeStmt != nil {
-			stmtNode = loop.RangeStmt
-		} else {
-			stmtNode = loop.ForStmt
-		}
+	for _, plan := range plans {
+		stmtNode := plan.Loop.Node
 
-		repl, pre, err := generateReplacement(loop, fset, info, len(replacements))
+		repl, pre, err := generateReplacement(plan, fset, len(replacements))
 		if err != nil {
 			continue
 		}
 
-		// Distinctly-named slices sharing a caller's backing array with
-		// DstSlice can overlap it at an offset (dst == src[1:], say), which
+		// Distinctly-named slices sharing a caller's backing array with the
+		// destination can overlap it at an offset (dst == src[1:], say), which
 		// the vectorized loop's block-at-a-time loads/stores does not
 		// preserve the scalar loop's element-by-element order for. Guard
 		// with a runtime check and fall back to the original scalar loop
 		// when any pair could overlap, the same way LLVM/GCC/HotSpot's own
 		// vectorizers version a loop on an unprovable aliasing check rather
 		// than require static proof. See AGENTS.md's correctness gaps.
-		if others := otherSlices(loop); len(others) > 0 {
+		if len(plan.Others) > 0 {
 			origStart, origEnd := tf.Offset(stmtNode.Pos()), tf.Offset(stmtNode.End())
-			repl = wrapWithOverlapCheck(loop, others, string(src[origStart:origEnd]), repl)
+			repl = wrapWithOverlapCheck(plan, string(src[origStart:origEnd]), repl)
 			needsOverlapHelper = true
 		}
 
@@ -185,85 +180,19 @@ func HasBuildConstraint(file *ast.File) bool {
 	return false
 }
 
-// generateReplacement returns (loopText, preText, error) for a vectorizable loop.
-// preText is optional code to insert before the loop (e.g., broadcast variable).
-// idx is a per-file unique counter used to avoid name collisions when multiple
-// broadcast variables are declared in the same function scope.
-func generateReplacement(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {
-	text, pre, err := generateLoop(loop, fset, info, idx)
-	if err != nil {
-		return "", "", err
-	}
-	return applyBound(loop, text), pre, nil
-}
-
-// applyBound limits a generated loop to loop.Bound, or to len(DstSlice) when
-// Bound is empty. The generators emit a loop that slices every operand from
-// _i with no upper limit; with an explicit bound each operand is capped to
-// it too. Either way, every OTHER slice's length is checked against the
-// bound before the loop runs, so a slice shorter than the bound still
-// panics with an index error, as the original loop would, instead of the
-// simd load silently returning a short, zero-padded partial result. DstSlice
-// itself needs that check only in the explicit-bound case: in the default
-// case len(DstSlice) already is the bound, so it trivially satisfies it.
-func applyBound(loop analysis.Loop, text string) string {
-	bound := loop.Bound
-	explicit := bound != ""
-	if !explicit {
-		bound = "len(" + loop.DstSlice + ")"
-	} else {
-		text = strings.Replace(text, "_i < len("+loop.DstSlice+"); {", "_i < "+bound+"; {", 1)
-	}
-
-	var checks strings.Builder
-	for _, name := range loop.Slices() {
-		if explicit {
-			operand := regexp.MustCompile(`([\s(,])` + regexp.QuoteMeta(name) + `\[_i:\]`)
-			text = operand.ReplaceAllString(text, "${1}"+name+"[_i:"+bound+"]")
-		} else if name == loop.DstSlice {
-			continue
-		}
-		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", name, bound)
-	}
-	if checks.Len() == 0 {
-		return text
-	}
-	if loop.BoundIsConst {
-		return checks.String() + text
-	}
-	return "if " + bound + " > 0 {\n" + checks.String() + text + "\n}"
-}
-
-// otherSlices returns the distinctly-named slices in loop besides DstSlice
-// itself. A non-empty result means DstSlice could alias one of them at an
-// offset if the caller passes overlapping slices, which the generated loop
-// needs a runtime check for.
-func otherSlices(loop analysis.Loop) []string {
-	var out []string
-	seen := map[string]bool{loop.DstSlice: true}
-	for _, name := range []string{loop.Src1Slice, loop.Src2Slice, loop.Src3Slice} {
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, name)
-	}
-	return out
-}
-
 // wrapWithOverlapCheck guards simdText behind a runtime check that
-// DstSlice's backing memory doesn't overlap any of others, falling back to
+// the destination's backing memory doesn't overlap any of plan.Others, falling back to
 // origText (the loop's own original source) when it might. This is the
 // same technique LLVM, GCC, and (since 2025) HotSpot's C2 use for loops
 // they can't statically prove don't alias: a bounded runtime check plus a
 // scalar fallback, not a static proof requirement.
-func wrapWithOverlapCheck(loop analysis.Loop, others []string, origText, simdText string) string {
+func wrapWithOverlapCheck(plan *loopir.Plan, origText, simdText string) string {
 	var cond strings.Builder
-	for i, name := range others {
+	for i, other := range plan.Others {
 		if i > 0 {
 			cond.WriteString(" || ")
 		}
-		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", loop.DstSlice, name)
+		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", plan.Dst.Name, other.Name)
 	}
 	return "if " + cond.String() + " {\n" + origText + "\n} else {\n" + simdText + "\n}"
 }
@@ -290,182 +219,6 @@ func ensureOverlapHelper(src []byte) []byte {
 		return src
 	}
 	return append(src, []byte(overlapHelperSrc)...)
-}
-
-func generateLoop(loop analysis.Loop, fset *token.FileSet, info *types.Info, idx int) (string, string, error) {
-	simdType := loop.SimdTypeName()
-	if simdType == "" {
-		return "", "", fmt.Errorf("unsupported element type")
-	}
-	loadFn := "Load" + simdType + "Part"
-	broadcastFn := "Broadcast" + simdType
-
-	if loop.IsExprTree {
-		return generateExprTree(loop, fset, simdType, loadFn, broadcastFn, idx)
-	}
-
-	if loop.IsUnary {
-		return generateUnary(loop, simdType, loadFn)
-	}
-
-	opMethod := loop.OpMethod()
-
-	var loopBuf bytes.Buffer
-	var preBuf bytes.Buffer
-
-	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
-
-	vcName := fmt.Sprintf("_vc%s%d", simdType, idx)
-
-	if loop.Scalar != nil && loop.Src1Slice == "" {
-		// Fill broadcast: dst[i] = constant
-		var scalarBuf bytes.Buffer
-		if err := format.Node(&scalarBuf, fset, loop.Scalar); err != nil {
-			return "", "", err
-		}
-		scalarText := scalarBuf.String()
-
-		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", vcName, broadcastFn, scalarText)
-
-		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_n := %s.StorePart(%s[_i:])\n", vcName, loop.DstSlice)
-		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-		fmt.Fprint(&loopBuf, "}")
-	} else if loop.Scalar != nil {
-		// Scalar broadcast with load: dst[i] op= scalar  or  dst[i] = src[i] op scalar
-		var scalarBuf bytes.Buffer
-		if err := format.Node(&scalarBuf, fset, loop.Scalar); err != nil {
-			return "", "", err
-		}
-		scalarText := scalarBuf.String()
-
-		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", vcName, broadcastFn, scalarText)
-
-		loadSlice := loop.Src1Slice
-		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loadSlice)
-		fmt.Fprintf(&loopBuf, "\t_v1.%s(%s).StorePart(%s[_i:])\n", opMethod, vcName, loop.DstSlice)
-		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-		fmt.Fprint(&loopBuf, "}")
-	} else if loop.Src2Slice == "" {
-		// Should not happen if src2 and scalar are both empty, but guard.
-		return "", "", fmt.Errorf("no source operand")
-	} else if loop.Src1Slice == loop.DstSlice {
-		// In-place: dst[i] op= src2[i]
-		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.DstSlice)
-		fmt.Fprintf(&loopBuf, "\t_v2, _ := simd.%s(%s[_i:])\n", loadFn, loop.Src2Slice)
-		fmt.Fprintf(&loopBuf, "\t_v1.%s(_v2).StorePart(%s[_i:])\n", opMethod, loop.DstSlice)
-		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-		fmt.Fprint(&loopBuf, "}")
-	} else {
-		// dst[i] = src1[i] op src2[i]
-		fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-		fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
-		fmt.Fprintf(&loopBuf, "\t_v2, _ := simd.%s(%s[_i:])\n", loadFn, loop.Src2Slice)
-		fmt.Fprintf(&loopBuf, "\t_v1.%s(_v2).StorePart(%s[_i:])\n", opMethod, loop.DstSlice)
-		fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-		fmt.Fprint(&loopBuf, "}")
-	}
-
-	return loopBuf.String(), preBuf.String(), nil
-}
-
-// generateUnary generates a simd loop for dst[i] = -src[i] or dst[i] = ^src[i].
-func generateUnary(loop analysis.Loop, simdType, loadFn string) (string, string, error) {
-	var loopBuf bytes.Buffer
-	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
-	fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-	fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
-	fmt.Fprintf(&loopBuf, "\t_v1.%s().StorePart(%s[_i:])\n", loop.OpMethod(), loop.DstSlice)
-	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-	fmt.Fprint(&loopBuf, "}")
-	return loopBuf.String(), "", nil
-}
-
-// generateExprTree generates a simd loop for a depth-2 binary expression tree:
-//
-//	dst[i] = (Src1[i] Op Src2OrScalar) Op2 Src3OrScalar2
-//	or (InnerOnRight): Src3OrScalar2 Op2 (Src1[i] Op Src2OrScalar)
-//
-// Float32s/Float64s with Op==Mul and Op2==Add use MulAdd (FMA).
-func generateExprTree(loop analysis.Loop, fset *token.FileSet, simdType, loadFn, broadcastFn string, idx int) (string, string, error) {
-	var loopBuf, preBuf bytes.Buffer
-
-	// Pre-loop broadcast declarations. Names include idx to avoid collisions
-	// when multiple loops in the same scope broadcast the same simd type.
-	var innerBc, outerBc string
-	if loop.Scalar != nil {
-		var buf bytes.Buffer
-		if err := format.Node(&buf, fset, loop.Scalar); err != nil {
-			return "", "", err
-		}
-		innerBc = fmt.Sprintf("_vcA%s%d", simdType, idx)
-		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", innerBc, broadcastFn, buf.String())
-	}
-	if loop.Scalar2 != nil {
-		if preBuf.Len() > 0 {
-			preBuf.WriteByte('\n')
-		}
-		var buf bytes.Buffer
-		if err := format.Node(&buf, fset, loop.Scalar2); err != nil {
-			return "", "", err
-		}
-		outerBc = fmt.Sprintf("_vcB%s%d", simdType, idx)
-		fmt.Fprintf(&preBuf, "%s := simd.%s(%s)", outerBc, broadcastFn, buf.String())
-	}
-
-	isFloat := simdType == "Float32s" || simdType == "Float64s"
-	canFMA := isFloat && loop.Op == analysis.OpMul && loop.Op2 == analysis.OpAdd && !loop.InnerOnRight
-
-	lenExpr := fmt.Sprintf("len(%s)", loop.DstSlice)
-	fmt.Fprintf(&loopBuf, "for _i := 0; _i < %s; {\n", lenExpr)
-	fmt.Fprintf(&loopBuf, "\t_v1, _n := simd.%s(%s[_i:])\n", loadFn, loop.Src1Slice)
-
-	// Inner's second operand.
-	var innerY string
-	if loop.Src2Slice != "" {
-		fmt.Fprintf(&loopBuf, "\t_v2, _ := simd.%s(%s[_i:])\n", loadFn, loop.Src2Slice)
-		innerY = "_v2"
-	} else {
-		innerY = innerBc
-	}
-
-	// Outer operand.
-	var outerX string
-	if loop.Src3Slice != "" {
-		v := "_v3"
-		if loop.Src2Slice == "" {
-			v = "_v2" // safe to reuse slot when inner second operand is a broadcast
-		}
-		fmt.Fprintf(&loopBuf, "\t%s, _ := simd.%s(%s[_i:])\n", v, loadFn, loop.Src3Slice)
-		outerX = v
-	} else {
-		outerX = outerBc
-	}
-
-	// outerExpr is the final outer operand. When OuterIsMul the outer slice is
-	// multiplied by its scalar broadcast before being used.
-	outerExpr := outerX
-	if loop.OuterIsMul {
-		outerExpr = outerX + ".Mul(" + outerBc + ")"
-	}
-
-	if canFMA {
-		fmt.Fprintf(&loopBuf, "\t_v1.MulAdd(%s, %s).StorePart(%s[_i:])\n", innerY, outerExpr, loop.DstSlice)
-	} else if loop.InnerOnRight {
-		// outerExpr Op2 (v1 Op innerY)
-		fmt.Fprintf(&loopBuf, "\t%s.%s(_v1.%s(%s)).StorePart(%s[_i:])\n",
-			outerExpr, loop.Op2Method(), loop.OpMethod(), innerY, loop.DstSlice)
-	} else {
-		// (v1 Op innerY) Op2 outerExpr
-		fmt.Fprintf(&loopBuf, "\t_v1.%s(%s).%s(%s).StorePart(%s[_i:])\n",
-			loop.OpMethod(), innerY, loop.Op2Method(), outerExpr, loop.DstSlice)
-	}
-
-	fmt.Fprintf(&loopBuf, "\t_i += _n\n")
-	fmt.Fprint(&loopBuf, "}")
-	return loopBuf.String(), preBuf.String(), nil
 }
 
 // fixBlankParams renames blank identifier (_) function parameters in src to

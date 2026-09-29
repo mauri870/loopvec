@@ -1,0 +1,73 @@
+# A conversion of a variable is loop-invariant, so it is broadcast once before the loop.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Centroid(sum []float64, dim int) {
+	for i := range sum {
+		sum[i] /= float64(dim)
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Centroid(sum []float64, dim int) {
+	_vcFloat64s0 := simd.BroadcastFloat64s(float64(dim))
+	for _i := 0; _i < len(sum); {
+		_v1, _n := simd.LoadFloat64sPart(sum[_i:])
+		_v1.Div(_vcFloat64s0).StorePart(sum[_i:])
+		_i += _n
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	sum := []float64{2, 4, 6, 8, 10, 12, 14, 16, 18}
+	test.Centroid(sum, 4)
+	fmt.Println(sum)
+}
+-- testmain/output --
+[0.5 1 1.5 2 2.5 3 3.5 4 4.5]
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Centroid(sum []float64, dim int) {
+	for i := range sum {
+		sum[i] /= float64(dim)
+	}
+}
