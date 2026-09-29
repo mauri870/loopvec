@@ -47,5 +47,5 @@ func Guarded(dst, a []float32) {
 }
 -- stdout.want --
 {"file":"$WORK/ops.go","line":4,"func":"AddFloat32s","vectorized":true}
-{"file":"$WORK/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop clauses (start, step, direction, or bound) do not match a supported shape"}
-{"file":"$WORK/ops.go","line":18,"func":"Neg","vectorized":false,"reason":"loops inside methods are skipped without -methods"}
+{"file":"$WORK/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":18,"func":"Neg","vectorized":false,"reason":"loops inside methods are skipped without -methods","stage":"analysis"}

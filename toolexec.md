@@ -27,9 +27,19 @@ Packages are left alone when:
   imports `simd`, so rewriting these would create an import cycle.
 - They use cgo, or the build uses `-race`, `-msan`, `-asan`, `-shared`,
   `-dynlink` or `-trimpath`.
-- They are built against a test variant of a package `simd` depends on, which
-  happens while testing those packages: `simd` would then be linked against a
-  different build of the same package.
+- They are cryptographic: `crypto/...` and `golang.org/x/crypto/...`, vendored
+  copies included. Constant-time code is written so that its running time does
+  not depend on secret data, and a rewrite adds a runtime overlap check, a length
+  check, and vector loads that nobody audited. Set `LOOPVEC_TOOLEXEC_CRYPTO=1` to
+  rewrite them anyway.
+- The build tests a package `simd` depends on (`go test fmt`). The go command
+  then compiles a test variant of that package, and a rewritten package would
+  link `simd` against a different build of it. The go command compiles packages
+  concurrently, so nothing can be rewritten safely once such a build starts; the
+  wrapper reads the go command's command line to notice (Linux only) and rewrites
+  nothing. Elsewhere it can only leave alone the packages it sees built against
+  such a variant, so testing those packages may fail to link. Set
+  `LOOPVEC_TOOLEXEC_NO_TARGET_CHECK=1` to use only that per-package protection.
 
 Loops in methods and in package-level initializers are never rewritten, as with
 `-split`.

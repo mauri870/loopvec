@@ -1,0 +1,46 @@
+# Constant-time code is written so that its running time does not depend on secret
+# data, and a rewrite adds a runtime overlap check, a length check, and vector
+# loads that nobody audited. Cryptographic packages are left alone unless
+# LOOPVEC_TOOLEXEC_CRYPTO is set. crypto/tls has a loop the wrapper would rewrite.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_DEBUG=1
+env LOOPVEC_TOOLEXEC_LOG_PKGS=crypto/tls
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+! stdout .
+! stderr .
+cmp log log.want
+exec ./app
+cmp stdout want.out
+
+# Opting in rewrites it. The build cache does not know about the variable, so
+# the second build needs a cache of its own.
+env LOOPVEC_TOOLEXEC_CRYPTO=1
+env GOCACHE=$WORK/gocache2
+rm log
+exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+grep '^rewrote [0-9]+ loop.s. in crypto/tls$' log
+exec ./app
+cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- main.go --
+package main
+
+import (
+	"crypto/tls"
+	"fmt"
+)
+
+func main() {
+	fmt.Println(tls.VersionName(tls.VersionTLS13))
+}
+-- want.out --
+TLS 1.3
+-- log.want --
+skipped crypto/tls: cryptographic code is left alone (LOOPVEC_TOOLEXEC_CRYPTO=1 rewrites it)

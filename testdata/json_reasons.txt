@@ -1,0 +1,115 @@
+# Each way a loop can be rejected is reported with its own reason and the stage
+# that produced it: the shape of the loop header (lower), an operation simd
+# cannot express (plan), or the loop's context (analysis).
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func NotCounted(dst, a []float32) {
+	for i := 0; i < len(dst); {
+		dst[i] = a[i] + 1
+	}
+}
+
+func RangeNotDefined(dst, a []float32) {
+	var i int
+	for i = range dst {
+		dst[i] = a[i] + 1
+	}
+}
+
+func StartNotZero(dst, a []float32) {
+	for i := 1; i < len(dst); i++ {
+		dst[i] = a[i] + 1
+	}
+}
+
+func ConditionNotLess(dst, a []float32) {
+	for i := 0; i <= len(dst)-1; i++ {
+		dst[i] = a[i] + 1
+	}
+}
+
+func StepNotOne(dst, a []float32) {
+	for i := 0; i < len(dst); i += 2 {
+		dst[i] = a[i] + 1
+	}
+}
+
+func BoundNotInvariant(dst, a []float32) {
+	for i := 0; i < len(dst)/2; i++ {
+		dst[i] = a[i] + 1
+	}
+}
+
+func DownStartNotLast(dst, a []float32) {
+	for i := len(dst); i >= 0; i-- {
+		dst[i] = a[i] + 1
+	}
+}
+
+func DownBoundNotZero(dst, a []float32) {
+	for i := len(dst) - 1; i >= 1; i-- {
+		dst[i] = a[i] + 1
+	}
+}
+
+func DestinationOffset(dst, a []float32) {
+	for i := range dst {
+		dst[i+1] = a[i] + 1
+	}
+}
+
+func OperandCall(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(len(a)) + a[i]*abs(a[i])
+	}
+}
+
+func abs(x float32) float32 { return x }
+
+func TypeString(dst, a, b []string) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func OpInt64Mul(dst, a, b []int64) {
+	for i := range dst {
+		dst[i] = a[i] * b[i]
+	}
+}
+
+func ZeroFill(dst []float32) {
+	for i := range dst {
+		dst[i] = 0
+	}
+}
+
+func Vectorized(dst, a []float32) {
+	for i := range dst {
+		dst[i] = a[i] + 1
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"NotCounted","vectorized":false,"reason":"loop is not a counted for loop (init; condition; post)","stage":"lower"}
+{"file":"$WORK/ops.go","line":11,"func":"RangeNotDefined","vectorized":false,"reason":"range clause is not i := range s, i, v := range s, or i := range n","stage":"lower"}
+{"file":"$WORK/ops.go","line":17,"func":"StartNotZero","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":23,"func":"ConditionNotLess","vectorized":false,"reason":"loop condition is not i \u003c limit (or i \u003e= 0 when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":29,"func":"StepNotOne","vectorized":false,"reason":"loop step is not i++ (or i-- when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":35,"func":"BoundNotInvariant","vectorized":false,"reason":"loop limit is not len(slice), an int variable, or a positive integer constant","stage":"lower"}
+{"file":"$WORK/ops.go","line":41,"func":"DownStartNotLast","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":47,"func":"DownBoundNotZero","vectorized":false,"reason":"loop limit is not len(slice), an int variable, or a positive integer constant","stage":"lower"}
+{"file":"$WORK/ops.go","line":53,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":59,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":67,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
+{"file":"$WORK/ops.go","line":73,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
+{"file":"$WORK/ops.go","line":79,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
+{"file":"$WORK/ops.go","line":85,"func":"Vectorized","vectorized":true}

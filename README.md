@@ -52,8 +52,11 @@ slices overlap, and rewriting it to run forward would change the result in
 exactly that case. loopvec guards against this: every rewritten loop with
 more than one distinct slice operand is wrapped in a runtime check
 (`_loopvecOverlap`, comparing `unsafe.SliceData` ranges) that falls back to
-the original scalar loop whenever the operands actually alias with an
-offset, regardless of loop direction.
+the original scalar loop whenever the operands' memory overlaps, regardless
+of loop direction. The check does not tell an exact alias from an offset
+one, so a call like `Add(x, x, y)`, which is safe to vectorize, also takes
+the scalar loop. Only an operand that is written as the destination slice
+itself (`dst[i] += a[i]*alpha`) is exempt.
 
 **FMA.** `dst[i] = a[i]*alpha + b[i]` (and the DAXPY/two-scalar-axpy
 patterns) lower to a single fused multiply-add instruction, not a separate
@@ -215,7 +218,7 @@ loopvec -json ./...       # print one JSON line per candidate loop; see below
 ```sh
 $ loopvec -json ./mypkg/
 {"file":"/path/to/mypkg/ops.go","line":4,"func":"AddFloat32s","vectorized":true}
-{"file":"/path/to/mypkg/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop clauses (start, step, direction, or bound) do not match a supported shape"}
+{"file":"/path/to/mypkg/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
 ```
 
 ### As a `go tool` (Go 1.24+)

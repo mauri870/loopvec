@@ -27,7 +27,7 @@ func Lower(stmt ast.Stmt, info *types.Info) (*Loop, Reason) {
 	case *ast.ForStmt:
 		return l.forLoop(s)
 	}
-	return nil, ReasonUnsupportedClauses
+	return nil, ReasonNotCountedLoop
 }
 
 type lowerer struct {
@@ -43,17 +43,17 @@ type lowerer struct {
 func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 	key, ok := s.Key.(*ast.Ident)
 	if !ok || s.Tok != token.DEFINE {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedRange
 	}
 	l.iv = l.info.Defs[key]
 	if l.iv == nil {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedRange
 	}
 	var valueIdent *ast.Ident
 	if s.Value != nil {
 		valueIdent, ok = s.Value.(*ast.Ident)
 		if !ok {
-			return nil, ReasonUnsupportedClauses
+			return nil, ReasonUnsupportedRange
 		}
 		if valueIdent.Name == "_" {
 			valueIdent = nil
@@ -71,11 +71,11 @@ func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 		return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, 1)
 	}
 	if s.Value != nil {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedRange
 	}
 	trip, ok := l.intTrip(s.X)
 	if !ok {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedBound
 	}
 	return l.body(s, s.Body, trip, 1)
 }
@@ -87,75 +87,87 @@ func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 // every slice is read or written at exactly index i, so different iterations
 // never touch the same element and the direction cannot change the result.
 // The rewritten loop always runs forward.
+//
+// The comparison picks the direction, and the start, step, and limit are then
+// checked in that order, so the reason names the first part that is wrong.
 func (l *lowerer) forLoop(s *ast.ForStmt) (*Loop, Reason) {
 	if s.Init == nil || s.Cond == nil || s.Post == nil {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonNotCountedLoop
 	}
 	init, ok := s.Init.(*ast.AssignStmt)
 	if !ok || init.Tok != token.DEFINE || len(init.Lhs) != 1 || len(init.Rhs) != 1 {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonNotCountedLoop
 	}
 	key, ok := init.Lhs[0].(*ast.Ident)
 	if !ok {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonNotCountedLoop
 	}
 	l.iv = l.info.Defs[key]
+	if l.iv == nil {
+		return nil, ReasonNotCountedLoop
+	}
 	cond, ok := s.Cond.(*ast.BinaryExpr)
-	if !ok || l.iv == nil {
-		return nil, ReasonUnsupportedClauses
+	if !ok {
+		return nil, ReasonUnsupportedCondition
 	}
 	if x, ok := cond.X.(*ast.Ident); !ok || l.info.Uses[x] != l.iv {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedCondition
 	}
 
-	if lit, ok := init.Rhs[0].(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.LSS {
-		return l.forward(s, cond.Y)
+	switch cond.Op {
+	case token.LSS:
+		return l.forward(s, init.Rhs[0], cond.Y)
+	case token.GEQ:
+		return l.reverse(s, init.Rhs[0], cond.Y)
 	}
-	if lit, ok := cond.Y.(*ast.BasicLit); ok && lit.Value == "0" && cond.Op == token.GEQ {
-		return l.reverse(s, init.Rhs[0])
-	}
-	return nil, ReasonUnsupportedClauses
+	return nil, ReasonUnsupportedCondition
 }
 
 // forward handles for i := 0; i < limit; i++, where limit is either len(slice)
 // or an integer expression.
-func (l *lowerer) forward(s *ast.ForStmt, limit ast.Expr) (*Loop, Reason) {
+func (l *lowerer) forward(s *ast.ForStmt, start, limit ast.Expr) (*Loop, Reason) {
+	if lit, ok := start.(*ast.BasicLit); !ok || lit.Value != "0" {
+		return nil, ReasonUnsupportedStart
+	}
 	if !l.step(s.Post, token.INC) {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedStep
 	}
 	if call, ok := limit.(*ast.CallExpr); ok {
 		ref, ok := l.lenOf(call)
 		if !ok {
-			return nil, ReasonUnsupportedClauses
+			return nil, ReasonUnsupportedBound
 		}
 		return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, 1)
 	}
 	trip, ok := l.intTrip(limit)
 	if !ok {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedBound
 	}
 	return l.body(s, s.Body, trip, 1)
 }
 
 // reverse handles for i := len(s) - 1; i >= 0; i--.
-func (l *lowerer) reverse(s *ast.ForStmt, init ast.Expr) (*Loop, Reason) {
-	if !l.step(s.Post, token.DEC) {
-		return nil, ReasonUnsupportedClauses
-	}
-	sub, ok := init.(*ast.BinaryExpr)
+func (l *lowerer) reverse(s *ast.ForStmt, start, limit ast.Expr) (*Loop, Reason) {
+	sub, ok := start.(*ast.BinaryExpr)
 	if !ok || sub.Op != token.SUB {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedStart
 	}
 	if one, ok := sub.Y.(*ast.BasicLit); !ok || one.Value != "1" {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedStart
 	}
 	call, ok := sub.X.(*ast.CallExpr)
 	if !ok {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedStart
 	}
 	ref, ok := l.lenOf(call)
 	if !ok {
-		return nil, ReasonUnsupportedClauses
+		return nil, ReasonUnsupportedStart
+	}
+	if !l.step(s.Post, token.DEC) {
+		return nil, ReasonUnsupportedStep
+	}
+	if lit, ok := limit.(*ast.BasicLit); !ok || lit.Value != "0" {
+		return nil, ReasonUnsupportedBound
 	}
 	return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, -1)
 }

@@ -4,8 +4,14 @@
 # would see two different builds of fmt and fail to link. testing/iotest has a
 # loop the wrapper would rewrite, and fmt's tests import it: it must be left
 # alone here, and the test binary must link and pass.
+#
+# The wrapper normally notices that fmt is being tested and rewrites nothing (see
+# toolexec_tests_simd_dependency.txt). That check reads the go command's command
+# line and does not exist on every platform, so it is turned off here to exercise
+# the protection that remains.
 
 env GOEXPERIMENT=simd
+env LOOPVEC_TOOLEXEC_NO_TARGET_CHECK=1
 env GOCACHE=$WORK/gocache
 env LOOPVEC_TOOLEXEC_LOG=$WORK/log
 env LOOPVEC_TOOLEXEC_DEBUG=1

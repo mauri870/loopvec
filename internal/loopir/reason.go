@@ -7,11 +7,26 @@ package loopir
 type Reason string
 
 const (
-	// ReasonUnsupportedClauses covers a for-loop whose init, condition, post,
-	// or iteration bound doesn't match a supported shape: non-zero/non-len-1
-	// start, a step other than ++/--, a bound that isn't len(slice) or a
-	// simple int expression, and so on.
-	ReasonUnsupportedClauses Reason = "loop clauses (start, step, direction, or bound) do not match a supported shape"
+	// ReasonNotCountedLoop covers a for statement that is not a counted loop
+	// at all: a missing init, condition, or post, or an init that does not
+	// declare a single loop variable.
+	ReasonNotCountedLoop Reason = "loop is not a counted for loop (init; condition; post)"
+	// ReasonUnsupportedRange covers a range statement that is not one of
+	// for i := range s, for i, v := range s, or for i := range n: a key that
+	// is not a new identifier, or a value variable on an integer range.
+	ReasonUnsupportedRange Reason = "range clause is not i := range s, i, v := range s, or i := range n"
+	// ReasonUnsupportedStart covers a counting loop that does not start at 0,
+	// or at len(s)-1 when counting down.
+	ReasonUnsupportedStart Reason = "loop start is not 0 (or len(s)-1 when counting down)"
+	// ReasonUnsupportedCondition covers a loop condition that is not
+	// i < limit, or i >= limit when counting down.
+	ReasonUnsupportedCondition Reason = "loop condition is not i < limit (or i >= 0 when counting down)"
+	// ReasonUnsupportedStep covers a step other than i++, or i-- when
+	// counting down.
+	ReasonUnsupportedStep Reason = "loop step is not i++ (or i-- when counting down)"
+	// ReasonUnsupportedBound covers a limit that is not len(slice), an int
+	// variable, or a positive integer constant (or 0 when counting down).
+	ReasonUnsupportedBound Reason = "loop limit is not len(slice), an int variable, or a positive integer constant"
 	// ReasonUnsupportedDestination covers a destination that isn't a plain
 	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
 	// nested index (dst[i][j]).
@@ -40,3 +55,16 @@ const (
 	// candidate loop at all: nothing in it looked like an indexed-store loop.
 	ReasonUnrecognized Reason = "not recognized"
 )
+
+// Stage names the part of loopvec that produced r: "analysis" for a loop
+// skipped before it is examined, "plan" for an operation simd cannot express,
+// and "lower" for everything about the loop's own shape.
+func (r Reason) Stage() string {
+	switch r {
+	case ReasonMethodSkipped:
+		return "analysis"
+	case ReasonUnsupportedOp:
+		return "plan"
+	}
+	return "lower"
+}

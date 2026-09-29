@@ -37,7 +37,7 @@ kernel, built from `loopvec -json`'s output (see the root README's
 ```
 # loopvec TSVC coverage: 2/10
 s000	yes
-s111	no	loop clauses (start, step, direction, or bound) do not match a supported shape
+s111	no	loop start is not 0 (or len(s)-1 when counting down)
 ...
 ```
 

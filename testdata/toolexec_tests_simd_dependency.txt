@@ -1,0 +1,30 @@
+# Testing a package that simd depends on makes the go command compile a test
+# variant of it, which a rewritten package (it imports simd) cannot link against.
+# The go command compiles packages concurrently, so the variant may not exist yet
+# when another package is compiled: the wrapper reads the go command's command line
+# and rewrites nothing in a build that tests such a package. testing/iotest has a
+# loop the wrapper would rewrite, and the test binary must still link and pass.
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_DEBUG=1
+env LOOPVEC_TOOLEXEC_LOG_PKGS=testing/iotest
+exec go test -short -run 'TestSprintf|TestScanf' -toolexec=$LOOPVEC_TOOLEXEC fmt
+stdout -count=1 '^ok  	fmt	'
+cmp log log.want
+
+# Testing a package simd does not depend on is not affected: the same package is
+# rewritten again once the tested package is one the wrapper may link against.
+env GOCACHE=$WORK/gocache2
+rm log
+exec go test -short -run 'TestReader|TestOneByte' -toolexec=$LOOPVEC_TOOLEXEC testing/iotest
+stdout -count=1 '^ok  	testing/iotest	'
+grep '^rewrote [0-9]+ loop.s. in testing/iotest$' log
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- log.want --
+skipped testing/iotest: the build tests a package simd depends on

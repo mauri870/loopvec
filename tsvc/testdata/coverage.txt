@@ -1,11 +1,11 @@
 # loopvec TSVC coverage: 2/10
 s000	yes
-s111	no	loop clauses (start, step, direction, or bound) do not match a supported shape
-s1111	no	loop clauses (start, step, direction, or bound) do not match a supported shape
-s112	no	loop clauses (start, step, direction, or bound) do not match a supported shape
+s111	no	loop start is not 0 (or len(s)-1 when counting down)
+s1111	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s112	no	loop start is not 0 (or len(s)-1 when counting down)
 s1112	yes
-s113	no	loop clauses (start, step, direction, or bound) do not match a supported shape
+s113	no	loop start is not 0 (or len(s)-1 when counting down)
 s1113	no	operand is not a same-index slice, range value, or plain scalar
 s114	no	destination is not a simple, same-index slice element
-s115	no	loop clauses (start, step, direction, or bound) do not match a supported shape
+s115	no	loop start is not 0 (or len(s)-1 when counting down)
 s1115	no	destination is not a simple, same-index slice element

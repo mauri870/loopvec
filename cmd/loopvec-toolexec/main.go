@@ -16,6 +16,8 @@
 //	LOOPVEC_TOOLEXEC_LOG       append one line per rewritten or rejected package to this file
 //	LOOPVEC_TOOLEXEC_LOG_PKGS  comma-separated import paths; restrict the log to these packages
 //	LOOPVEC_TOOLEXEC_DEBUG     also log why each package was left as it was
+//	LOOPVEC_TOOLEXEC_CRYPTO    rewrite cryptographic packages, which are otherwise left alone
+//	LOOPVEC_TOOLEXEC_NO_TARGET_CHECK  do not read the go command's line to detect a test of a simd dependency
 package main
 
 import (

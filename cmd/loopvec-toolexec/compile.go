@@ -68,6 +68,21 @@ func parseCompileArgs(args []string) compileArgs {
 	return c
 }
 
+// cryptoEnv, when set, lets the wrapper rewrite cryptographic packages.
+const cryptoEnv = "LOOPVEC_TOOLEXEC_CRYPTO"
+
+// isCrypto reports whether path is a cryptographic package: the standard
+// library's crypto tree and golang.org/x/crypto, including their vendored
+// copies. Constant-time code is written so that its running time does not
+// depend on secret data, and a rewrite that adds a runtime overlap check, a
+// length check, and vector loads changes what the code does in ways nobody
+// audited, so it is left alone unless asked for.
+func isCrypto(path string) bool {
+	path = strings.TrimPrefix(path, "vendor/")
+	return path == "crypto" || strings.HasPrefix(path, "crypto/") ||
+		strings.HasPrefix(path, "golang.org/x/crypto/")
+}
+
 // source is one Go file of the package being compiled.
 type source struct {
 	path      string // as passed to the compiler
@@ -110,6 +125,14 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 	}
 	if skip[c.pkg] {
 		debugf(c.pkg, "skipped %s: simd depends on it", c.pkg)
+		return nil, false
+	}
+	if isCrypto(c.pkg) && os.Getenv(cryptoEnv) == "" {
+		debugf(c.pkg, "skipped %s: cryptographic code is left alone (%s=1 rewrites it)", c.pkg, cryptoEnv)
+		return nil, false
+	}
+	if b.testsSimdDependency(skip) {
+		debugf(c.pkg, "skipped %s: the build tests a package simd depends on", c.pkg)
 		return nil, false
 	}
 

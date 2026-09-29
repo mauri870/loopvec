@@ -70,9 +70,14 @@ func newBuild(tool, importcfgPath string) (*build, error) {
 // goCommand runs the go command belonging to the toolchain that tool is part
 // of, marked so the wrapper does not rewrite its compiles again.
 func (b *build) goCommand(args ...string) ([]byte, error) {
+	return b.goCommandIn(b.dir, args...)
+}
+
+// goCommandIn is goCommand run in dir.
+func (b *build) goCommandIn(dir string, args ...string) ([]byte, error) {
 	goroot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(b.tool)))) // GOROOT/pkg/tool/GOOS_GOARCH/compile
 	cmd := exec.Command(filepath.Join(goroot, "bin", "go"), args...)
-	cmd.Dir = b.dir
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), nestedEnv+"=1", "GOTOOLCHAIN=local")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

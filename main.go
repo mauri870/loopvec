@@ -190,6 +190,9 @@ type jsonCandidate struct {
 	Func       string `json:"func"`
 	Vectorized bool   `json:"vectorized"`
 	Reason     string `json:"reason,omitempty"`
+	// Stage is the part of loopvec that rejected the loop; see
+	// loopir.Reason.Stage.
+	Stage string `json:"stage,omitempty"`
 }
 
 // processPkgJSON prints one JSON line per candidate loop in pkg to stdout:
@@ -213,6 +216,9 @@ func processPkgJSON(fset *token.FileSet, pkg *packages.Package, allowMethods boo
 				Func:       c.Func,
 				Vectorized: c.Vectorized,
 				Reason:     string(c.Reason),
+			}
+			if c.Reason != "" {
+				line.Stage = c.Reason.Stage()
 			}
 			if err := enc.Encode(line); err != nil {
 				return err
