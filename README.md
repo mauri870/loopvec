@@ -20,6 +20,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 | `for i := range dst { dst[i] += src[i] }` | in-place binary op |
 | `for i := range dst { dst[i] *= scalar }` | scalar broadcast op |
 | `for i := range dst { dst[i] = 7 }` | fill (broadcast non-zero literal) |
+| `for i := range dst { dst[i] = src[i] }` | `copy(dst, src)` (no simd needed) |
 | `for i, v := range src { dst[i] = v * f }` | two-variable range scalar op |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i] }` | `MulAdd` (FMA) |
 | `for i := range dst { dst[i] = a[i]*alpha + b[i]*beta }` | `MulAdd` + `Mul` (two-scalar axpy) |
@@ -41,6 +42,15 @@ Supported unary operators: `-` (negation, all except unsigned integers), `^` (bi
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
 Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
 which is faster than a vector loop.
+
+**Copy loops** become the `copy` builtin, which the runtime implements with wide
+moves: the compiler turns a zero-fill loop into a `memclr` but leaves a copy loop
+as one scalar load and store per element, and `copy` is 4-10x faster from 64
+elements up (slightly slower below 4). `copy` moves elements as if through a
+temporary, so it differs from the loop when `dst` starts after `src` inside the
+same array (the loop repeats the first element); the overlap check above sends
+that case to the original loop, and a source shorter than the destination still
+panics before anything is written. The rewritten code does not import `simd`.
 
 **Overlapping slices.** `dst[i] = a[i] + b[i]` is safe to vectorize when `dst`
 and `a` are the exact same slice, but not when they partially overlap (e.g.

@@ -241,3 +241,37 @@ func FuzzDaxpyFloat32s(f *testing.F) {
 		}
 	})
 }
+
+func FuzzCopyFloat32s(f *testing.F) {
+	f.Add(0, 0, uint64(1))
+	f.Add(1, 0, uint64(2))
+	f.Add(5, 0, uint64(3))  // dst == src
+	f.Add(5, 1, uint64(4))  // partial overlap: the loop repeats an element
+	f.Add(5, -1, uint64(5)) // partial overlap, other direction
+	f.Add(9, 0, uint64(6))
+	f.Fuzz(func(t *testing.T, nRaw, offSrcRaw int, seed uint64) {
+		n := clampLen(nRaw)
+		offSrc := clampOverlap(offSrcRaw, n)
+		starts, backingLen := layout(n, offSrc)
+		dstStart, srcStart := starts[0], starts[1]
+
+		src := randFloat32Backing(seed, backingLen)
+		want := append([]float32(nil), src...)
+		got := append([]float32(nil), src...)
+
+		dstW, srcW := want[dstStart:dstStart+n], want[srcStart:srcStart+n]
+		for i := range dstW {
+			dstW[i] = srcW[i]
+		}
+
+		dstG, srcG := got[dstStart:dstStart+n], got[srcStart:srcStart+n]
+		CopyFloat32s(dstG, srcG)
+
+		for i := range want {
+			if !float32Equal(got[i], want[i]) {
+				t.Fatalf("CopyFloat32s mismatch at %d (n=%d off=%d): got %v (0x%x) want %v (0x%x)",
+					i, n, offSrc, got[i], math.Float32bits(got[i]), want[i], math.Float32bits(want[i]))
+			}
+		}
+	})
+}

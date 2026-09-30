@@ -105,17 +105,18 @@ func s1115(aa, bb, cc [][]float32) {
 	}
 }
 
-// va: vector assignment. Expected to be skipped: a copy is what copy() is for.
+// va: control loops, vector assignment. A copy: loopvec emits the copy builtin,
+// where the compiler leaves the loop as a scalar load and store per element.
 //
-//tsvc:kernel category=control reps=4 setup=vpv checksum=a exact=bits expect=skip
+//tsvc:kernel category=control reps=4 setup=vpv checksum=a exact=bits expect=vectorize
 func va(a, b []float32) {
 	for i := range a {
 		a[i] = b[i]
 	}
 }
 
-// vif: vector if. The store is conditional, which takes a masked store or a
-// blend to vectorize.
+// vif: control loops, vector if. The store is conditional, which takes a masked
+// store or a blend to vectorize.
 //
 //tsvc:kernel category=control reps=4 setup=vpv checksum=a exact=bits expect=vectorize
 func vif(a, b []float32) {
@@ -126,7 +127,7 @@ func vif(a, b []float32) {
 	}
 }
 
-// vpv: vector plus vector.
+// vpv: control loops, vector plus vector.
 //
 //tsvc:kernel category=control reps=4 setup=vpv checksum=a exact=bits expect=vectorize
 func vpv(a, b []float32) {
@@ -135,7 +136,7 @@ func vpv(a, b []float32) {
 	}
 }
 
-// vtv: vector times vector.
+// vtv: control loops, vector times vector.
 //
 //tsvc:kernel category=control reps=4 setup=vtv checksum=a exact=bits expect=vectorize
 func vtv(a, b []float32) {
@@ -144,7 +145,7 @@ func vtv(a, b []float32) {
 	}
 }
 
-// vpvtv: vector plus vector times vector.
+// vpvtv: control loops, vector plus vector times vector.
 //
 //tsvc:kernel category=control reps=4 setup=vpvtv checksum=a exact=fused expect=vectorize
 func vpvtv(a, b, c []float32) {
@@ -153,9 +154,9 @@ func vpvtv(a, b, c []float32) {
 	}
 }
 
-// vpvts: vector plus vector times scalar. TSVC_2 passes s1 (1.0) through a
-// void pointer and reads it back as an int, which yields 1065353216; the port
-// uses the intended value.
+// vpvts: control loops, vector plus vector times scalar. TSVC_2 passes s1 (1.0)
+// through a void pointer and reads it back as an int, which yields 1065353216;
+// the port passes the intended 1.0.
 //
 //tsvc:kernel category=control reps=4 setup=vpvts checksum=a exact=fused expect=vectorize
 func vpvts(a, b []float32, s1 float32) {
@@ -164,7 +165,7 @@ func vpvts(a, b []float32, s1 float32) {
 	}
 }
 
-// vpvpv: vector plus vector plus vector.
+// vpvpv: control loops, vector plus vector plus vector.
 //
 //tsvc:kernel category=control reps=4 setup=vpvpv checksum=a exact=bits expect=vectorize
 func vpvpv(a, b, c []float32) {
@@ -173,7 +174,7 @@ func vpvpv(a, b, c []float32) {
 	}
 }
 
-// vtvtv: vector times vector times vector.
+// vtvtv: control loops, vector times vector times vector.
 //
 //tsvc:kernel category=control reps=4 setup=vtvtv checksum=a exact=bits expect=vectorize
 func vtvtv(a, b, c []float32) {
@@ -182,9 +183,9 @@ func vtvtv(a, b, c []float32) {
 	}
 }
 
-// vbor: basic operations rate, all combinations of three of six values: 59
-// flops for 6 loads and 1 store. The body is several statements, so it takes
-// multi-statement support to vectorize.
+// vbor: control loops, basic operations rates, isolate arithmetic from memory
+// traffic: all combinations of three, 59 flops for 6 loads and 1 store. The body
+// is several statements, so it takes multi-statement support to vectorize.
 //
 //tsvc:kernel category=control reps=4 setup=vbor checksum=x exact=fused expect=vectorize
 func vbor(a, b, c, d, e []float32, aa [][]float32, x []float32) {

@@ -65,7 +65,7 @@ var Kernels = []Kernel{
 		Run: func(x *Arrays) { s1115(x.AA, x.BB, x.CC) },
 	},
 	{
-		Name: "va", Category: CategoryControl, Reps: 4, Exact: ExactBits, Expect: ExpectSkip,
+		Name: "va", Category: CategoryControl, Reps: 4, Exact: ExactBits, Expect: ExpectVectorize,
 		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupVpv, Checksum: sumA, Hash: hashA,
 		Run: func(x *Arrays) { va(x.A, x.B) },

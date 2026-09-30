@@ -48,6 +48,30 @@ func TestToEntryUnknownExpect(t *testing.T) {
 	}
 }
 
+func TestToEntryScalarParameter(t *testing.T) {
+	d := directive{
+		FuncName: "vpvts",
+		Params:   []string{"a", "b", "s1"},
+		Category: "control",
+		Reps:     4,
+		Setup:    "vpvts",
+		Checksum: "a",
+		Exact:    "fused",
+		Expect:   "vectorize",
+		Pos:      token.Position{Filename: "kernels.go", Line: 5},
+	}
+	e, err := toEntry(d)
+	if err != nil {
+		t.Fatalf("toEntry: %v", err)
+	}
+	if want := "x.A, x.B, x.S1"; e.RunArgs != want {
+		t.Errorf("RunArgs = %q, want %q", e.RunArgs, want)
+	}
+	if want := "4*Len1D + 4*Len1D"; e.Bytes != want {
+		t.Errorf("Bytes = %q, want %q: a scalar reads no memory", e.Bytes, want)
+	}
+}
+
 func TestGenerate(t *testing.T) {
 	src := `package tsvc
 

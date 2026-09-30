@@ -4,7 +4,12 @@
 It exists primarily to test [loopvec](..), it gives a coverage score and a
 correctness gate (scalar vs SIMD build) and a benchmark set that is standardized.
 
-The loop shapes are kept exactly as TSVC_2.
+The loop shapes are kept exactly as TSVC_2, and so are its names: a kernel is
+named after its TSVC_2 function, its arguments after the arrays and scalars it
+uses (`a`, `b`, `aa`, `x`, `s1`), and its comment after the TSVC_2 section and
+description. The adaptations for Go are a `range` loop where TSVC_2 counts to
+`LEN_1D`, a repetition count (`Reps`) in place of the `iterations` timing loop
+and its `dummy` call, and a checksum accumulated in float64.
 
 ## Kernel inventory
 
@@ -25,7 +30,7 @@ else does it better, such as `copy`).
 | s114 | 2-D triangular transpose (column) access, a gather | bits | decline | no |
 | s115 | 2-D triangular saxpy loop | fused | vectorize | no |
 | s1115 | 2-D triangular saxpy loop with a transposed read, a gather | fused | decline | no |
-| va | vector assignment (a copy) | bits | skip | no |
+| va | vector assignment, a copy (emitted as `copy`) | bits | vectorize | yes |
 | vif | vector if, a conditional store | bits | vectorize | no |
 | vpv | vector plus vector | bits | vectorize | yes |
 | vtv | vector times vector | bits | vectorize | yes |
@@ -41,7 +46,7 @@ array. `vpvts` differs from TSVC_2 in one way: the original passes its scalar
 through a void pointer and reads it back as an int, which is 1065353216; the
 port uses the intended 1.
 
-Today loopvec rewrites 8 of the 19 kernels. To see what it does to them:
+Today loopvec rewrites 9 of the 19 kernels. To see what it does to them:
 
 ```sh
 go run . -d ./tsvc/
@@ -56,7 +61,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 8, gaps 8, declined 2, skipped 1 (of 19)
+# loopvec TSVC coverage: vectorized 9, gaps 8, declined 2, skipped 0 (of 19)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...
@@ -166,7 +171,7 @@ Kernels/vbor-32                  1.228Ti ± 0%    1.230Ti ±  1%         ~ (p=0.
 geomean                          43.00Gi         71.26Gi         +65.73%
 ```
 
-The eight kernels loopvec rewrites (s000, s1112, vpv, vtv, vpvtv, vpvts, vpvpv,
+The kernels loopvec rewrites (s000, s1112, va, vpv, vtv, vpvtv, vpvts, vpvpv,
 vtvtv) are 78-85% faster. The rest are unchanged scalar source, yet they are
 mostly slower and far noisier here (up to ±113%) than the same code built
 without `GOEXPERIMENT=simd`. This seems to be an effect of the runtime saving

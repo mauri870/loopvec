@@ -16,6 +16,10 @@ import (
 // collisions when several loops in the same function scope broadcast the same
 // simd type.
 func generateReplacement(plan *loopir.Plan, fset *token.FileSet, idx int) (string, string, error) {
+	if plan.Copy {
+		e := &emitter{plan: plan}
+		return e.checked(e.copyCall()), "", nil
+	}
 	e := &emitter{plan: plan, loads: map[*loopir.Load]string{}, broadcasts: broadcastNames(plan, idx)}
 
 	var pre strings.Builder
@@ -40,6 +44,17 @@ type emitter struct {
 	plan       *loopir.Plan
 	loads      map[*loopir.Load]string
 	broadcasts map[*loopir.Invariant]string
+}
+
+// copyCall renders a copy loop as the copy builtin. The length checks around it
+// (see checked) guarantee the source has at least as many elements as the loop
+// runs, so copy moves exactly that many.
+func (e *emitter) copyCall() string {
+	destination := e.plan.Dst.Name
+	if e.plan.Bound != "" {
+		destination += "[:" + e.plan.Bound + "]"
+	}
+	return fmt.Sprintf("copy(%s, %s)", destination, e.plan.Root.(*loopir.Load).Ref.Name)
 }
 
 // limit is the loop's iteration limit.

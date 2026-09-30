@@ -67,3 +67,9 @@ func ReverseIncFloat32s(dst, src []float32) {
 		dst[i] = src[i] + 1
 	}
 }
+
+func CopyFloat32s(dst, src []float32) {
+	for i := range dst {
+		dst[i] = src[i]
+	}
+}

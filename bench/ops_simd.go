@@ -184,6 +184,19 @@ func ReverseIncFloat32s(dst, src []float32) {
 	}
 }
 
+func CopyFloat32s(dst, src []float32) {
+	if _loopvecOverlap(dst, src) {
+		for i := range dst {
+			dst[i] = src[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = src[len(dst)-1]
+			copy(dst, src)
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

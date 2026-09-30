@@ -63,6 +63,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		text string
 	}
 	needsOverlapHelper := false
+	needsSimd := false
 
 	for _, plan := range plans {
 		stmtNode := plan.Loop.Node
@@ -71,6 +72,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		if err != nil {
 			continue
 		}
+		needsSimd = needsSimd || !plan.Copy
 
 		// Distinctly-named slices sharing a caller's backing array with the
 		// destination can overlap it at an offset (dst == src[1:], say), which
@@ -131,10 +133,14 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		result = append(result[:startOff], append([]byte(replacement), result[endOff:]...)...)
 	}
 
-	// Add simd import if not present.
-	result, err := ensureImport(result, "simd")
-	if err != nil {
-		return Result{}, err
+	// Add simd import if not present. A file whose loops all became copy calls
+	// does not use it.
+	var err error
+	if needsSimd {
+		result, err = ensureImport(result, "simd")
+		if err != nil {
+			return Result{}, err
+		}
 	}
 
 	if needsOverlapHelper {

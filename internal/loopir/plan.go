@@ -12,6 +12,9 @@ type Plan struct {
 	// Normalize.
 	Dst  *Ref
 	Root Value
+	// Copy is set when the loop only copies one slice onto another. It is
+	// emitted as the copy builtin, which needs no simd at all.
+	Copy bool
 	// Bound is the iteration limit when it is not len(Dst): an int variable
 	// or constant, or len of another slice. Empty means len(Dst).
 	Bound string
@@ -36,6 +39,7 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 		Dst:      store.Dst,
 		Root:     Normalize(store.Val),
 	}
+	_, p.Copy = p.Root.(*Load)
 	if !p.opsSupported(p.Root) {
 		return nil, ReasonUnsupportedOp
 	}

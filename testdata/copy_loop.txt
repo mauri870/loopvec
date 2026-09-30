@@ -1,0 +1,229 @@
+# A loop that only copies one slice onto another is emitted as the copy builtin,
+# which the runtime implements with wide moves. The compiler does not do this
+# itself: it turns a zero-fill loop into a memclr, but leaves a copy loop as a
+# scalar load and store per element.
+#
+# copy moves the elements as if through a temporary, while the loop moves them
+# one at a time, so the two differ when dst starts after src inside the same
+# array: the loop repeats the first element. Overlapping operands keep the
+# original loop. A source shorter than the destination still panics, before
+# anything is written.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Copy(dst, src []float32) {
+	for i := range dst {
+		dst[i] = src[i]
+	}
+}
+
+func CopyRangeValue(dst, src []int32) {
+	for i, v := range src {
+		dst[i] = v
+	}
+}
+
+func CopyBounded(dst, src []byte, n int) {
+	for i := 0; i < n; i++ {
+		dst[i] = src[i]
+	}
+}
+
+func CopyReverse(dst, src []uint16) {
+	for i := len(dst) - 1; i >= 0; i-- {
+		dst[i] = src[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "unsafe"
+
+func Copy(dst, src []float32) {
+	if _loopvecOverlap(dst, src) {
+		for i := range dst {
+			dst[i] = src[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = src[len(dst)-1]
+			copy(dst, src)
+		}
+	}
+}
+
+func CopyRangeValue(dst, src []int32) {
+	if _loopvecOverlap(dst, src) {
+		for i, v := range src {
+			dst[i] = v
+		}
+	} else {
+		if len(src) > 0 {
+			_ = dst[len(src)-1]
+			_ = src[len(src)-1]
+			copy(dst[:len(src)], src)
+		}
+	}
+}
+
+func CopyBounded(dst, src []byte, n int) {
+	if _loopvecOverlap(dst, src) {
+		for i := 0; i < n; i++ {
+			dst[i] = src[i]
+		}
+	} else {
+		if n > 0 {
+			_ = dst[n-1]
+			_ = src[n-1]
+			copy(dst[:n], src)
+		}
+	}
+}
+
+func CopyReverse(dst, src []uint16) {
+	if _loopvecOverlap(dst, src) {
+		for i := len(dst) - 1; i >= 0; i-- {
+			dst[i] = src[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = src[len(dst)-1]
+			copy(dst, src)
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func panics(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
+}
+
+func main() {
+	src := []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	dst := make([]float32, 11)
+	test.Copy(dst, src)
+	fmt.Println(dst)
+
+	// dst starts one element after src: the loop copies the first element
+	// forward over the whole slice, where copy would shift.
+	s := []float32{1, 2, 3, 4, 5, 6}
+	test.Copy(s[1:], s[:5])
+	fmt.Println(s)
+
+	// dst starts before src: the loop and copy agree.
+	s = []float32{1, 2, 3, 4, 5, 6}
+	test.Copy(s[:5], s[1:])
+	fmt.Println(s)
+
+	s = []float32{1, 2, 3}
+	test.Copy(s, s)
+	fmt.Println(s)
+
+	v := make([]int32, 5)
+	test.CopyRangeValue(v, []int32{7, 8, 9, 10, 11})
+	fmt.Println(v)
+
+	b := make([]byte, 6)
+	test.CopyBounded(b, []byte("abcdef"), 4)
+	fmt.Println(b)
+
+	u := make([]uint16, 5)
+	test.CopyReverse(u, []uint16{1, 2, 3, 4, 5})
+	fmt.Println(u)
+
+	w := []uint16{1, 2, 3, 4, 5, 6}
+	test.CopyReverse(w[1:], w[:5])
+	fmt.Println(w)
+
+	fmt.Println(panics(func() { test.Copy(make([]float32, 4), make([]float32, 3)) }))
+	fmt.Println(panics(func() { test.CopyBounded(make([]byte, 4), make([]byte, 2), 3) }))
+
+	test.Copy(nil, nil)
+	test.CopyBounded(nil, nil, 0)
+	fmt.Println("empty ok")
+}
+-- testmain/output --
+[1 2 3 4 5 6 7 8 9 10 11]
+[1 1 1 1 1 1]
+[2 3 4 5 6 6]
+[1 2 3]
+[7 8 9 10 11]
+[97 98 99 100 0 0]
+[1 2 3 4 5]
+[1 1 2 3 4 5]
+true
+true
+empty ok
+-- stderr.want --
+loopvec: rewrote 4 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Copy(dst, src []float32) {
+	for i := range dst {
+		dst[i] = src[i]
+	}
+}
+
+func CopyRangeValue(dst, src []int32) {
+	for i, v := range src {
+		dst[i] = v
+	}
+}
+
+func CopyBounded(dst, src []byte, n int) {
+	for i := 0; i < n; i++ {
+		dst[i] = src[i]
+	}
+}
+
+func CopyReverse(dst, src []uint16) {
+	for i := len(dst) - 1; i >= 0; i-- {
+		dst[i] = src[i]
+	}
+}

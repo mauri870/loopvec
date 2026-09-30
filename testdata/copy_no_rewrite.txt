@@ -1,0 +1,29 @@
+# Only a copy from one slice to another becomes the copy builtin. Copying a
+# slice onto itself does nothing and is left alone, and so is a slice of a type
+# simd has no vector for: that is the set of element types loopvec handles.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func SelfCopy(dst []float32) {
+	for i := range dst {
+		dst[i] = dst[i]
+	}
+}
+
+func CopyStrings(dst, src []string) {
+	for i := range dst {
+		dst[i] = src[i]
+	}
+}

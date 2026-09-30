@@ -260,8 +260,11 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		}
 		switch v := val.(type) {
 		case *Load:
-			// dst[i] = src[i] is a copy, which copy() does better.
-			return nil, ReasonUnsupportedOperand
+			// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
+			// slice onto itself does nothing.
+			if v.Ref.Obj == dst.Obj {
+				return nil, ReasonUnsupportedOperand
+			}
 		case *Invariant:
 			if l.isZero(v.Expr) {
 				return nil, ReasonZeroFillSkipped
@@ -304,6 +307,7 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 // constant-time crypto) are only exercised on these shapes:
 //
 //	dst[i] = literal
+//	dst[i] = src[i]
 //	dst[i] = -src[i]  or  ^src[i]
 //	dst[i] = src[i] op (src[i] or scalar)
 //	dst[i] = (src[i] op (src[i] or scalar)) op outer
@@ -314,6 +318,8 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 // rather than rewritten.
 func (l *lowerer) withinLimits(val Value) bool {
 	switch v := val.(type) {
+	case *Load:
+		return true
 	case *Invariant:
 		_, literal := v.Expr.(*ast.BasicLit)
 		return literal
