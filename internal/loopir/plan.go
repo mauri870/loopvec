@@ -40,8 +40,8 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 		Root:     Normalize(store.Val),
 	}
 	_, p.Copy = p.Root.(*Load)
-	if !p.opsSupported(p.Root) {
-		return nil, ReasonUnsupportedOp
+	if reason := p.checkOps(p.Root); reason != "" {
+		return nil, reason
 	}
 
 	trip := l.Ind.Trip
@@ -71,14 +71,38 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 	return p, ""
 }
 
-func (p *Plan) opsSupported(v Value) bool {
+// checkOps returns why simd cannot express an operation in v on the element
+// type, or "".
+func (p *Plan) checkOps(v Value) Reason {
+	var op Op
+	var operands []Value
 	switch v := v.(type) {
 	case *Unary:
-		return supports(p.Dst.Elem, v.Op) && p.opsSupported(v.X)
+		op, operands = v.Op, []Value{v.X}
 	case *Binary:
-		return supports(p.Dst.Elem, v.Op) && p.opsSupported(v.X) && p.opsSupported(v.Y)
+		op, operands = v.Op, []Value{v.X, v.Y}
+	case *Shift:
+		op, operands = v.Op, []Value{v.X}
+	default:
+		return ""
 	}
-	return true
+	if (op == OpMin || op == OpMax) && isFloat(p.Dst.Elem) {
+		return ReasonFloatMinMax
+	}
+	if !supports(p.Dst.Elem, op) {
+		return ReasonUnsupportedOp
+	}
+	for _, operand := range operands {
+		if reason := p.checkOps(operand); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func isFloat(t types.Type) bool {
+	basic, ok := t.(*types.Basic)
+	return ok && basic.Info()&types.IsFloat != 0
 }
 
 func appendRef(refs []*Ref, ref *Ref) []*Ref {
@@ -93,6 +117,8 @@ func appendRef(refs []*Ref, ref *Ref) []*Ref {
 // Depth is the height of the expression tree: 0 for a leaf.
 func Depth(v Value) int {
 	switch v := v.(type) {
+	case *Shift:
+		return 1 + Depth(v.X)
 	case *Unary:
 		return 1 + Depth(v.X)
 	case *Binary:
@@ -108,6 +134,8 @@ func Depth(v Value) int {
 // where it can be fused.
 func Normalize(v Value) Value {
 	switch v := v.(type) {
+	case *Shift:
+		return &Shift{Op: v.Op, X: Normalize(v.X), Count: v.Count}
 	case *Unary:
 		return &Unary{Op: v.Op, X: Normalize(v.X)}
 	case *Binary:
@@ -133,6 +161,8 @@ func shouldSwap(x, y Value) bool {
 // more work under it first, so the loads feeding it are numbered first.
 func Children(v Value) []Value {
 	switch v := v.(type) {
+	case *Shift:
+		return []Value{v.X}
 	case *Unary:
 		return []Value{v.X}
 	case *Binary:

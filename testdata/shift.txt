@@ -1,0 +1,242 @@
+# A shift by a count that is the same every iteration maps to ShiftAllLeft and
+# ShiftAllRight, which take the count as a uint64. The count is a constant or a
+# variable of an unsigned type. Counts at and past the element width, and a signed
+# right shift of negative numbers, behave as in Go.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ShlConst(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = a[i] << 3
+	}
+}
+
+func ShlWide(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = a[i] << 40
+	}
+}
+
+func ShrVar(dst, a []int32, n uint) {
+	for i := range dst {
+		dst[i] = a[i] >> n
+	}
+}
+
+func ShlAssign(a []uint16) {
+	for i := range a {
+		a[i] <<= 4
+	}
+}
+
+func ShrUint64(dst, a []uint64, n uint8) {
+	for i := range dst {
+		dst[i] = a[i] >> n
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func ShlConst(dst, a []uint32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] << 3
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint32sPart(a[_i:])
+				_v1.ShiftAllLeft(uint64(3)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShlWide(dst, a []uint32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] << 40
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint32sPart(a[_i:])
+				_v1.ShiftAllLeft(uint64(40)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShrVar(dst, a []int32, n uint) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] >> n
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.ShiftAllRight(uint64(n)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShlAssign(a []uint16) {
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadUint16sPart(a[_i:])
+		_v1.ShiftAllLeft(uint64(4)).StorePart(a[_i:])
+		_i += _n
+	}
+}
+
+func ShrUint64(dst, a []uint64, n uint8) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] >> n
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint64sPart(a[_i:])
+				_v1.ShiftAllRight(uint64(n)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	u := []uint32{0, 1, 5, 0x80000000, 0xffffffff, 0x12345678, 3, 255, 65536}
+	dst := make([]uint32, len(u))
+	test.ShlConst(dst, u)
+	fmt.Printf("%#x\n", dst)
+	test.ShlWide(dst, u)
+	fmt.Printf("%#x\n", dst)
+
+	s := []int32{0, 1, -1, -8, 100, -100, -2147483648, 2147483647, 5}
+	out := make([]int32, len(s))
+	for _, n := range []uint{0, 1, 2, 31, 32, 33, 40, 64, 1 << 40} {
+		test.ShrVar(out, s, n)
+		fmt.Println(n, out)
+	}
+
+	h := []uint16{1, 0xffff, 0x1234, 0x0fff, 0x8000}
+	test.ShlAssign(h)
+	fmt.Printf("%#x\n", h)
+
+	q := []uint64{0, 1, 1 << 63, 1<<64 - 1, 12345678901234567}
+	r := make([]uint64, len(q))
+	for _, n := range []uint8{0, 1, 63, 64, 200} {
+		test.ShrUint64(r, q, n)
+		fmt.Printf("%d %#x\n", n, r)
+	}
+}
+-- testmain/output --
+[0x0 0x8 0x28 0x0 0xfffffff8 0x91a2b3c0 0x18 0x7f8 0x80000]
+[0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0 0x0]
+0 [0 1 -1 -8 100 -100 -2147483648 2147483647 5]
+1 [0 0 -1 -4 50 -50 -1073741824 1073741823 2]
+2 [0 0 -1 -2 25 -25 -536870912 536870911 1]
+31 [0 0 -1 -1 0 -1 -1 0 0]
+32 [0 0 -1 -1 0 -1 -1 0 0]
+33 [0 0 -1 -1 0 -1 -1 0 0]
+40 [0 0 -1 -1 0 -1 -1 0 0]
+64 [0 0 -1 -1 0 -1 -1 0 0]
+1099511627776 [0 0 -1 -1 0 -1 -1 0 0]
+[0x10 0xfff0 0x2340 0xfff0 0x0]
+0 [0x0 0x1 0x8000000000000000 0xffffffffffffffff 0x2bdc545d6b4b87]
+1 [0x0 0x0 0x4000000000000000 0x7fffffffffffffff 0x15ee2a2eb5a5c3]
+63 [0x0 0x0 0x1 0x1 0x0]
+64 [0x0 0x0 0x0 0x0 0x0]
+200 [0x0 0x0 0x0 0x0 0x0]
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func ShlConst(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = a[i] << 3
+	}
+}
+
+func ShlWide(dst, a []uint32) {
+	for i := range dst {
+		dst[i] = a[i] << 40
+	}
+}
+
+func ShrVar(dst, a []int32, n uint) {
+	for i := range dst {
+		dst[i] = a[i] >> n
+	}
+}
+
+func ShlAssign(a []uint16) {
+	for i := range a {
+		a[i] <<= 4
+	}
+}
+
+func ShrUint64(dst, a []uint64, n uint8) {
+	for i := range dst {
+		dst[i] = a[i] >> n
+	}
+}

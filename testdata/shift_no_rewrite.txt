@@ -1,0 +1,36 @@
+# A shift is only rewritten when its count is a non-negative constant or an
+# unsigned variable: a negative signed count makes Go panic, and evaluating it
+# once before the loop would not. simd also has no 8-bit shifts and no 64-bit
+# signed right shift.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func SignedCount(dst, a []uint32, n int) {
+	for i := range dst {
+		dst[i] = a[i] << n
+	}
+}
+
+func Shr64(dst, a []int64) {
+	for i := range dst {
+		dst[i] = a[i] >> 2
+	}
+}
+
+func Shl8(dst, a []int8) {
+	for i := range dst {
+		dst[i] = a[i] << 1
+	}
+}

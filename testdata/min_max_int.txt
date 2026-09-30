@@ -1,0 +1,197 @@
+# The builtin min and max of integers map to the simd Min and Max methods; a
+# clamp is a max under a min. Floats are left alone (see
+# min_max_float_no_rewrite.txt).
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ReluInt32s(dst, a []int32) {
+	for i := range dst {
+		dst[i] = max(a[i], 0)
+	}
+}
+
+func ClampInt32s(dst, a []int32, lo, hi int32) {
+	for i := range dst {
+		dst[i] = min(max(a[i], lo), hi)
+	}
+}
+
+func MinUint8s(dst, a, b []uint8) {
+	for i := range dst {
+		dst[i] = min(a[i], b[i])
+	}
+}
+
+func FloorInt16s(a []int16, floor int16) {
+	for i := range a {
+		a[i] = max(floor, a[i])
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func ReluInt32s(dst, a []int32) {
+	_vcInt32s0 := simd.BroadcastInt32s(0)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = max(a[i], 0)
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.Max(_vcInt32s0).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ClampInt32s(dst, a []int32, lo, hi int32) {
+	_vcAInt32s1 := simd.BroadcastInt32s(lo)
+	_vcBInt32s1 := simd.BroadcastInt32s(hi)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = min(max(a[i], lo), hi)
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.Max(_vcAInt32s1).Min(_vcBInt32s1).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func MinUint8s(dst, a, b []uint8) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = min(a[i], b[i])
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint8sPart(a[_i:])
+				_v2, _ := simd.LoadUint8sPart(b[_i:])
+				_v1.Min(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func FloorInt16s(a []int16, floor int16) {
+	_vcInt16s3 := simd.BroadcastInt16s(floor)
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadInt16sPart(a[_i:])
+		_v1.Max(_vcInt16s3).StorePart(a[_i:])
+		_i += _n
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	a := []int32{-5, 0, 3, 100, -2147483648, 2147483647, 7, -1, 42}
+	dst := make([]int32, len(a))
+	test.ReluInt32s(dst, a)
+	fmt.Println(dst)
+	test.ClampInt32s(dst, a, -3, 50)
+	fmt.Println(dst)
+
+	x := []uint8{0, 1, 200, 255, 7, 128, 127}
+	y := []uint8{5, 1, 100, 254, 7, 129, 0}
+	out := make([]uint8, len(x))
+	test.MinUint8s(out, x, y)
+	fmt.Println(out)
+
+	f := []int16{-32768, -1, 0, 1, 32767, -100}
+	test.FloorInt16s(f, -50)
+	fmt.Println(f)
+}
+-- testmain/output --
+[0 0 3 100 0 2147483647 7 0 42]
+[-3 0 3 50 -3 50 7 -1 42]
+[0 1 100 254 7 128 0]
+[-50 -1 0 1 32767 -50]
+-- stderr.want --
+loopvec: rewrote 4 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func ReluInt32s(dst, a []int32) {
+	for i := range dst {
+		dst[i] = max(a[i], 0)
+	}
+}
+
+func ClampInt32s(dst, a []int32, lo, hi int32) {
+	for i := range dst {
+		dst[i] = min(max(a[i], lo), hi)
+	}
+}
+
+func MinUint8s(dst, a, b []uint8) {
+	for i := range dst {
+		dst[i] = min(a[i], b[i])
+	}
+}
+
+func FloorInt16s(a []int16, floor int16) {
+	for i := range a {
+		a[i] = max(floor, a[i])
+	}
+}

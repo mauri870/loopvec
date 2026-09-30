@@ -1,0 +1,280 @@
+# math.Abs and math.Sqrt map to the simd Abs and Sqrt methods. Go has no float32
+# versions, so a float32 loop writes float32(math.Abs(float64(x))), which is the
+# same operation: Abs is exact and Sqrt through float64 rounds to the same
+# float32. The inputs include -0, infinities, NaNs, and negative numbers, and the
+# output is compared bit for bit.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+import "math"
+
+func Abs64(dst, a []float64) {
+	for i := range dst {
+		dst[i] = math.Abs(a[i])
+	}
+}
+
+func Abs32(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Abs(float64(a[i])))
+	}
+}
+
+func Sqrt32(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Sqrt(float64(a[i])))
+	}
+}
+
+func AbsInPlace(a []float64) {
+	for i := range a {
+		a[i] = math.Abs(a[i])
+	}
+}
+
+func InvSqrt(a []float64) {
+	for i := range a {
+		a[i] = float64(1) / math.Sqrt(a[i])
+	}
+}
+
+func AbsDiff(dst, a, b []float64) {
+	for i := range dst {
+		dst[i] = math.Abs(a[i] - b[i])
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"math"
+	"simd"
+	"unsafe"
+)
+
+func Abs64(dst, a []float64) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = math.Abs(a[i])
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat64sPart(a[_i:])
+				_v1.Abs().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Abs32(dst, a []float32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = float32(math.Abs(float64(a[i])))
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v1.Abs().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Sqrt32(dst, a []float32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = float32(math.Sqrt(float64(a[i])))
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v1.Sqrt().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func AbsInPlace(a []float64) {
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadFloat64sPart(a[_i:])
+		_v1.Abs().StorePart(a[_i:])
+		_i += _n
+	}
+}
+
+func InvSqrt(a []float64) {
+	_vcBFloat64s4 := simd.BroadcastFloat64s(float64(1))
+	for _i := 0; _i < len(a); {
+		_v1, _n := simd.LoadFloat64sPart(a[_i:])
+		_vcBFloat64s4.Div(_v1.Sqrt()).StorePart(a[_i:])
+		_i += _n
+	}
+}
+
+func AbsDiff(dst, a, b []float64) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = math.Abs(a[i] - b[i])
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat64sPart(a[_i:])
+				_v2, _ := simd.LoadFloat64sPart(b[_i:])
+				_v1.Sub(_v2).Abs().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"example.com/test"
+)
+
+func bits64(s []float64) []string {
+	out := make([]string, len(s))
+	for i, v := range s {
+		out[i] = fmt.Sprintf("%#x", math.Float64bits(v))
+	}
+	return out
+}
+
+func bits32(s []float32) []string {
+	out := make([]string, len(s))
+	for i, v := range s {
+		out[i] = fmt.Sprintf("%#x", math.Float32bits(v))
+	}
+	return out
+}
+
+func main() {
+	a64 := []float64{0, math.Copysign(0, -1), 1, -1, 2.5, -2.5, math.Inf(1), math.Inf(-1), math.NaN(), -math.NaN(), 4, 9, 1e-310, -1e-310, 1e300}
+	dst64 := make([]float64, len(a64))
+	test.Abs64(dst64, a64)
+	fmt.Println(bits64(dst64))
+
+	a32 := make([]float32, len(a64))
+	for i, v := range a64 {
+		a32[i] = float32(v)
+	}
+	dst32 := make([]float32, len(a32))
+	test.Abs32(dst32, a32)
+	fmt.Println(bits32(dst32))
+	test.Sqrt32(dst32, a32)
+	fmt.Println(bits32(dst32))
+
+	inPlace := append([]float64(nil), a64...)
+	test.AbsInPlace(inPlace)
+	fmt.Println(bits64(inPlace))
+
+	inv := []float64{1, 4, 16, 0.25, 0, -1, math.Inf(1)}
+	test.InvSqrt(inv)
+	fmt.Println(bits64(inv))
+
+	b64 := []float64{1, 2, -3, 4, math.Inf(1), math.Inf(1), 1, 1, 1, 1, 4, 9, 0, 0, 1e300}
+	diff := make([]float64, len(a64))
+	test.AbsDiff(diff, a64, b64)
+	fmt.Println(bits64(diff))
+}
+-- testmain/output --
+[0x0 0x0 0x3ff0000000000000 0x3ff0000000000000 0x4004000000000000 0x4004000000000000 0x7ff0000000000000 0x7ff0000000000000 0x7ff8000000000001 0x7ff8000000000001 0x4010000000000000 0x4022000000000000 0x12688b70e62b 0x12688b70e62b 0x7e37e43c8800759c]
+[0x0 0x0 0x3f800000 0x3f800000 0x40200000 0x40200000 0x7f800000 0x7f800000 0x7fc00000 0x7fc00000 0x40800000 0x41100000 0x0 0x0 0x7f800000]
+[0x0 0x80000000 0x3f800000 0xffc00000 0x3fca62c2 0xffc00000 0x7f800000 0xffc00000 0x7fc00000 0xffc00000 0x40000000 0x40400000 0x0 0x80000000 0x7f800000]
+[0x0 0x0 0x3ff0000000000000 0x3ff0000000000000 0x4004000000000000 0x4004000000000000 0x7ff0000000000000 0x7ff0000000000000 0x7ff8000000000001 0x7ff8000000000001 0x4010000000000000 0x4022000000000000 0x12688b70e62b 0x12688b70e62b 0x7e37e43c8800759c]
+[0x3ff0000000000000 0x3fe0000000000000 0x3fd0000000000000 0x4000000000000000 0x7ff0000000000000 0xfff8000000000000 0x0]
+[0x3ff0000000000000 0x4000000000000000 0x4010000000000000 0x4014000000000000 0x7ff0000000000000 0x7ff0000000000000 0x7ff0000000000000 0x7ff0000000000000 0x7ff8000000000001 0x7ff8000000000001 0x0 0x0 0x12688b70e62b 0x12688b70e62b 0x0]
+-- stderr.want --
+loopvec: rewrote 6 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+import "math"
+
+func Abs64(dst, a []float64) {
+	for i := range dst {
+		dst[i] = math.Abs(a[i])
+	}
+}
+
+func Abs32(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Abs(float64(a[i])))
+	}
+}
+
+func Sqrt32(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Sqrt(float64(a[i])))
+	}
+}
+
+func AbsInPlace(a []float64) {
+	for i := range a {
+		a[i] = math.Abs(a[i])
+	}
+}
+
+func InvSqrt(a []float64) {
+	for i := range a {
+		a[i] = float64(1) / math.Sqrt(a[i])
+	}
+}
+
+func AbsDiff(dst, a, b []float64) {
+	for i := range dst {
+		dst[i] = math.Abs(a[i] - b[i])
+	}
+}

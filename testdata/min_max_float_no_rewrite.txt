@@ -1,0 +1,32 @@
+# The simd Min and Max are the hardware instructions. On amd64 they return the
+# second operand for a NaN and do not order -0 below +0, where Go's min and max
+# (and math.Min and math.Max) propagate the NaN and order the zeros; arm64 matches
+# Go. The result would depend on the machine, so float min and max are left alone.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+import "math"
+
+func Relu(dst, a []float32) {
+	for i := range dst {
+		dst[i] = max(a[i], 0)
+	}
+}
+
+func Lower(dst, a, b []float64) {
+	for i := range dst {
+		dst[i] = math.Min(a[i], b[i])
+	}
+}

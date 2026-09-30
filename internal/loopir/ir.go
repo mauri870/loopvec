@@ -23,8 +23,14 @@ const (
 	OpXor
 	OpDiv
 	OpAndNot // x &^ y
+	OpMin    // min(x, y)
+	OpMax    // max(x, y)
+	OpShl    // x << count, see Shift
+	OpShr    // x >> count, see Shift
 	OpNeg    // unary: -x
 	OpNot    // unary: ^x
+	OpAbs    // unary: math.Abs(x)
+	OpSqrt   // unary: math.Sqrt(x)
 )
 
 // Method returns the name of the simd method that implements op.
@@ -46,10 +52,22 @@ func (op Op) Method() string {
 		return "Div"
 	case OpAndNot:
 		return "AndNot"
+	case OpMin:
+		return "Min"
+	case OpMax:
+		return "Max"
+	case OpShl:
+		return "ShiftAllLeft"
+	case OpShr:
+		return "ShiftAllRight"
 	case OpNeg:
 		return "Neg"
 	case OpNot:
 		return "Not"
+	case OpAbs:
+		return "Abs"
+	case OpSqrt:
+		return "Sqrt"
 	}
 	return ""
 }
@@ -58,7 +76,7 @@ func (op Op) Method() string {
 // unchanged.
 func (op Op) Commutative() bool {
 	switch op {
-	case OpAdd, OpMul, OpAnd, OpOr, OpXor:
+	case OpAdd, OpMul, OpAnd, OpOr, OpXor, OpMin, OpMax:
 		return true
 	}
 	return false
@@ -136,6 +154,17 @@ type Binary struct {
 	X, Y Value
 }
 
+// Shift shifts X by Count bits, a scalar that is the same on every iteration.
+// Unlike the operand of a Binary it is not broadcast: simd takes it as an
+// argument. It is a non-negative constant or an unsigned variable, so evaluating
+// it cannot panic, where a negative signed count would.
+type Shift struct {
+	Op    Op // OpShl or OpShr
+	X     Value
+	Count ast.Expr
+}
+
+func (*Shift) isValue()     {}
 func (*Load) isValue()      {}
 func (*Invariant) isValue() {}
 func (*Unary) isValue()     {}

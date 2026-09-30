@@ -3,6 +3,7 @@
 package bench
 
 import (
+	"math"
 	"simd"
 	"unsafe"
 )
@@ -210,6 +211,93 @@ func AndNotUint64s(dst, a, b []uint64) {
 				_v1, _n := simd.LoadUint64sPart(a[_i:])
 				_v2, _ := simd.LoadUint64sPart(b[_i:])
 				_v1.AndNot(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func AbsFloat32s(dst, a []float32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = float32(math.Abs(float64(a[i])))
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v1.Abs().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func SqrtFloat32s(dst, a []float32) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = float32(math.Sqrt(float64(a[i])))
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v1.Sqrt().StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ClampInt32s(dst, a []int32, lo, hi int32) {
+	_vcAInt32s15 := simd.BroadcastInt32s(lo)
+	_vcBInt32s15 := simd.BroadcastInt32s(hi)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = min(max(a[i], lo), hi)
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.Max(_vcAInt32s15).Min(_vcBInt32s15).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShrInt32s(dst, a []int32, n uint) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] >> n
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.ShiftAllRight(uint64(n)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShlUint32s(dst, a []uint32, n uint) {
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] << n
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint32sPart(a[_i:])
+				_v1.ShiftAllLeft(uint64(n)).StorePart(dst[_i:])
 				_i += _n
 			}
 		}

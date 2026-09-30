@@ -39,12 +39,14 @@ func clampLen(n int) int {
 	return n % 300
 }
 
-// clampOverlap keeps an offset within (-n, n) so layout produces overlap.
+// clampOverlap keeps an offset within (-2n, 2n). An offset shorter than n makes
+// the views overlap, which the generated code sends to the scalar loop; a longer
+// one leaves them disjoint, which is the only case that runs the vector loop.
 func clampOverlap(offset, n int) int {
 	if n == 0 {
 		return 0
 	}
-	return offset % n
+	return offset % (2 * n)
 }
 
 // fuzzFloat32Value occasionally returns NaN, ±0, or ±Inf.
@@ -105,11 +107,13 @@ func float32AlmostEqual(got, want float32, maxULP uint32) bool {
 func FuzzAddFloat32s(f *testing.F) {
 	f.Add(0, 0, 0, uint64(1))
 	f.Add(1, 0, 0, uint64(2))
-	f.Add(5, 1, 0, uint64(3))  // dst/a overlap by 1: AddFloat32s(x[1:], x, y)
-	f.Add(5, 0, -1, uint64(4)) // dst/b overlap by -1
-	f.Add(5, 1, 1, uint64(5))  // dst, a, b all identical
-	f.Add(9, 0, 0, uint64(6))  // odd tail
-	f.Add(4, 0, 0, uint64(7))  // exactly one vector
+	f.Add(5, 1, 0, uint64(3))     // dst/a overlap by 1: AddFloat32s(x[1:], x, y)
+	f.Add(5, 0, -1, uint64(4))    // dst/b overlap by -1
+	f.Add(5, 1, 1, uint64(5))     // dst, a, b all identical
+	f.Add(9, 0, 0, uint64(6))     // odd tail
+	f.Add(4, 0, 0, uint64(7))     // exactly one vector
+	f.Add(9, 11, 12, uint64(8))   // all three disjoint
+	f.Add(37, -40, 50, uint64(9)) // disjoint, several vectors
 	f.Fuzz(func(t *testing.T, nRaw, offARaw, offBRaw int, seed uint64) {
 		n := clampLen(nRaw)
 		offA := clampOverlap(offARaw, n)
@@ -145,6 +149,8 @@ func FuzzNegFloat32s(f *testing.F) {
 	f.Add(5, 1, uint64(4))  // partial overlap
 	f.Add(5, -1, uint64(5)) // partial overlap, other direction
 	f.Add(9, 0, uint64(6))
+	f.Add(9, 11, uint64(7))   // disjoint
+	f.Add(37, -40, uint64(8)) // disjoint, several vectors
 	f.Fuzz(func(t *testing.T, nRaw, offSrcRaw int, seed uint64) {
 		n := clampLen(nRaw)
 		offSrc := clampOverlap(offSrcRaw, n)
@@ -179,6 +185,8 @@ func FuzzReverseIncFloat32s(f *testing.F) {
 	f.Add(5, 1, uint64(4))
 	f.Add(5, -1, uint64(5))
 	f.Add(9, 0, uint64(6))
+	f.Add(9, 11, uint64(7))
+	f.Add(37, -40, uint64(8))
 	f.Fuzz(func(t *testing.T, nRaw, offSrcRaw int, seed uint64) {
 		n := clampLen(nRaw)
 		offSrc := clampOverlap(offSrcRaw, n)
@@ -214,6 +222,8 @@ func FuzzDaxpyFloat32s(f *testing.F) {
 	f.Add(5, 0, uint64(3), float32(2.5)) // dst == a
 	f.Add(5, 1, uint64(4), float32(-3))  // partial overlap
 	f.Add(9, 0, uint64(5), float32(1.5))
+	f.Add(9, 11, uint64(6), float32(2))      // disjoint
+	f.Add(37, -40, uint64(7), float32(-1.5)) // disjoint, several vectors
 	f.Fuzz(func(t *testing.T, nRaw, offARaw int, seed uint64, alpha float32) {
 		n := clampLen(nRaw)
 		offA := clampOverlap(offARaw, n)
@@ -249,6 +259,8 @@ func FuzzCopyFloat32s(f *testing.F) {
 	f.Add(5, 1, uint64(4))  // partial overlap: the loop repeats an element
 	f.Add(5, -1, uint64(5)) // partial overlap, other direction
 	f.Add(9, 0, uint64(6))
+	f.Add(9, 11, uint64(7))   // disjoint
+	f.Add(37, -40, uint64(8)) // disjoint, several vectors
 	f.Fuzz(func(t *testing.T, nRaw, offSrcRaw int, seed uint64) {
 		n := clampLen(nRaw)
 		offSrc := clampOverlap(offSrcRaw, n)
@@ -288,10 +300,12 @@ func randUint64Backing(seed uint64, n int) []uint64 {
 func FuzzAndNotUint64s(f *testing.F) {
 	f.Add(0, 0, 0, uint64(1))
 	f.Add(1, 0, 0, uint64(2))
-	f.Add(5, 0, 0, uint64(3))  // dst == a == b
-	f.Add(5, 1, 0, uint64(4))  // a partially overlaps dst
-	f.Add(5, 0, -1, uint64(5)) // b partially overlaps dst
-	f.Add(9, 2, -3, uint64(6)) // both overlap
+	f.Add(5, 0, 0, uint64(3))     // dst == a == b
+	f.Add(5, 1, 0, uint64(4))     // a partially overlaps dst
+	f.Add(5, 0, -1, uint64(5))    // b partially overlaps dst
+	f.Add(9, 2, -3, uint64(6))    // both overlap
+	f.Add(9, 11, -12, uint64(7))  // disjoint
+	f.Add(37, -40, 50, uint64(8)) // disjoint, several vectors
 	f.Fuzz(func(t *testing.T, nRaw, offARaw, offBRaw int, seed uint64) {
 		n := clampLen(nRaw)
 		offA, offB := clampOverlap(offARaw, n), clampOverlap(offBRaw, n)
@@ -312,6 +326,125 @@ func FuzzAndNotUint64s(f *testing.F) {
 		for i := range want {
 			if got[i] != want[i] {
 				t.Fatalf("AndNotUint64s mismatch at %d (n=%d offA=%d offB=%d): got %#x want %#x", i, n, offA, offB, got[i], want[i])
+			}
+		}
+	})
+}
+
+func FuzzAbsSqrtFloat32s(f *testing.F) {
+	f.Add(0, 0, uint64(1))
+	f.Add(1, 0, uint64(2))
+	f.Add(5, 0, uint64(3))  // dst == a
+	f.Add(5, 1, uint64(4))  // partial overlap
+	f.Add(5, -1, uint64(5)) // partial overlap, other direction
+	f.Add(9, 0, uint64(6))
+	f.Add(9, 11, uint64(7))   // disjoint
+	f.Add(37, -40, uint64(8)) // disjoint, several vectors
+	f.Fuzz(func(t *testing.T, nRaw, offRaw int, seed uint64) {
+		n := clampLen(nRaw)
+		off := clampOverlap(offRaw, n)
+		starts, backingLen := layout(n, off)
+		dstStart, srcStart := starts[0], starts[1]
+
+		for _, sqrt := range []bool{false, true} {
+			src := randFloat32Backing(seed, backingLen)
+			want := append([]float32(nil), src...)
+			got := append([]float32(nil), src...)
+
+			dstW, srcW := want[dstStart:dstStart+n], want[srcStart:srcStart+n]
+			for i := range dstW {
+				if sqrt {
+					dstW[i] = float32(math.Sqrt(float64(srcW[i])))
+				} else {
+					dstW[i] = float32(math.Abs(float64(srcW[i])))
+				}
+			}
+
+			dstG, srcG := got[dstStart:dstStart+n], got[srcStart:srcStart+n]
+			if sqrt {
+				SqrtFloat32s(dstG, srcG)
+			} else {
+				AbsFloat32s(dstG, srcG)
+			}
+
+			for i := range want {
+				if !float32Equal(got[i], want[i]) {
+					t.Fatalf("sqrt=%v mismatch at %d (n=%d off=%d): got %v (0x%x) want %v (0x%x)",
+						sqrt, i, n, off, got[i], math.Float32bits(got[i]), want[i], math.Float32bits(want[i]))
+				}
+			}
+		}
+	})
+}
+
+func FuzzClampInt32s(f *testing.F) {
+	f.Add(0, 0, uint64(1), int32(0), int32(0))
+	f.Add(5, 0, uint64(2), int32(-10), int32(10))
+	f.Add(5, 1, uint64(3), int32(-1), int32(1))      // partial overlap
+	f.Add(9, -1, uint64(4), int32(5), int32(-5))     // lo above hi
+	f.Add(9, 11, uint64(5), int32(-100), int32(100)) // disjoint
+	f.Add(37, -40, uint64(6), int32(-7), int32(7))   // disjoint, several vectors
+	f.Fuzz(func(t *testing.T, nRaw, offRaw int, seed uint64, lo, hi int32) {
+		n := clampLen(nRaw)
+		off := clampOverlap(offRaw, n)
+		starts, backingLen := layout(n, off)
+		dstStart, srcStart := starts[0], starts[1]
+
+		src := make([]int32, backingLen)
+		for i, v := range randUint64Backing(seed, backingLen) {
+			src[i] = int32(v)
+		}
+		want := append([]int32(nil), src...)
+		got := append([]int32(nil), src...)
+
+		dstW, srcW := want[dstStart:dstStart+n], want[srcStart:srcStart+n]
+		for i := range dstW {
+			dstW[i] = min(max(srcW[i], lo), hi)
+		}
+		ClampInt32s(got[dstStart:dstStart+n], got[srcStart:srcStart+n], lo, hi)
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("mismatch at %d (n=%d off=%d lo=%d hi=%d): got %d want %d", i, n, off, lo, hi, got[i], want[i])
+			}
+		}
+	})
+}
+
+func FuzzShiftInt32s(f *testing.F) {
+	f.Add(0, 0, uint64(1), uint(0))
+	f.Add(5, 0, uint64(2), uint(3))
+	f.Add(5, 1, uint64(3), uint(31)) // partial overlap
+	f.Add(9, 0, uint64(4), uint(32))
+	f.Add(9, 0, uint64(5), uint(1<<40))
+	f.Add(9, 11, uint64(6), uint(5))    // disjoint
+	f.Add(37, -40, uint64(7), uint(31)) // disjoint, several vectors
+	f.Fuzz(func(t *testing.T, nRaw, offRaw int, seed uint64, count uint) {
+		n := clampLen(nRaw)
+		off := clampOverlap(offRaw, n)
+		starts, backingLen := layout(n, off)
+		dstStart, srcStart := starts[0], starts[1]
+
+		backing := randUint64Backing(seed, backingLen)
+		signed := make([]int32, backingLen)
+		unsigned := make([]uint32, backingLen)
+		for i, v := range backing {
+			signed[i], unsigned[i] = int32(v), uint32(v)
+		}
+		wantS, wantU := append([]int32(nil), signed...), append([]uint32(nil), unsigned...)
+		gotS, gotU := append([]int32(nil), signed...), append([]uint32(nil), unsigned...)
+
+		for i := range n {
+			wantS[dstStart+i] = wantS[srcStart+i] >> count
+			wantU[dstStart+i] = wantU[srcStart+i] << count
+		}
+		ShrInt32s(gotS[dstStart:dstStart+n], gotS[srcStart:srcStart+n], count)
+		ShlUint32s(gotU[dstStart:dstStart+n], gotU[srcStart:srcStart+n], count)
+
+		for i := range wantS {
+			if gotS[i] != wantS[i] || gotU[i] != wantU[i] {
+				t.Fatalf("mismatch at %d (n=%d off=%d count=%d): int32 >> got %d want %d, uint32 << got %#x want %#x",
+					i, n, off, count, gotS[i], wantS[i], gotU[i], wantU[i])
 			}
 		}
 	})

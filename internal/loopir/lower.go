@@ -248,7 +248,8 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 
 	var dst *Ref
 	var val Value
-	if assign.Tok == token.ASSIGN {
+	switch assign.Tok {
+	case token.ASSIGN:
 		dst, ok = l.index(assign.Lhs[0])
 		if !ok {
 			return nil, ReasonUnsupportedDestination
@@ -270,7 +271,22 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 				return nil, ReasonZeroFillSkipped
 			}
 		}
-	} else {
+	case token.SHL_ASSIGN, token.SHR_ASSIGN:
+		// dst[i] <<= count is dst[i] = dst[i] << count.
+		dst, ok = l.index(assign.Lhs[0])
+		if !ok {
+			return nil, ReasonUnsupportedDestination
+		}
+		op := token.SHL
+		if assign.Tok == token.SHR_ASSIGN {
+			op = token.SHR
+		}
+		var reason Reason
+		val, reason = l.shiftOf(op, &Load{Ref: dst}, assign.Rhs[0])
+		if reason != "" {
+			return nil, reason
+		}
+	default:
 		// dst[i] op= rhs is dst[i] = dst[i] op rhs.
 		op, ok := binaryOp(assign.Tok)
 		if !ok {
@@ -311,6 +327,9 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 //	dst[i] = -src[i]  or  ^src[i]
 //	dst[i] = src[i] op (src[i] or scalar)
 //	dst[i] = (src[i] op (src[i] or scalar)) op outer
+//	dst[i] = math.Abs(src[i])  or  math.Sqrt(src[i]), also of a one-operation
+//	    expression, and either of them as an operand of the forms above
+//	dst[i] = src[i] << count  or  >> count
 //
 // where outer is src[i], a scalar, or src[i]*scalar, and a scalar in a
 // two-level tree is an identifier or a literal. The range value variable is
@@ -323,13 +342,22 @@ func (l *lowerer) withinLimits(val Value) bool {
 	case *Invariant:
 		_, literal := v.Expr.(*ast.BasicLit)
 		return literal
+	case *Shift:
+		_, load := v.X.(*Load)
+		return load
 	case *Unary:
 		_, load := v.X.(*Load)
+		if v.Op == OpAbs || v.Op == OpSqrt {
+			return load || l.inner(v.X)
+		}
 		return load
 	case *Binary:
 		if Depth(v) == 1 {
-			_, load := v.X.(*Load)
-			return load
+			if _, load := v.X.(*Load); load {
+				return true
+			}
+			// min and max may take the scalar first.
+			return (v.Op == OpMin || v.Op == OpMax) && l.plainScalar(v.X) && l.plainLoad(v.Y)
 		}
 		return l.twoLevel(v)
 	}
@@ -344,6 +372,9 @@ func (l *lowerer) twoLevel(v *Binary) bool {
 }
 
 func (l *lowerer) inner(v Value) bool {
+	if u, ok := v.(*Unary); ok {
+		return (u.Op == OpAbs || u.Op == OpSqrt) && l.plainLoad(u.X)
+	}
 	b, ok := v.(*Binary)
 	if !ok {
 		return false
@@ -373,7 +404,8 @@ func (l *lowerer) plainLoad(v Value) bool {
 	return ok && load.Ref != l.valueRef
 }
 
-// plainScalar reports whether v is an identifier or a literal.
+// plainScalar reports whether v is an identifier, a literal, or a constant
+// expression such as float64(1).
 func (l *lowerer) plainScalar(v Value) bool {
 	inv, ok := v.(*Invariant)
 	if !ok {
@@ -383,7 +415,8 @@ func (l *lowerer) plainScalar(v Value) bool {
 	case *ast.Ident, *ast.BasicLit:
 		return true
 	}
-	return false
+	tv, ok := l.info.Types[inv.Expr]
+	return ok && tv.Value != nil
 }
 
 // value lowers an expression evaluated once per iteration.
@@ -396,7 +429,12 @@ func (l *lowerer) value(expr ast.Expr) (Value, Reason) {
 		return &Invariant{Expr: expr}, ""
 	}
 	switch e := expr.(type) {
+	case *ast.CallExpr:
+		return l.call(e)
 	case *ast.BinaryExpr:
+		if e.Op == token.SHL || e.Op == token.SHR {
+			return l.shift(e.Op, e.X, e.Y)
+		}
 		op, ok := binaryOp(e.Op)
 		if !ok {
 			return nil, ReasonUnsupportedOperand
@@ -427,6 +465,142 @@ func (l *lowerer) value(expr ast.Expr) (Value, Reason) {
 		return &Unary{Op: op, X: x}, ""
 	}
 	return nil, ReasonUnsupportedOperand
+}
+
+// call lowers min, max, and the math functions simd has a method for: Abs, Sqrt,
+// Min, and Max. Go has no float32 versions, so they are written
+// float32(math.Abs(float64(x))); that is Abs on float32 vectors too, since Abs
+// is exact and Sqrt through float64 rounds to the same float32 as the hardware
+// (a float64 has more than twice the bits of a float32 significand), and Min and
+// Max only choose an operand. Any other call is not rewritten: it may have side
+// effects, and an invariant is evaluated before the loop even when it does not
+// run.
+func (l *lowerer) call(call *ast.CallExpr) (Value, Reason) {
+	if fun, ok := l.info.Types[call.Fun]; ok && fun.IsType() {
+		// float32(math.F(float64(x), ...))
+		if len(call.Args) == 1 && isKind(fun.Type, types.Float32) {
+			if inner, ok := ast.Unparen(call.Args[0]).(*ast.CallExpr); ok {
+				if op, arity, ok := l.mathFunc(inner); ok {
+					return l.operation(op, arity, inner.Args, true)
+				}
+			}
+		}
+		return nil, ReasonUnsupportedOperand
+	}
+	if op, arity, ok := l.mathFunc(call); ok {
+		return l.operation(op, arity, call.Args, false)
+	}
+	if fn, ok := call.Fun.(*ast.Ident); ok && len(call.Args) >= 2 {
+		if _, builtin := l.info.Uses[fn].(*types.Builtin); builtin && (fn.Name == "min" || fn.Name == "max") {
+			op := OpMin
+			if fn.Name == "max" {
+				op = OpMax
+			}
+			return l.operation(op, len(call.Args), call.Args, false)
+		}
+	}
+	return nil, ReasonUnsupportedOperand
+}
+
+// mathFunc matches math.Abs, math.Sqrt, math.Min, and math.Max, returning the
+// operation and its number of arguments.
+func (l *lowerer) mathFunc(call *ast.CallExpr) (op Op, arity int, ok bool) {
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return 0, 0, false
+	}
+	fn, isFunc := l.info.Uses[sel.Sel].(*types.Func)
+	if !isFunc || fn.Pkg() == nil || fn.Pkg().Path() != "math" {
+		return 0, 0, false
+	}
+	switch fn.Name() {
+	case "Abs":
+		return OpAbs, 1, true
+	case "Sqrt":
+		return OpSqrt, 1, true
+	case "Min":
+		return OpMin, 2, true
+	case "Max":
+		return OpMax, 2, true
+	}
+	return 0, 0, false
+}
+
+// operation lowers op applied to args. With narrow, each argument must be
+// float64(x) for a float32 x, and x is what is lowered. More than two arguments
+// of min or max fold from the left.
+func (l *lowerer) operation(op Op, arity int, args []ast.Expr, narrow bool) (Value, Reason) {
+	if len(args) != arity {
+		return nil, ReasonUnsupportedOperand
+	}
+	values := make([]Value, len(args))
+	for i, arg := range args {
+		arg = ast.Unparen(arg)
+		if narrow {
+			conv, ok := arg.(*ast.CallExpr)
+			if !ok || len(conv.Args) != 1 {
+				return nil, ReasonUnsupportedOperand
+			}
+			fun, ok := l.info.Types[conv.Fun]
+			inner := ast.Unparen(conv.Args[0])
+			if !ok || !fun.IsType() || !isKind(fun.Type, types.Float64) || !isKind(l.info.Types[inner].Type, types.Float32) {
+				return nil, ReasonUnsupportedOperand
+			}
+			arg = inner
+		}
+		value, reason := l.value(arg)
+		if reason != "" {
+			return nil, reason
+		}
+		values[i] = value
+	}
+	if len(values) == 1 {
+		return &Unary{Op: op, X: values[0]}, ""
+	}
+	result := values[0]
+	for _, next := range values[1:] {
+		result = &Binary{Op: op, X: result, Y: next}
+	}
+	return result, ""
+}
+
+// shift lowers x << count and x >> count.
+func (l *lowerer) shift(tok token.Token, x, count ast.Expr) (Value, Reason) {
+	value, reason := l.value(x)
+	if reason != "" {
+		return nil, reason
+	}
+	return l.shiftOf(tok, value, count)
+}
+
+// shiftOf shifts an already lowered value. The count must be a non-negative
+// constant or a variable of an unsigned type: a negative signed count makes Go
+// panic, and evaluating it before the loop would not.
+func (l *lowerer) shiftOf(tok token.Token, x Value, count ast.Expr) (Value, Reason) {
+	count = ast.Unparen(count)
+	ok := false
+	if tv, isConst := l.info.Types[count]; isConst && tv.Value != nil {
+		_, ok = constant.Uint64Val(tv.Value)
+	} else if ident, isIdent := count.(*ast.Ident); isIdent {
+		if obj, isVar := l.info.Uses[ident].(*types.Var); isVar && obj != l.iv && obj != l.valueVar {
+			basic, isBasic := obj.Type().Underlying().(*types.Basic)
+			ok = isBasic && basic.Info()&types.IsUnsigned != 0
+		}
+	}
+	if !ok {
+		return nil, ReasonUnsupportedOperand
+	}
+	op := OpShl
+	if tok == token.SHR {
+		op = OpShr
+	}
+	return &Shift{Op: op, X: x, Count: count}, ""
+}
+
+// isKind reports whether t is the predeclared type of the given kind.
+func isKind(t types.Type, kind types.BasicKind) bool {
+	basic, ok := t.(*types.Basic)
+	return ok && basic.Kind() == kind
 }
 
 // load matches src[i], or the range value variable, which is the same read.

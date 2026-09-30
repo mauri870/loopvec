@@ -39,6 +39,7 @@ Slices of named types (`type Values []float64`) work; named element types (`[]Ce
 
 Supported binary operators: `+`, `-`, `*`, `/`, `&`, `|`, `^`, `&^` (and their `op=` forms). `/` requires `float32` or `float64` (no integer division in simd).
 Supported unary operators: `-` (negation, all except unsigned integers), `^` (bitwise NOT, all integer types).
+Also `math.Abs` and `math.Sqrt` (a `float32` loop writes `float32(math.Sqrt(float64(x)))`), `min` and `max` of integers, and `<<` and `>>` by a constant or an unsigned variable.
 `MulAdd`/FMA patterns require `float32` or `float64`.
 Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit integers).
 Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
@@ -333,8 +334,12 @@ already split is a no-op.
 and similar are not rewritten. The `simd` package's `ReduceSum` and friends
 are only in `gotip`, not the current `go1.27` release.
 
-**No calls in the loop body.** `math.Abs`, `math.Sqrt`, `min` and `max` are not
-rewritten yet.
+**Float `min` and `max`** are not rewritten: on amd64 the hardware instruction
+differs from Go's for NaN and signed zero.
+
+**No SIMD hardware.** With `GODEBUG=simd=0`, or on a CPU `simd` does not support,
+go1.27's emulated `float64` vectors return wrong results, so rewritten `float64`
+loops are unreliable there.
 
 **Loop shapes.** Range loops must declare their index (`for i := range x`). The
 body must be one assignment to `dst[i]`; `dst[i+1]`, `a[i+1]` and `a[0]` are not

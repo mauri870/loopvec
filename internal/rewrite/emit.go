@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/format"
 	"go/token"
+	"go/types"
 	"strings"
 
 	"github.com/mauri870/loopvec/internal/loopir"
@@ -113,6 +114,8 @@ func (e *emitter) expr(v loopir.Value) string {
 		return e.loads[v]
 	case *loopir.Invariant:
 		return e.broadcasts[v]
+	case *loopir.Shift:
+		return fmt.Sprintf("%s.%s(uint64(%s))", e.expr(v.X), v.Op.Method(), types.ExprString(v.Count))
 	case *loopir.Unary:
 		return e.expr(v.X) + "." + v.Op.Method() + "()"
 	case *loopir.Binary:

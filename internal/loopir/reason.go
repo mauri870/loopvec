@@ -44,6 +44,12 @@ const (
 	// ReasonUnsupportedOp covers an operation simd doesn't implement for an
 	// otherwise-supported element type (for example, int64 multiply).
 	ReasonUnsupportedOp Reason = "operation not supported by simd for this element type"
+	// ReasonFloatMinMax covers min and max of floating-point values: the simd
+	// method is the hardware instruction, which on amd64 returns the second
+	// operand for a NaN and does not order -0 below +0, where Go's min and max
+	// propagate the NaN and order the zeros. arm64 matches Go, so the result
+	// would depend on the machine.
+	ReasonFloatMinMax Reason = "float min and max differ from Go's on some architectures (NaN and signed zero)"
 	// ReasonMethodSkipped covers a loop inside a method, skipped unless
 	// -methods is passed (see analysis.Analyze's doc comment).
 	ReasonMethodSkipped Reason = "loops inside methods are skipped without -methods"
@@ -63,7 +69,7 @@ func (r Reason) Stage() string {
 	switch r {
 	case ReasonMethodSkipped:
 		return "analysis"
-	case ReasonUnsupportedOp:
+	case ReasonUnsupportedOp, ReasonFloatMinMax:
 		return "plan"
 	}
 	return "lower"

@@ -2,6 +2,8 @@
 
 package bench
 
+import "math"
+
 func AddFloat32s(dst, a, b []float32) {
 	for i := range dst {
 		dst[i] = a[i] + b[i]
@@ -77,5 +79,35 @@ func CopyFloat32s(dst, src []float32) {
 func AndNotUint64s(dst, a, b []uint64) {
 	for i := range dst {
 		dst[i] = a[i] &^ b[i]
+	}
+}
+
+func AbsFloat32s(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Abs(float64(a[i])))
+	}
+}
+
+func SqrtFloat32s(dst, a []float32) {
+	for i := range dst {
+		dst[i] = float32(math.Sqrt(float64(a[i])))
+	}
+}
+
+func ClampInt32s(dst, a []int32, lo, hi int32) {
+	for i := range dst {
+		dst[i] = min(max(a[i], lo), hi)
+	}
+}
+
+func ShrInt32s(dst, a []int32, n uint) {
+	for i := range dst {
+		dst[i] = a[i] >> n
+	}
+}
+
+func ShlUint32s(dst, a []uint32, n uint) {
+	for i := range dst {
+		dst[i] = a[i] << n
 	}
 }

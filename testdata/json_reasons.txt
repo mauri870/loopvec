@@ -102,6 +102,12 @@ func OpInt64Mul(dst, a, b []int64) {
 	}
 }
 
+func FloatMax(dst, a []float32) {
+	for i := range dst {
+		dst[i] = max(a[i], 0)
+	}
+}
+
 func ZeroFill(dst []float32) {
 	for i := range dst {
 		dst[i] = 0
@@ -128,5 +134,6 @@ func Vectorized(dst, a []float32) {
 {"file":"$WORK/ops.go","line":75,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a single indexed assignment","stage":"lower"}
 {"file":"$WORK/ops.go","line":82,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
 {"file":"$WORK/ops.go","line":88,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
-{"file":"$WORK/ops.go","line":94,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
-{"file":"$WORK/ops.go","line":100,"func":"Vectorized","vectorized":true}
+{"file":"$WORK/ops.go","line":94,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
+{"file":"$WORK/ops.go","line":100,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
+{"file":"$WORK/ops.go","line":106,"func":"Vectorized","vectorized":true}
