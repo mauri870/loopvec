@@ -68,7 +68,7 @@ s3111	vectorize	no	not recognized
 s3113	vectorize	no	not recognized
 s331	vectorize	no	not recognized
 s351	vectorize	no	loop step is not i++ (or i-- when counting down)
-s1351	vectorize	no	loop body is not a single indexed assignment
+s1351	vectorize	no	range clause is not i := range s, i, v := range s, or i := range n
 s352	vectorize	no	not recognized
 s421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
 s1421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
