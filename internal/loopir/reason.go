@@ -48,6 +48,13 @@ const (
 	// that is also used outside the loop: the vector loop would not leave it
 	// holding the last iteration's value.
 	ReasonLiveTemp Reason = "a local assigned in the loop is used outside it"
+	// ReasonUnsupportedReduction covers a fold into a local with an operator
+	// that cannot be regrouped, such as -=, /=, &^=, or a shift.
+	ReasonUnsupportedReduction Reason = "loop accumulates with an operator that cannot be regrouped"
+	// ReasonFloatReduction covers a floating-point accumulator: folding into
+	// several vector lanes and combining them regroups the operations, and
+	// float addition is not associative.
+	ReasonFloatReduction Reason = "float reduction would combine the elements in a different order"
 	// ReasonMixedTypes covers a body whose assignments write slices of
 	// different element types: one vector type is used for the whole loop.
 	ReasonMixedTypes Reason = "assignments write slices of different element types"
@@ -79,7 +86,7 @@ func (r Reason) Stage() string {
 	switch r {
 	case ReasonMethodSkipped:
 		return "analysis"
-	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonMixedTypes, ReasonTooManySlices:
+	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonFloatReduction, ReasonMixedTypes, ReasonTooManySlices:
 		return "plan"
 	}
 	return "lower"

@@ -56,20 +56,20 @@ s291	vectorize	no	operand is not a same-index slice, range value, or plain scala
 s293	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s2101	vectorize	no	destination is not a simple, same-index slice element
 s2102	vectorize	no	destination is not a simple, same-index slice element
-s311	vectorize	no	not recognized
-s312	vectorize	no	not recognized
-s313	vectorize	no	not recognized
-s314	vectorize	no	not recognized
-s315	vectorize	no	not recognized
-s316	vectorize	no	not recognized
+s311	vectorize	no	float reduction would combine the elements in a different order
+s312	vectorize	no	float reduction would combine the elements in a different order
+s313	vectorize	no	float reduction would combine the elements in a different order
+s314	vectorize	no	loop body is not a sequence of indexed assignments
+s315	vectorize	no	loop body is not a sequence of indexed assignments
+s316	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 s317	vectorize	no	not recognized
 s319	vectorize	no	loop body is not a sequence of indexed assignments
-s3111	vectorize	no	not recognized
-s3113	vectorize	no	not recognized
+s3111	vectorize	no	loop body is not a sequence of indexed assignments
+s3113	vectorize	no	loop body is not a sequence of indexed assignments
 s331	vectorize	no	not recognized
 s351	vectorize	no	loop step is not i++ (or i-- when counting down)
 s1351	vectorize	no	range clause is not i := range s, i, v := range s, or i := range n
-s352	vectorize	no	not recognized
+s352	vectorize	no	loop step is not i++ (or i-- when counting down)
 s421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
 s1421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
 s422	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -79,7 +79,7 @@ s431	vectorize	no	operand is not a same-index slice, range value, or plain scala
 s441	vectorize	no	loop body is not a sequence of indexed assignments
 s443	vectorize	no	loop body is not a sequence of indexed assignments
 s452	vectorize	no	operand is not a same-index slice, range value, or plain scalar
-s453	vectorize	no	loop body is not a sequence of indexed assignments
+s453	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s4117	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 va	vectorize	yes
 vif	vectorize	no	loop body is not a sequence of indexed assignments
@@ -89,6 +89,6 @@ vpvtv	vectorize	yes
 vpvts	vectorize	yes
 vpvpv	vectorize	yes
 vtvtv	vectorize	yes
-vsumr	vectorize	no	not recognized
-vdotr	vectorize	no	not recognized
+vsumr	vectorize	no	float reduction would combine the elements in a different order
+vdotr	vectorize	no	float reduction would combine the elements in a different order
 vbor	vectorize	no	loop body is not a sequence of indexed assignments

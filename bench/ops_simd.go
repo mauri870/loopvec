@@ -377,6 +377,82 @@ func WideInt32s(dst, a, b, c []int32, k, m int32) {
 	}
 }
 
+func SumInt32s(a []int32, init int32) int32 {
+	sum := init
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1 := simd.BroadcastInt32s(0)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadInt32s(a[_i:])
+				_a1 = _a1.Add(_v1)
+			}
+			var _buf1 [16]int32
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				sum = sum + _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			sum += a[i]
+		}
+	}
+	return sum
+}
+
+func DotInt32s(a, b []int32) int32 {
+	var sum int32
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 64 {
+				_a1 := simd.BroadcastInt32s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v1 := simd.LoadInt32s(a[_i:])
+					_v2 := simd.LoadInt32s(b[_i:])
+					_a1 = _a1.Add(_v1.Mul(_v2))
+				}
+				var _buf1 [16]int32
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					sum = sum + _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				sum += a[i] * b[i]
+			}
+		}
+	}
+	return sum
+}
+
+func MinUint16s(a []uint16) uint16 {
+	m := uint16(65535)
+	{
+		_i := 0
+		if len(a) >= 128 {
+			_a1 := simd.BroadcastUint16s(65535)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadUint16s(a[_i:])
+				_a1 = _a1.Min(_v1)
+			}
+			var _buf1 [32]uint16
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				m = min(m, _x)
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			m = min(m, a[i])
+		}
+	}
+	return m
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

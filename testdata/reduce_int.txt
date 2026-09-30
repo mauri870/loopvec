@@ -1,0 +1,564 @@
+# A loop that folds into a local with +, *, &, |, ^, min or max is rewritten to
+# fold whole vectors into an accumulator that starts at the operation's identity;
+# the lanes are combined afterwards and the elements that do not fill a vector
+# run the original body. The accumulator is read nowhere else in the loop, so the
+# grouping does not matter for integers. The sizes cover empty, shorter than a
+# vector, exactly one, and with a tail.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Sum(a []int32, init int32) int32 {
+	sum := init
+	for i := range a {
+		sum += a[i]
+	}
+	return sum
+}
+
+// A range value variable, and a fold written acc = acc op x.
+func Dot(a, b []uint16) uint16 {
+	var d uint16
+	for i, v := range a {
+		d = d + v*b[i]
+	}
+	return d
+}
+
+func Min(a []int32) int32 {
+	m := int32(1<<31 - 1)
+	for i := range a {
+		m = min(m, a[i])
+	}
+	return m
+}
+
+func Max(a []int8) int8 {
+	m := int8(-128)
+	for i := range a {
+		m = max(a[i], m)
+	}
+	return m
+}
+
+func And(a []uint8) uint8 {
+	x := uint8(255)
+	for i := range a {
+		x &= a[i]
+	}
+	return x
+}
+
+func Xor(a, b []uint64) uint64 {
+	var x uint64
+	for i := range a {
+		x = x ^ (a[i] + b[i])
+	}
+	return x
+}
+
+func Product(a []uint32) uint32 {
+	p := uint32(1)
+	for i := range a {
+		p *= a[i]
+	}
+	return p
+}
+
+// The limit is an int variable, and the loop runs backwards.
+func SumN(a []int64, n int) int64 {
+	var sum int64
+	for i := 0; i < n; i++ {
+		sum += a[i]
+	}
+	return sum
+}
+
+func SumReverse(a []int16) int16 {
+	var sum int16
+	for i := len(a) - 1; i >= 0; i-- {
+		sum += a[i]
+	}
+	return sum
+}
+
+// A fold and a store in one loop.
+func SumAndScale(dst, a []int32) int32 {
+	var sum int32
+	for i := range dst {
+		dst[i] = a[i] * 3
+		sum += dst[i]
+	}
+	return sum
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func Sum(a []int32, init int32) int32 {
+	sum := init
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1 := simd.BroadcastInt32s(0)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadInt32s(a[_i:])
+				_a1 = _a1.Add(_v1)
+			}
+			var _buf1 [16]int32
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				sum = sum + _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			sum += a[i]
+		}
+	}
+	return sum
+}
+
+// A range value variable, and a fold written acc = acc op x.
+func Dot(a, b []uint16) uint16 {
+	var d uint16
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 128 {
+				_a1 := simd.BroadcastUint16s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v1 := simd.LoadUint16s(a[_i:])
+					_v2 := simd.LoadUint16s(b[_i:])
+					_a1 = _a1.Add(_v1.Mul(_v2))
+				}
+				var _buf1 [32]uint16
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					d = d + _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				v := a[i]
+				d = d + v*b[i]
+			}
+		}
+	}
+	return d
+}
+
+func Min(a []int32) int32 {
+	m := int32(1<<31 - 1)
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1 := simd.BroadcastInt32s(2147483647)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadInt32s(a[_i:])
+				_a1 = _a1.Min(_v1)
+			}
+			var _buf1 [16]int32
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				m = min(m, _x)
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			m = min(m, a[i])
+		}
+	}
+	return m
+}
+
+func Max(a []int8) int8 {
+	m := int8(-128)
+	{
+		_i := 0
+		if len(a) >= 256 {
+			_a1 := simd.BroadcastInt8s(-128)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadInt8s(a[_i:])
+				_a1 = _a1.Max(_v1)
+			}
+			var _buf1 [64]int8
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				m = max(m, _x)
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			m = max(a[i], m)
+		}
+	}
+	return m
+}
+
+func And(a []uint8) uint8 {
+	x := uint8(255)
+	{
+		_i := 0
+		if len(a) >= 256 {
+			_a1 := simd.BroadcastUint8s(255)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadUint8s(a[_i:])
+				_a1 = _a1.And(_v1)
+			}
+			var _buf1 [64]uint8
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				x = x & _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			x &= a[i]
+		}
+	}
+	return x
+}
+
+func Xor(a, b []uint64) uint64 {
+	var x uint64
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 32 {
+				_a1 := simd.BroadcastUint64s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v1 := simd.LoadUint64s(a[_i:])
+					_v2 := simd.LoadUint64s(b[_i:])
+					_a1 = _a1.Xor(_v1.Add(_v2))
+				}
+				var _buf1 [8]uint64
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					x = x ^ _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				x = x ^ (a[i] + b[i])
+			}
+		}
+	}
+	return x
+}
+
+func Product(a []uint32) uint32 {
+	p := uint32(1)
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1 := simd.BroadcastUint32s(1)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadUint32s(a[_i:])
+				_a1 = _a1.Mul(_v1)
+			}
+			var _buf1 [16]uint32
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				p = p * _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			p *= a[i]
+		}
+	}
+	return p
+}
+
+// The limit is an int variable, and the loop runs backwards.
+func SumN(a []int64, n int) int64 {
+	var sum int64
+	if n > 0 {
+		_ = a[n-1]
+		{
+			_i := 0
+			if n >= 32 {
+				_a1 := simd.BroadcastInt64s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= n; _i += _lanes {
+					_v1 := simd.LoadInt64s(a[_i:n])
+					_a1 = _a1.Add(_v1)
+				}
+				var _buf1 [8]int64
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					sum = sum + _x
+				}
+			}
+			for i := _i; i < n; i++ {
+				sum += a[i]
+			}
+		}
+	}
+	return sum
+}
+
+func SumReverse(a []int16) int16 {
+	var sum int16
+	{
+		_i := 0
+		if len(a) >= 128 {
+			_a1 := simd.BroadcastInt16s(0)
+			_lanes := _a1.Len()
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v1 := simd.LoadInt16s(a[_i:])
+				_a1 = _a1.Add(_v1)
+			}
+			var _buf1 [32]int16
+			_a1.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				sum = sum + _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			sum += a[i]
+		}
+	}
+	return sum
+}
+
+// A fold and a store in one loop.
+func SumAndScale(dst, a []int32) int32 {
+	var sum int32
+	_vcInt32s9_1 := simd.BroadcastInt32s(3)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] * 3
+			sum += dst[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			{
+				_i := 0
+				if len(dst) >= 64 {
+					_a1 := simd.BroadcastInt32s(0)
+					_lanes := _a1.Len()
+					for ; _i+_lanes <= len(dst); _i += _lanes {
+						_v1 := simd.LoadInt32s(a[_i:])
+						_v1.Mul(_vcInt32s9_1).Store(dst[_i:])
+						_v2 := simd.LoadInt32s(dst[_i:])
+						_a1 = _a1.Add(_v2)
+					}
+					var _buf1 [16]int32
+					_a1.Store(_buf1[:])
+					for _, _x := range _buf1[:_lanes] {
+						sum = sum + _x
+					}
+				}
+				for i := _i; i < len(dst); i++ {
+					dst[i] = a[i] * 3
+					sum += dst[i]
+				}
+			}
+		}
+	}
+	return sum
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+// The sizes cover empty, shorter than a vector, exactly one, and a tail.
+var sizes = []int{0, 1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 33, 63, 64, 65, 100, 127, 128, 129, 255, 256, 257, 300, 1000}
+
+func checksum(s []int32) (sum int64) {
+	for i, v := range s {
+		sum += int64(v) * int64(i+1)
+	}
+	return sum
+}
+
+func main() {
+	for _, n := range sizes {
+		a32 := make([]int32, n)
+		a16 := make([]uint16, n)
+		b16 := make([]uint16, n)
+		a8 := make([]int8, n)
+		u8 := make([]uint8, n)
+		a64 := make([]uint64, n)
+		b64 := make([]uint64, n)
+		u32 := make([]uint32, n)
+		s64 := make([]int64, n)
+		s16 := make([]int16, n)
+		for i := range n {
+			a32[i] = int32(i*7919 - 500)
+			a16[i], b16[i] = uint16(i*31+1), uint16(i*17+3)
+			a8[i] = int8(i*13 - 60)
+			u8[i] = uint8(0xff &^ (1 << (i % 7)))
+			a64[i], b64[i] = uint64(i)*0x9e3779b97f4a7c15, uint64(i*i)
+			u32[i] = uint32(i%5 + 1)
+			s64[i] = int64(i) << 40
+			s16[i] = int16(i * 1001)
+		}
+		dst := make([]int32, n)
+		fmt.Println(n, test.Sum(a32, 5), test.Dot(a16, b16), test.Min(a32), test.Max(a8),
+			test.And(u8), test.Xor(a64, b64), test.Product(u32), test.SumN(s64, n),
+			test.SumReverse(s16), test.SumAndScale(dst, a32), checksum(dst))
+	}
+}
+-- testmain/output --
+0 5 0 2147483647 -128 255 0 1 0 0 0 0
+1 -495 3 -500 -60 254 0 1 0 0 -1500 -1500
+2 6924 643 -500 -47 252 11400714819323198486 2 1099511627776 1001 20757 43014
+3 22262 2974 -500 -34 248 11698534113733411896 6 3298534883328 3003 66771 181056
+7 162804 50288 -500 18 128 11708158113325679668 240 23089744183296 21021 488397 2618784
+8 217737 11348 -500 31 128 17437919993158951152 720 30786325577728 28028 653196 3937176
+9 280589 45959 -500 44 128 19177802200252440 2880 39582418599936 -29500 841752 5634180
+15 824000 22212 -500 122 128 12159627328717751452 1728000 115448720916480 -25967 2471985 26427840
+16 942285 11368 -500 122 128 17149581486878868096 1728000 131941395333120 -10952 2826840 32105520
+17 1068489 16971 -500 122 128 1047112099196567760 3456000 149533581377536 5064 3205452 38541924
+31 3666840 53292 -500 122 128 1640077352130751116 981729280 511272906915840 6713 11000505 234925440
+33 4164737 57747 -500 122 128 17913687573883004512 1595408384 580542139465728 4240 12494196 283482276
+63 15434312 42492 -500 126 128 10472944847294054060 0 2147346209046528 -11127 46302921 1976599296
+64 15932709 43936 -500 126 128 9147280884081927680 0 2216615441596416 -13600 47798112 2072291520
+65 16439025 46883 -500 126 128 17523441417407673152 0 2286984185774080 -15072 49317060 2171023140
+100 39149055 45922 -500 126 128 13761513267008786672 0 5442582557491200 -25786 117447150 7910633100
+127 63296424 23964 -500 126 128 10694445450112815724 0 8797192533835776 13609 189889257 16207947264
+128 64301637 18240 -500 126 128 16856743055652790016 0 8936830510563328 9664 192904896 16593949056
+129 65314769 15939 -500 126 128 17461567087415252352 0 9077567998918656 6720 195944292 16986031140
+255 256329320 64732 -500 127 128 11861838086784340204 0 35607684065525760 -22935 768987945 131256929280
+256 258348165 20096 -500 127 128 4458432932604298752 0 35888059530608640 -29824 775044480 132807402240
+257 260374929 48259 -500 127 128 767353967481279232 0 36169534507319296 29824 781124772 134370037284
+300 355017155 17654 -500 127 128 7350297058137098496 0 49313096505753600 2690 1065051450 213742899300
+1000 -339926791 45956 -500 127 128 8195676317371592816 0 549206058074112000 25356 -1019780388 7918241331000
+-- stderr.want --
+loopvec: rewrote 10 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Sum(a []int32, init int32) int32 {
+	sum := init
+	for i := range a {
+		sum += a[i]
+	}
+	return sum
+}
+
+// A range value variable, and a fold written acc = acc op x.
+func Dot(a, b []uint16) uint16 {
+	var d uint16
+	for i, v := range a {
+		d = d + v*b[i]
+	}
+	return d
+}
+
+func Min(a []int32) int32 {
+	m := int32(1<<31 - 1)
+	for i := range a {
+		m = min(m, a[i])
+	}
+	return m
+}
+
+func Max(a []int8) int8 {
+	m := int8(-128)
+	for i := range a {
+		m = max(a[i], m)
+	}
+	return m
+}
+
+func And(a []uint8) uint8 {
+	x := uint8(255)
+	for i := range a {
+		x &= a[i]
+	}
+	return x
+}
+
+func Xor(a, b []uint64) uint64 {
+	var x uint64
+	for i := range a {
+		x = x ^ (a[i] + b[i])
+	}
+	return x
+}
+
+func Product(a []uint32) uint32 {
+	p := uint32(1)
+	for i := range a {
+		p *= a[i]
+	}
+	return p
+}
+
+// The limit is an int variable, and the loop runs backwards.
+func SumN(a []int64, n int) int64 {
+	var sum int64
+	for i := 0; i < n; i++ {
+		sum += a[i]
+	}
+	return sum
+}
+
+func SumReverse(a []int16) int16 {
+	var sum int16
+	for i := len(a) - 1; i >= 0; i-- {
+		sum += a[i]
+	}
+	return sum
+}
+
+// A fold and a store in one loop.
+func SumAndScale(dst, a []int32) int32 {
+	var sum int32
+	for i := range dst {
+		dst[i] = a[i] * 3
+		sum += dst[i]
+	}
+	return sum
+}

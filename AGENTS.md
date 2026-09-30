@@ -90,8 +90,11 @@ safety argument stays structural:
   local declared before the loop) is a vector held between statements; it must
   be written before it is read, and a local declared outside the loop must have
   no use outside it and not be a named result (`deadOutsideLoop`). Any local the body assigns is never treated as
-  loop-invariant. `if` and nested loops (2-D access, `aa[i][j]`) are rejected on
-  body shape alone.
+  loop-invariant. A fold into a local declared before the loop (`acc op= x`, `acc = acc op x`,
+  `acc = min(acc, x)`) is a `Reduce`, and the accumulator may not appear anywhere
+  else in the loop; the emitter runs it with full-width loads, since a partial
+  load zero-pads and zero is the identity only for some operators. `if` and
+  nested loops (2-D access, `aa[i][j]`) are rejected on body shape alone.
 
 There is no shape whitelist: lowering builds a value tree of any depth, and
 the capability table (`checkOps` in `plan.go`) decides whether simd can express

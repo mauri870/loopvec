@@ -32,6 +32,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 | `for i := range a { t := b[i] + c[i]*d[i]; a[i] = t * t }` | temporary held as a vector |
 | `for i := range dst { dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i]) }` | expressions of any depth |
 | `for i := range dst { dst[i] = k }` | fill from a variable or constant |
+| `for i := range a { sum += a[i] * b[i] }` | integer reduction (`+ * & \| ^ min max`) |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
 | `for i := len(s) - 1; i >= 0; i-- { ... }` | reverse three-clause for (rewritten to run forward) |
 | `for i := 0; i < n; i++ { ... }`, `for i := range n { ... }` | explicit int limit; slices are length-checked first |
@@ -362,6 +363,13 @@ differs from Go's for NaN and signed zero.
 **No SIMD hardware.** With `GODEBUG=simd=0`, or on a CPU `simd` does not support,
 go1.27's emulated `float64` vectors return wrong results, so rewritten `float64`
 loops are unreliable there.
+
+**Reductions.** A fold into an integer local (`sum += a[i]`, `m = min(m, a[i])`)
+runs whole vectors into an accumulator that starts at the operation's identity,
+combines the lanes at the end, and runs the leftover elements with the original
+body. Integer operations wrap the same way in any order, so the result is
+identical; float reductions are not rewritten because regrouping changes them.
+Loops under 64 elements (for `int32`) stay scalar.
 
 **Loop shapes.** Range loops must declare their index (`for i := range x`). The
 body must be assignments to `dst[i]` and to temporaries that nothing reads after

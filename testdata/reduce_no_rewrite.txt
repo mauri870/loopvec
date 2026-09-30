@@ -1,0 +1,96 @@
+# A fold stays scalar when regrouping it would change the result or when the
+# accumulator is used anywhere else in the loop: a float sum (addition is not
+# associative), a running prefix, an operator that cannot be regrouped, a second
+# fold into the same local, an accumulator that is also an operand, an
+# accumulator that outlives the function, and an element type without a vector.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func FloatSum(a []float32) float32 {
+	var s float32
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+
+func FloatMax(a []float64) float64 {
+	m := a[0]
+	for i := range a {
+		m = max(m, a[i])
+	}
+	return m
+}
+
+func Prefix(a, b []int32) {
+	var s int32
+	for i := range a {
+		s += a[i]
+		b[i] = s
+	}
+}
+
+func Subtract(a []int32) int32 {
+	var s int32
+	for i := range a {
+		s -= a[i]
+	}
+	return s
+}
+
+func TwoFolds(a, b []int32) int32 {
+	var s int32
+	for i := range a {
+		s += a[i]
+		s += b[i]
+	}
+	return s
+}
+
+func OwnOperand(a []int32) int32 {
+	var s int32 = 1
+	for i := range a {
+		s += a[i] * s
+	}
+	return s
+}
+
+var total int32
+
+func Global(a []int32) {
+	for i := range a {
+		total += a[i]
+	}
+}
+
+func Plain(a []int) int {
+	var s int
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":5,"func":"FloatSum","vectorized":false,"reason":"float reduction would combine the elements in a different order","stage":"plan"}
+{"file":"$WORK/ops.go","line":13,"func":"FloatMax","vectorized":false,"reason":"float reduction would combine the elements in a different order","stage":"plan"}
+{"file":"$WORK/ops.go","line":21,"func":"Prefix","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":29,"func":"Subtract","vectorized":false,"reason":"loop accumulates with an operator that cannot be regrouped","stage":"lower"}
+{"file":"$WORK/ops.go","line":37,"func":"TwoFolds","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":46,"func":"OwnOperand","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":55,"func":"Global","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":62,"func":"Plain","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}

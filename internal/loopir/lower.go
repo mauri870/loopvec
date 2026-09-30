@@ -46,6 +46,8 @@ type lowerer struct {
 	// temps maps a local to its temporary, once the Let that defines it is
 	// lowered.
 	temps map[types.Object]*Temp
+	// reduced holds the accumulators of the reductions lowered so far.
+	reduced map[types.Object]bool
 	// iv is the loop index variable.
 	iv types.Object
 	// valueVar is the range value variable and valueRef the slice it ranges over;
@@ -276,6 +278,7 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	}
 	l.assigned = map[types.Object]bool{}
 	l.temps = map[types.Object]*Temp{}
+	l.reduced = map[types.Object]bool{}
 	for _, stmt := range block.List {
 		assign, ok := stmt.(*ast.AssignStmt)
 		if !ok {
@@ -303,6 +306,14 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 			return nil, ReasonUnsupportedBody
 		}
 		if id, ok := ast.Unparen(assign.Lhs[0]).(*ast.Ident); ok {
+			reduce, isReduce, reason := l.reduce(assign, id)
+			if reason != "" {
+				return nil, reason
+			}
+			if isReduce {
+				body = append(body, reduce)
+				continue
+			}
 			let, reason := l.let(assign, id)
 			if reason != "" {
 				return nil, reason
@@ -360,11 +371,19 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		}
 	}
 
-	return &Loop{
+	loop := &Loop{
 		Node: node,
 		Ind:  Induction{Var: l.iv, Step: step, Trip: trip},
 		Body: body,
-	}, ""
+	}
+	for _, stmt := range body {
+		for _, leaf := range Leaves(stmtValue(stmt)) {
+			if load, ok := leaf.(*Load); ok && load.FromRange {
+				loop.ValueVar, loop.ValueRef = l.valueVar, l.valueRef
+			}
+		}
+	}
+	return loop, ""
 }
 
 // stmtValue is the expression a statement computes.
@@ -374,8 +393,104 @@ func stmtValue(stmt Stmt) Value {
 		return stmt.Val
 	case Let:
 		return stmt.Val
+	case Reduce:
+		return stmt.Val
 	}
 	return nil
+}
+
+// reduce lowers a fold into a local declared before the loop: acc op= x,
+// acc = acc op x (or x op acc), or acc = min(acc, x) and max, for the
+// associative and commutative operators. isReduce is false when the assignment
+// is not a fold into such a local, and it may then be a temporary.
+//
+// The accumulator is not read anywhere else in the loop, so the vector loop
+// may fold the elements in any grouping and combine the parts afterwards. That
+// is exact for integers, whose operations wrap identically, so a floating-point
+// accumulator is left to the plan stage to reject.
+func (l *lowerer) reduce(assign *ast.AssignStmt, id *ast.Ident) (r Reduce, isReduce bool, reason Reason) {
+	if assign.Tok == token.DEFINE {
+		return Reduce{}, false, ""
+	}
+	v, ok := l.info.Uses[id].(*types.Var)
+	if !ok || v.IsField() || v.Pos() >= l.node.Pos() || v.Pkg() == nil || v.Parent() == v.Pkg().Scope() {
+		return Reduce{}, false, ""
+	}
+
+	var op Op
+	var operand ast.Expr
+	switch {
+	case assign.Tok != token.ASSIGN:
+		op, ok = binaryOp(assign.Tok)
+		if !ok || !op.Commutative() {
+			return Reduce{}, false, ReasonUnsupportedReduction
+		}
+		operand = assign.Rhs[0]
+	default:
+		op, operand, ok = l.fold(assign.Rhs[0], v)
+		if !ok {
+			return Reduce{}, false, ""
+		}
+	}
+
+	if l.reduced[v] || l.temps[v] != nil {
+		return Reduce{}, false, ReasonUnsupportedBody
+	}
+	if SimdType(v.Type()) == "" {
+		return Reduce{}, false, ReasonUnsupportedType
+	}
+	val, reason := l.value(operand)
+	if reason != "" {
+		return Reduce{}, false, reason
+	}
+	l.reduced[v] = true
+	return Reduce{Acc: v, Op: op, Val: val}, true, ""
+}
+
+// fold matches acc op x, x op acc, min(acc, x), and max(acc, x) for a
+// commutative operator, returning the operator and x.
+func (l *lowerer) fold(rhs ast.Expr, acc *types.Var) (Op, ast.Expr, bool) {
+	isAcc := func(e ast.Expr) bool {
+		id, ok := ast.Unparen(e).(*ast.Ident)
+		return ok && l.info.Uses[id] == acc
+	}
+	switch e := ast.Unparen(rhs).(type) {
+	case *ast.BinaryExpr:
+		op, ok := binaryOp(e.Op)
+		if !ok || !op.Commutative() {
+			return 0, nil, false
+		}
+		if isAcc(e.X) {
+			return op, e.Y, true
+		}
+		if isAcc(e.Y) {
+			return op, e.X, true
+		}
+	case *ast.CallExpr:
+		fn, ok := e.Fun.(*ast.Ident)
+		if !ok || len(e.Args) != 2 {
+			return 0, nil, false
+		}
+		if _, builtin := l.info.Uses[fn].(*types.Builtin); !builtin {
+			return 0, nil, false
+		}
+		var op Op
+		switch fn.Name {
+		case "min":
+			op = OpMin
+		case "max":
+			op = OpMax
+		default:
+			return 0, nil, false
+		}
+		if isAcc(e.Args[0]) {
+			return op, e.Args[1], true
+		}
+		if isAcc(e.Args[1]) {
+			return op, e.Args[0], true
+		}
+	}
+	return 0, nil, false
 }
 
 // let lowers x := value, or x = value for a local declared before the loop. The

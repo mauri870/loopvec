@@ -246,3 +246,32 @@ func BenchmarkWideInt32s(b *testing.B) {
 		})
 	}
 }
+
+var sinkInt32 int32
+
+func BenchmarkSumInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]int32, n)
+			setBytes(b, n, 4, 1)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkInt32 = SumInt32s(a, 0)
+			}
+		})
+	}
+}
+
+func BenchmarkDotInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]int32, n)
+			y := make([]int32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkInt32 = DotInt32s(x, y)
+			}
+		})
+	}
+}

@@ -132,3 +132,27 @@ func WideInt32s(dst, a, b, c []int32, k, m int32) {
 		dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
 	}
 }
+
+func SumInt32s(a []int32, init int32) int32 {
+	sum := init
+	for i := range a {
+		sum += a[i]
+	}
+	return sum
+}
+
+func DotInt32s(a, b []int32) int32 {
+	var sum int32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}
+
+func MinUint16s(a []uint16) uint16 {
+	m := uint16(65535)
+	for i := range a {
+		m = min(m, a[i])
+	}
+	return m
+}

@@ -124,6 +124,10 @@ type Loop struct {
 	Node ast.Stmt
 	Ind  Induction
 	Body []Stmt
+	// ValueVar is the range value variable, and ValueRef the slice it ranges
+	// over, when the loop has one that is used.
+	ValueVar types.Object
+	ValueRef *Ref
 }
 
 // Stmt is a statement of a loop body: a Store or a Let.
@@ -141,8 +145,19 @@ type Let struct {
 	Val  Value
 }
 
-func (Store) isStmt() {}
-func (Let) isStmt()   {}
+// Reduce folds Val into the local Acc with Op, once per iteration: Acc op= Val.
+// The loop body does not otherwise read or write Acc, so the folds can happen in
+// any order and grouping. Op is associative and commutative: OpAdd, OpMul, OpAnd,
+// OpOr, OpXor, OpMin or OpMax.
+type Reduce struct {
+	Acc types.Object
+	Op  Op
+	Val Value
+}
+
+func (Store) isStmt()  {}
+func (Let) isStmt()    {}
+func (Reduce) isStmt() {}
 
 // Temp is a scalar local written by one Let and read by later statements of the
 // same iteration. The vector loop holds it as a vector. A local declared before

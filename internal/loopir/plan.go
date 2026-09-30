@@ -16,6 +16,15 @@ type Plan struct {
 	SimdType string
 	// Stmts are the loop's statements in source order.
 	Stmts []PlanStmt
+	// Full is set when the loop folds into an accumulator (has a Reduce). It is
+	// emitted with full-width loads, a scalar loop for what is left, and the
+	// accumulators combined afterwards, since a zero-padded partial load is not
+	// the identity of every operation.
+	Full bool
+	// Limit is the iteration limit as source text.
+	Limit string
+	// TripRef is the slice whose length limits the loop, when one does.
+	TripRef *Ref
 	// Copy is set when the loop only copies one slice onto another. It is
 	// emitted as the copy builtin, which needs no simd at all.
 	Copy bool
@@ -36,21 +45,13 @@ type Plan struct {
 }
 
 // PlanStmt is a statement whose value has been normalized; see Normalize. It
-// stores to Dst, or defines Temp when Dst is nil.
+// stores to Dst, defines Temp, or folds into Acc with Op, whichever is set.
 type PlanStmt struct {
 	Dst  *Ref
 	Temp *Temp
+	Acc  types.Object
+	Op   Op
 	Root Value
-}
-
-// FirstDst is the destination of the first store.
-func (p *Plan) FirstDst() *Ref {
-	for _, stmt := range p.Stmts {
-		if stmt.Dst != nil {
-			return stmt.Dst
-		}
-	}
-	return nil
 }
 
 // NewPlan checks that simd implements every operation in l for its element
@@ -60,6 +61,10 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 	for _, stmt := range l.Body {
 		if store, ok := stmt.(Store); ok {
 			elem = store.Dst.Elem
+			break
+		}
+		if reduce, ok := stmt.(Reduce); ok {
+			elem = reduce.Acc.Type()
 			break
 		}
 	}
@@ -77,13 +82,25 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 				return nil, ReasonMixedTypes
 			}
 			planned = PlanStmt{Temp: stmt.Temp, Root: Normalize(stmt.Val)}
+		case Reduce:
+			if !types.Identical(stmt.Acc.Type(), elem) {
+				return nil, ReasonMixedTypes
+			}
+			if isFloat(elem) {
+				return nil, ReasonFloatReduction
+			}
+			if !supports(elem, stmt.Op) {
+				return nil, ReasonUnsupportedOp
+			}
+			planned = PlanStmt{Acc: stmt.Acc, Op: stmt.Op, Root: Normalize(stmt.Val)}
+			p.Full = true
 		}
 		if reason := checkOps(elem, planned.Root); reason != "" {
 			return nil, reason
 		}
 		p.Stmts = append(p.Stmts, planned)
 	}
-	if len(p.Stmts) == 1 {
+	if len(p.Stmts) == 1 && p.Stmts[0].Dst != nil {
 		_, p.Copy = p.Stmts[0].Root.(*Load)
 	}
 
@@ -102,6 +119,12 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 	case TripInt:
 		p.Bound = types.ExprString(trip.Limit)
 		p.BoundConst = trip.Const
+	}
+	if trip.Kind == TripLen {
+		p.TripRef = trip.Slice
+		p.Limit = "len(" + trip.Slice.Name + ")"
+	} else {
+		p.Limit = p.Bound
 	}
 
 	stored := map[types.Object]bool{}

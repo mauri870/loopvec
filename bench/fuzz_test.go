@@ -565,3 +565,38 @@ func FuzzWideInt32s(f *testing.F) {
 		}
 	})
 }
+
+func FuzzReduceInt32s(f *testing.F) {
+	f.Add(0, uint64(1), int32(0))
+	f.Add(1, uint64(2), int32(7))
+	f.Add(3, uint64(3), int32(-1))
+	f.Add(15, uint64(4), int32(1<<30))
+	f.Add(16, uint64(5), int32(0))
+	f.Add(17, uint64(6), int32(-1<<31))
+	f.Add(100, uint64(7), int32(12345)) // several vectors and a tail
+	f.Fuzz(func(t *testing.T, nRaw int, seed uint64, init int32) {
+		n := clampLen(nRaw)
+		backing := randUint64Backing(seed, 2*n)
+		a, b := make([]int32, n), make([]int32, n)
+		u := make([]uint16, n)
+		for i := range n {
+			a[i], b[i], u[i] = int32(backing[i]), int32(backing[n+i]), uint16(backing[i]>>32)
+		}
+
+		wantSum, wantDot, wantMin := init, int32(0), uint16(65535)
+		for i := range n {
+			wantSum += a[i]
+			wantDot += a[i] * b[i]
+			wantMin = min(wantMin, u[i])
+		}
+		if got := SumInt32s(a, init); got != wantSum {
+			t.Fatalf("SumInt32s(n=%d init=%d) = %d, want %d", n, init, got, wantSum)
+		}
+		if got := DotInt32s(a, b); got != wantDot {
+			t.Fatalf("DotInt32s(n=%d) = %d, want %d", n, got, wantDot)
+		}
+		if got := MinUint16s(u); got != wantMin {
+			t.Fatalf("MinUint16s(n=%d) = %d, want %d", n, got, wantMin)
+		}
+	})
+}

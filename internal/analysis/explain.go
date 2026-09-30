@@ -65,12 +65,13 @@ func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, allow
 }
 
 // hasIndexedAssignment reports whether body assigns to a slice-indexed
-// expression somewhere outside a nested loop or function literal, the minimum
-// for a loop to be reported as a candidate at all. A body that is more than one
-// assignment, or wraps it in an if, is still a candidate: AnalyzeExplain says why
-// it is not vectorized. A nested loop is a candidate of its own, so the search
-// does not enter it. It doesn't check that the index matches the loop variable
-// -- that's exactly the kind of rejection AnalyzeExplain reports a reason for.
+// expression somewhere outside a nested loop or function literal, or updates a
+// variable from one (sum += a[i]), the minimum for a loop to be reported as a
+// candidate at all. A body that is more than one assignment, or wraps it in an
+// if, is still a candidate: AnalyzeExplain says why it is not vectorized. A
+// nested loop is a candidate of its own, so the search does not enter it. It
+// doesn't check that the index matches the loop variable -- that's exactly the
+// kind of rejection AnalyzeExplain reports a reason for.
 func hasIndexedAssignment(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -81,6 +82,16 @@ func hasIndexedAssignment(body *ast.BlockStmt) bool {
 			for _, lhs := range n.Lhs {
 				if _, ok := ast.Unparen(lhs).(*ast.IndexExpr); ok {
 					found = true
+				}
+			}
+			if _, ok := n.Lhs[0].(*ast.Ident); ok && n.Tok != token.DEFINE {
+				for _, rhs := range n.Rhs {
+					ast.Inspect(rhs, func(n ast.Node) bool {
+						if _, ok := n.(*ast.IndexExpr); ok {
+							found = true
+						}
+						return !found
+					})
 				}
 			}
 		}
