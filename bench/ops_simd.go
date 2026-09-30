@@ -197,6 +197,25 @@ func CopyFloat32s(dst, src []float32) {
 	}
 }
 
+func AndNotUint64s(dst, a, b []uint64) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = a[i] &^ b[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint64sPart(a[_i:])
+				_v2, _ := simd.LoadUint64sPart(b[_i:])
+				_v1.AndNot(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

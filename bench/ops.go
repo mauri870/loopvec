@@ -73,3 +73,9 @@ func CopyFloat32s(dst, src []float32) {
 		dst[i] = src[i]
 	}
 }
+
+func AndNotUint64s(dst, a, b []uint64) {
+	for i := range dst {
+		dst[i] = a[i] &^ b[i]
+	}
+}

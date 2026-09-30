@@ -22,9 +22,37 @@ const (
 	OpOr
 	OpXor
 	OpDiv
-	OpNeg // unary: -x
-	OpNot // unary: ^x
+	OpAndNot // x &^ y
+	OpNeg    // unary: -x
+	OpNot    // unary: ^x
 )
+
+// Method returns the name of the simd method that implements op.
+func (op Op) Method() string {
+	switch op {
+	case OpAdd:
+		return "Add"
+	case OpSub:
+		return "Sub"
+	case OpMul:
+		return "Mul"
+	case OpAnd:
+		return "And"
+	case OpOr:
+		return "Or"
+	case OpXor:
+		return "Xor"
+	case OpDiv:
+		return "Div"
+	case OpAndNot:
+		return "AndNot"
+	case OpNeg:
+		return "Neg"
+	case OpNot:
+		return "Not"
+	}
+	return ""
+}
 
 // Commutative reports whether swapping the operands of op leaves the result
 // unchanged.

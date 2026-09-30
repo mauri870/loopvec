@@ -16,6 +16,7 @@ fuzz-slow:
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzReverseIncFloat32s -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzDaxpyFloat32s -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzCopyFloat32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzAndNotUint64s -fuzztime=60s
 
 fix:
 	go fix ./...
@@ -51,7 +52,7 @@ bench-regen: build
 	go run . -split ./bench/
 
 generate:
-	go generate ./tsvc/...
+	go generate ./...
 
 tsvc-test: generate build
 	go test -count=1 ./tsvc/...
@@ -74,6 +75,7 @@ tsvc-bench: generate build
 	GOEXPERIMENT=simd go test -run '^$$' -bench . -count=10 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
 	benchstat /tmp/tsvc_bench_scalar.txt /tmp/tsvc_bench_simd.txt
 
-test-update: build
+test-update: generate
+	$(MAKE) build
 	go test . -run TestScripts -update
 	$(MAKE) tsvc-update tsvc-coverage-update

@@ -114,7 +114,7 @@ func (e *emitter) expr(v loopir.Value) string {
 	case *loopir.Invariant:
 		return e.broadcasts[v]
 	case *loopir.Unary:
-		return e.expr(v.X) + "." + opMethod(v.Op) + "()"
+		return e.expr(v.X) + "." + v.Op.Method() + "()"
 	case *loopir.Binary:
 		// A multiply feeding an add is one fused multiply-add. The spec allows
 		// the fusion, but the result can differ from the scalar loop in the
@@ -122,7 +122,7 @@ func (e *emitter) expr(v loopir.Value) string {
 		if mul, ok := v.X.(*loopir.Binary); ok && v.Op == loopir.OpAdd && mul.Op == loopir.OpMul && e.isFloat() {
 			return fmt.Sprintf("%s.MulAdd(%s, %s)", e.expr(mul.X), e.expr(mul.Y), e.expr(v.Y))
 		}
-		return fmt.Sprintf("%s.%s(%s)", e.expr(v.X), opMethod(v.Op), e.expr(v.Y))
+		return fmt.Sprintf("%s.%s(%s)", e.expr(v.X), v.Op.Method(), e.expr(v.Y))
 	}
 	return ""
 }
@@ -197,29 +197,4 @@ func broadcastNames(plan *loopir.Plan, idx int) map[*loopir.Invariant]string {
 		names[inv] = fmt.Sprintf("_vc%s%d_%d", plan.SimdType, idx, n+1)
 	}
 	return names
-}
-
-// opMethod returns the simd method that implements op.
-func opMethod(op loopir.Op) string {
-	switch op {
-	case loopir.OpAdd:
-		return "Add"
-	case loopir.OpSub:
-		return "Sub"
-	case loopir.OpMul:
-		return "Mul"
-	case loopir.OpAnd:
-		return "And"
-	case loopir.OpOr:
-		return "Or"
-	case loopir.OpXor:
-		return "Xor"
-	case loopir.OpDiv:
-		return "Div"
-	case loopir.OpNeg:
-		return "Neg"
-	case loopir.OpNot:
-		return "Not"
-	}
-	return ""
 }

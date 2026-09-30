@@ -2,6 +2,8 @@ package loopir
 
 import "go/types"
 
+//go:generate go run ./gen -o caps_gen.go
+
 // SimdType returns the simd vector type name for element type t, or the empty
 // string when simd has none. Only the predeclared numeric types qualify: a
 // named type such as type Celsius float32 needs conversions the rewrite does
@@ -36,23 +38,8 @@ func SimdType(t types.Type) string {
 	return ""
 }
 
-// supports reports whether simd implements op for element type t. There is no
-// 64-bit integer multiply or integer divide, no negation of unsigned
-// integers, and no bitwise not of floats.
+// supports reports whether simd has the method that implements op on the
+// vector type of element type t.
 func supports(t types.Type, op Op) bool {
-	kind := t.(*types.Basic).Kind()
-	switch op {
-	case OpMul:
-		return kind != types.Int64 && kind != types.Uint64
-	case OpDiv:
-		return kind == types.Float32 || kind == types.Float64
-	case OpNeg:
-		switch kind {
-		case types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-			return false
-		}
-	case OpNot:
-		return kind != types.Float32 && kind != types.Float64
-	}
-	return true
+	return simdMethods[SimdType(t)][op.Method()]
 }

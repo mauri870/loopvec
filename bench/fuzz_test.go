@@ -275,3 +275,44 @@ func FuzzCopyFloat32s(f *testing.F) {
 		}
 	})
 }
+
+func randUint64Backing(seed uint64, n int) []uint64 {
+	r := rand.New(rand.NewPCG(seed, seed>>32|1))
+	s := make([]uint64, n)
+	for i := range s {
+		s[i] = r.Uint64()
+	}
+	return s
+}
+
+func FuzzAndNotUint64s(f *testing.F) {
+	f.Add(0, 0, 0, uint64(1))
+	f.Add(1, 0, 0, uint64(2))
+	f.Add(5, 0, 0, uint64(3))  // dst == a == b
+	f.Add(5, 1, 0, uint64(4))  // a partially overlaps dst
+	f.Add(5, 0, -1, uint64(5)) // b partially overlaps dst
+	f.Add(9, 2, -3, uint64(6)) // both overlap
+	f.Fuzz(func(t *testing.T, nRaw, offARaw, offBRaw int, seed uint64) {
+		n := clampLen(nRaw)
+		offA, offB := clampOverlap(offARaw, n), clampOverlap(offBRaw, n)
+		starts, backingLen := layout(n, offA, offB)
+		dstStart, aStart, bStart := starts[0], starts[1], starts[2]
+
+		src := randUint64Backing(seed, backingLen)
+		want := append([]uint64(nil), src...)
+		got := append([]uint64(nil), src...)
+
+		dstW, aW, bW := want[dstStart:dstStart+n], want[aStart:aStart+n], want[bStart:bStart+n]
+		for i := range dstW {
+			dstW[i] = aW[i] &^ bW[i]
+		}
+
+		AndNotUint64s(got[dstStart:dstStart+n], got[aStart:aStart+n], got[bStart:bStart+n])
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("AndNotUint64s mismatch at %d (n=%d offA=%d offB=%d): got %#x want %#x", i, n, offA, offB, got[i], want[i])
+			}
+		}
+	})
+}

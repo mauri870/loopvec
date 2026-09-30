@@ -542,6 +542,8 @@ func binaryOp(tok token.Token) (Op, bool) {
 		return OpXor, true
 	case token.QUO, token.QUO_ASSIGN:
 		return OpDiv, true
+	case token.AND_NOT, token.AND_NOT_ASSIGN:
+		return OpAndNot, true
 	}
 	return 0, false
 }
