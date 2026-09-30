@@ -8,10 +8,11 @@ const (
 
 // Arrays holds the operands shared by the kernels. Each 1-D field has Len1D
 // elements; each 2-D field is Len2D rows of Len2D columns backed by one
-// contiguous slice.
+// contiguous slice. S1 and S2 are the scalars TSVC_2 passes to some kernels.
 type Arrays struct {
-	A, B, C, D, E []float32
-	AA, BB, CC    [][]float32
+	A, B, C, D, E, X []float32
+	AA, BB, CC       [][]float32
+	S1, S2           float32
 }
 
 // NewArrays allocates a fresh, zeroed Arrays. Callers run a kernel's Setup
@@ -23,10 +24,14 @@ func NewArrays() *Arrays {
 		C: make([]float32, Len1D),
 		D: make([]float32, Len1D),
 		E: make([]float32, Len1D),
+		X: make([]float32, Len1D),
 
 		AA: newMatrix(Len2D, Len2D),
 		BB: newMatrix(Len2D, Len2D),
 		CC: newMatrix(Len2D, Len2D),
+
+		S1: 1,
+		S2: 2,
 	}
 }
 

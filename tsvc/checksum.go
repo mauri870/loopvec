@@ -16,6 +16,15 @@ func sumA(x *Arrays) float64 {
 	return sum
 }
 
+// sumX matches TSVC_2's sum_x.
+func sumX(x *Arrays) float64 {
+	var sum float64
+	for _, v := range x.X {
+		sum += float64(v)
+	}
+	return sum
+}
+
 // sumAA matches TSVC_2's sum_aa.
 func sumAA(x *Arrays) float64 {
 	var sum float64
@@ -32,6 +41,15 @@ func sumAA(x *Arrays) float64 {
 func hashA(x *Arrays) uint64 {
 	h := fnv.New64a()
 	for _, v := range x.A {
+		hashFloat32(h, v)
+	}
+	return h.Sum64()
+}
+
+// hashX is hashA's equivalent for X.
+func hashX(x *Arrays) uint64 {
+	h := fnv.New64a()
+	for _, v := range x.X {
 		hashFloat32(h, v)
 	}
 	return h.Sum64()

@@ -88,3 +88,58 @@ func setupS115(x *Arrays) {
 	fillMatrix(x.BB, 0.000001)
 	fillMatrix(x.CC, 0.000001)
 }
+
+// setupVpv matches TSVC_2's initialise_arrays for va, vif, and vpv: a = 0,
+// b = recipSq.
+func setupVpv(x *Arrays) {
+	fill(x.A, 0)
+	recipSq(x.B)
+}
+
+// setupVtv matches TSVC_2's initialise_arrays for vtv: a = 1, b = 1.
+func setupVtv(x *Arrays) {
+	fill(x.A, 1)
+	fill(x.B, 1)
+}
+
+// setupVpvtv matches TSVC_2's initialise_arrays for vpvtv: a = 1, b and c =
+// recip.
+func setupVpvtv(x *Arrays) {
+	fill(x.A, 1)
+	recip(x.B)
+	recip(x.C)
+}
+
+// setupVpvts matches TSVC_2's initialise_arrays for vpvts: a = 1, b = recipSq.
+func setupVpvts(x *Arrays) {
+	fill(x.A, 1)
+	recipSq(x.B)
+}
+
+// setupVpvpv matches TSVC_2's initialise_arrays for vpvpv: a = recipSq, b = 1,
+// c = -1.
+func setupVpvpv(x *Arrays) {
+	recipSq(x.A)
+	fill(x.B, 1)
+	fill(x.C, -1)
+}
+
+// setupVtvtv matches TSVC_2's initialise_arrays for vtvtv: a = 1, b = 2,
+// c = 0.5.
+func setupVtvtv(x *Arrays) {
+	fill(x.A, 1)
+	fill(x.B, 2)
+	fill(x.C, 0.5)
+}
+
+// setupVbor matches TSVC_2's initialise_arrays for vbor: a through e = recip,
+// aa = recip per row. TSVC_2 passes a value to set_1d_array for c, d, and e,
+// but a negative stride selects the reciprocal fill and ignores it.
+func setupVbor(x *Arrays) {
+	recip(x.A)
+	recip(x.B)
+	recip(x.C)
+	recip(x.D)
+	recip(x.E)
+	recipMatrix(x.AA)
+}

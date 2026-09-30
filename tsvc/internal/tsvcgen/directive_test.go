@@ -16,7 +16,7 @@ func TestParseDirectivesErrors(t *testing.T) {
 			name: "unknown key",
 			src: `package tsvc
 
-//tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits bogus=1
+//tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits expect=vectorize bogus=1
 func s000(a, b []float32) {}
 `,
 			want: `unknown directive key "bogus"`,
@@ -25,7 +25,7 @@ func s000(a, b []float32) {}
 			name: "duplicate name",
 			src: `package tsvc
 
-//tsvc:kernel category=dependence category=dependence reps=2 setup=s000 checksum=a exact=bits
+//tsvc:kernel category=dependence category=dependence reps=2 setup=s000 checksum=a exact=bits expect=vectorize
 func s000(a, b []float32) {}
 `,
 			want: `duplicate directive key "category"`,
@@ -34,16 +34,25 @@ func s000(a, b []float32) {}
 			name: "missing key",
 			src: `package tsvc
 
-//tsvc:kernel category=dependence setup=s000 checksum=a exact=bits
+//tsvc:kernel category=dependence setup=s000 checksum=a exact=bits expect=vectorize
 func s000(a, b []float32) {}
 `,
 			want: `missing directive key "reps"`,
 		},
 		{
+			name: "missing expect",
+			src: `package tsvc
+
+//tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits
+func s000(a, b []float32) {}
+`,
+			want: `missing directive key "expect"`,
+		},
+		{
 			name: "malformed token",
 			src: `package tsvc
 
-//tsvc:kernel category reps=2 setup=s000 checksum=a exact=bits
+//tsvc:kernel category reps=2 setup=s000 checksum=a exact=bits expect=vectorize
 func s000(a, b []float32) {}
 `,
 			want: `malformed directive token "category"`,
@@ -69,7 +78,7 @@ func TestParseDirectivesOK(t *testing.T) {
 
 // s000: linear dependence testing, no dependence.
 //
-//tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits
+//tsvc:kernel category=dependence reps=2 setup=s000 checksum=a exact=bits expect=vectorize
 func s000(a, b []float32) {}
 `
 	fset := token.NewFileSet()
@@ -87,7 +96,7 @@ func s000(a, b []float32) {}
 	if got, want := d.Params, []string{"a", "b"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("Params = %v, want %v", got, want)
 	}
-	if d.Category != "dependence" || d.Reps != 2 || d.Setup != "s000" || d.Checksum != "a" || d.Exact != "bits" {
+	if d.Category != "dependence" || d.Reps != 2 || d.Setup != "s000" || d.Checksum != "a" || d.Exact != "bits" || d.Expect != "vectorize" {
 		t.Errorf("directive = %+v, want the fields parsed from the source", d)
 	}
 }

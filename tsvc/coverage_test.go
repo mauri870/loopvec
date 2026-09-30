@@ -31,10 +31,15 @@ type coverageResult struct {
 const notRecognized = "not recognized"
 
 // TestCoverage builds the real loopvec binary and runs -json against this
-// package, then checks the result against testdata/coverage.txt: how many of
-// the ported kernels loopvec actually rewrites today, and why not for the
-// rest. Run with -update to record a deliberate change (a fix that
-// vectorizes a kernel, or a change that no longer does).
+// package, then checks the result against testdata/coverage.txt: which of the
+// ported kernels loopvec actually rewrites today, and why not for the rest.
+// Run with -update to record a deliberate change (a fix that vectorizes a
+// kernel, or a change that no longer does).
+//
+// Each kernel carries an expectation. A kernel expected to be vectorized that
+// is not is a gap; one that must be declined or skipped and is left alone is
+// correct. A kernel that must be declined or skipped and is vectorized fails
+// the test even under -update: it is a bug, not an improvement.
 func TestCoverage(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "loopvec")
 	build := exec.Command("go", "build", "-o", binary, "github.com/mauri870/loopvec")
@@ -79,6 +84,13 @@ func TestCoverage(t *testing.T) {
 		got[k.Name] = r
 	}
 
+	for _, k := range Kernels {
+		if k.Expect != ExpectVectorize && got[k.Name].Vectorized {
+			t.Fatalf("%s is expected to be left alone (expect=%s) but is vectorized; if that is intended, change its expect directive in kernels.go", k.Name, k.Expect)
+		}
+	}
+	t.Logf("%s", summary(got))
+
 	const path = "testdata/coverage.txt"
 	if *update {
 		if err := os.WriteFile(path, renderCoverage(got), 0o644); err != nil {
@@ -98,33 +110,47 @@ func TestCoverage(t *testing.T) {
 		case w.Vectorized && !g.Vectorized:
 			t.Errorf("regression: %s was vectorized, now isn't (%s)", k.Name, g.Reason)
 		case !w.Vectorized && g.Vectorized:
-			t.Errorf("improvement: %s is now vectorized; run 'go test -run TestCoverage -update' to record it", k.Name)
+			t.Errorf("improvement: %s is now vectorized; run 'make tsvc-coverage-update' to record it", k.Name)
 		case !g.Vectorized && g.Reason != w.Reason:
 			t.Logf("%s: reason changed: %q -> %q", k.Name, w.Reason, g.Reason)
 		}
 	}
 }
 
-// renderCoverage renders results in tsvc/kernels.go source order (matching
-// every other table in this package), not alphabetically: "s112"/"s1112"
-// stay adjacent, which lexicographic order would split up.
-func renderCoverage(results map[string]coverageResult) []byte {
-	vectorized := 0
+// summary counts the kernels by outcome: vectorized, a gap (expected to be
+// vectorized but not), and left alone as expected (declined or skipped).
+func summary(results map[string]coverageResult) string {
+	var vectorized, gaps, declined, skipped int
 	for _, k := range Kernels {
-		if results[k.Name].Vectorized {
+		switch {
+		case results[k.Name].Vectorized:
 			vectorized++
+		case k.Expect == ExpectVectorize:
+			gaps++
+		case k.Expect == ExpectDecline:
+			declined++
+		default:
+			skipped++
 		}
 	}
+	return fmt.Sprintf("vectorized %d, gaps %d, declined %d, skipped %d (of %d)",
+		vectorized, gaps, declined, skipped, len(Kernels))
+}
 
+// renderCoverage renders results in tsvc/kernels.go source order (matching
+// every other table in this package), not alphabetically: "s112"/"s1112"
+// stay adjacent, which lexicographic order would split up. The expectation is
+// copied from the kernel's directive so the file reads on its own.
+func renderCoverage(results map[string]coverageResult) []byte {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "# loopvec TSVC coverage: %d/%d\n", vectorized, len(Kernels))
+	fmt.Fprintf(&buf, "# loopvec TSVC coverage: %s\n", summary(results))
 	for _, k := range Kernels {
 		r := results[k.Name]
 		if r.Vectorized {
-			fmt.Fprintf(&buf, "%s\tyes\n", k.Name)
+			fmt.Fprintf(&buf, "%s\t%s\tyes\n", k.Name, k.Expect)
 			continue
 		}
-		fmt.Fprintf(&buf, "%s\tno\t%s\n", k.Name, r.Reason)
+		fmt.Fprintf(&buf, "%s\t%s\tno\t%s\n", k.Name, k.Expect, r.Reason)
 	}
 	return buf.Bytes()
 }
@@ -141,13 +167,13 @@ func readCoverage(path string) (map[string]coverageResult, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) < 2 {
+		fields := strings.SplitN(line, "\t", 4)
+		if len(fields) < 3 {
 			return nil, fmt.Errorf("malformed coverage line %q", line)
 		}
-		r := coverageResult{Vectorized: fields[1] == "yes"}
-		if len(fields) == 3 {
-			r.Reason = fields[2]
+		r := coverageResult{Vectorized: fields[2] == "yes"}
+		if len(fields) == 4 {
+			r.Reason = fields[3]
 		}
 		results[fields[0]] = r
 	}

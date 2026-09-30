@@ -7,6 +7,8 @@ type Kernel struct {
 	Category Category
 	Reps     int
 	Exact    Exactness
+	// Expect says whether loopvec should vectorize the kernel.
+	Expect Expectation
 	// Bytes is the size, in bytes, of every array Run reads or writes once
 	// per element. It feeds b.SetBytes so benchmarks report throughput.
 	Bytes    int64

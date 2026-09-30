@@ -11,15 +11,20 @@ import (
 // arrayFieldBytes maps a field of tsvc.Arrays, used to validate and map a
 // kernel parameter name (a, aa, ...) to the field it reads or writes, to the
 // Go expression for that field's size in bytes.
+//
+// The scalars S1 and S2 are read from the register, not from memory, so they
+// count no bytes.
 var arrayFieldBytes = map[string]string{
-	"A": "4*Len1D", "B": "4*Len1D", "C": "4*Len1D", "D": "4*Len1D", "E": "4*Len1D",
+	"A": "4*Len1D", "B": "4*Len1D", "C": "4*Len1D", "D": "4*Len1D", "E": "4*Len1D", "X": "4*Len1D",
 	"AA": "4*Len2D*Len2D", "BB": "4*Len2D*Len2D", "CC": "4*Len2D*Len2D",
+	"S1": "", "S2": "",
 }
 
 // checksumFuncs maps a checksum=<value> directive to the sum and hash
 // function names in package tsvc.
 var checksumFuncs = map[string][2]string{
 	"a":  {"sumA", "hashA"},
+	"x":  {"sumX", "hashX"},
 	"aa": {"sumAA", "hashAA"},
 }
 
@@ -29,9 +34,17 @@ var exactConsts = map[string]string{
 	"fused": "ExactFused",
 }
 
+// expectConsts maps an expect=<value> directive to its Expectation constant.
+var expectConsts = map[string]string{
+	"vectorize": "ExpectVectorize",
+	"decline":   "ExpectDecline",
+	"skip":      "ExpectSkip",
+}
+
 // categoryConsts maps a category=<value> directive to its Category constant.
 var categoryConsts = map[string]string{
 	"dependence": "CategoryDependence",
+	"control":    "CategoryControl",
 }
 
 // entry is the data a directive renders as, one per Kernels table row.
@@ -40,6 +53,7 @@ type entry struct {
 	Category string
 	Reps     int
 	Exact    string
+	Expect   string
 	Setup    string
 	Checksum string
 	Hash     string
@@ -57,13 +71,17 @@ func toEntry(d directive) (entry, error) {
 	if !ok {
 		return entry{}, fmt.Errorf("%s: unknown exact %q", d.Pos, d.Exact)
 	}
+	expect, ok := expectConsts[d.Expect]
+	if !ok {
+		return entry{}, fmt.Errorf("%s: unknown expect %q", d.Pos, d.Expect)
+	}
 	checksum, ok := checksumFuncs[d.Checksum]
 	if !ok {
 		return entry{}, fmt.Errorf("%s: unknown checksum %q", d.Pos, d.Checksum)
 	}
 
 	args := make([]string, len(d.Params))
-	sizes := make([]string, len(d.Params))
+	var sizes []string
 	for i, p := range d.Params {
 		field := strings.ToUpper(p)
 		size, ok := arrayFieldBytes[field]
@@ -71,7 +89,12 @@ func toEntry(d directive) (entry, error) {
 			return entry{}, fmt.Errorf("%s: parameter %q has no matching Arrays field", d.Pos, p)
 		}
 		args[i] = "x." + field
-		sizes[i] = size
+		if size != "" {
+			sizes = append(sizes, size)
+		}
+	}
+	if len(sizes) == 0 {
+		sizes = []string{"0"}
 	}
 
 	return entry{
@@ -79,6 +102,7 @@ func toEntry(d directive) (entry, error) {
 		Category: category,
 		Reps:     d.Reps,
 		Exact:    exact,
+		Expect:   expect,
 		Setup:    "setup" + strings.ToUpper(d.Setup[:1]) + d.Setup[1:],
 		Checksum: checksum[0],
 		Hash:     checksum[1],
@@ -95,7 +119,7 @@ package tsvc
 // Kernels lists the ported kernels, in TSVC_2 source order.
 var Kernels = []Kernel{
 {{range .}}	{
-		Name: "{{.Name}}", Category: {{.Category}}, Reps: {{.Reps}}, Exact: {{.Exact}},
+		Name: "{{.Name}}", Category: {{.Category}}, Reps: {{.Reps}}, Exact: {{.Exact}}, Expect: {{.Expect}},
 		Bytes: {{.Bytes}},
 		Setup: {{.Setup}}, Checksum: {{.Checksum}}, Hash: {{.Hash}},
 		Run: func(x *Arrays) { {{.FuncName}}({{.RunArgs}}) },

@@ -16,7 +16,7 @@ const directivePrefix = "//tsvc:kernel"
 
 // directiveKeys are the only keys a //tsvc:kernel comment may set, all of
 // which are required.
-var directiveKeys = []string{"category", "reps", "setup", "checksum", "exact"}
+var directiveKeys = []string{"category", "reps", "setup", "checksum", "exact", "expect"}
 
 // directive holds one parsed //tsvc:kernel comment together with the
 // signature of the function it annotates.
@@ -28,6 +28,7 @@ type directive struct {
 	Setup    string
 	Checksum string
 	Exact    string
+	Expect   string
 	Pos      token.Position
 }
 
@@ -107,6 +108,7 @@ func parseDirectiveLine(text string, pos token.Position) (directive, error) {
 		Setup:    fields["setup"],
 		Checksum: fields["checksum"],
 		Exact:    fields["exact"],
+		Expect:   fields["expect"],
 		Pos:      pos,
 	}, nil
 }

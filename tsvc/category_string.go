@@ -9,11 +9,12 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[CategoryDependence-0]
+	_ = x[CategoryControl-1]
 }
 
-const _Category_name = "Dependence"
+const _Category_name = "DependenceControl"
 
-var _Category_index = [...]uint8{0, 10}
+var _Category_index = [...]uint8{0, 10, 17}
 
 func (i Category) String() string {
 	idx := int(i) - 0
