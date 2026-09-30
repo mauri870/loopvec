@@ -357,6 +357,5 @@ make test
 ```
 
 [tsvc/](tsvc/) is a Go port of the [TSVC_2](https://github.com/UoB-HPC/TSVC_2)
-vectorizer kernel suite (93 of 151 kernels). It checks the scalar and SIMD builds
-against the same golden on amd64 and arm64, and records which kernels loopvec
-vectorizes (9 today). See [tsvc/README.md](tsvc/README.md).
+vectorizer kernel suite. It checks the scalar and SIMD builds and records which
+kernels loopvec vectorizes. See [tsvc/README.md](tsvc/README.md).

@@ -84,24 +84,13 @@ func float32Equal(got, want float32) bool {
 	return math.Float32bits(got) == math.Float32bits(want)
 }
 
-// float32AlmostEqual allows up to maxULP: the generated code's FMA rounds
-// once where the reference loop's separate multiply and add round twice.
-func float32AlmostEqual(got, want float32, maxULP uint32) bool {
-	if math.IsNaN(float64(got)) && math.IsNaN(float64(want)) {
-		return true
-	}
-	gb, wb := math.Float32bits(got), math.Float32bits(want)
-	if gb == wb {
-		return true
-	}
-	if gb>>31 != wb>>31 {
-		return got == want // only true for +0 == -0
-	}
-	d := gb - wb
-	if wb > gb {
-		d = wb - gb
-	}
-	return d <= maxULP
+// fmaTolerance bounds how far a fused multiply-add can be from the same
+// operation done in two roundings: about two ULPs of the larger of the addend
+// and the product. Measured against the result it would be far too tight, since
+// the result is much smaller than either term when they cancel.
+func fmaTolerance(addend, product float32) float64 {
+	larger := math.Max(math.Abs(float64(addend)), math.Abs(float64(product)))
+	return 2 * (float64(math.Nextafter32(float32(larger), float32(math.Inf(1)))) - larger)
 }
 
 func FuzzAddFloat32s(f *testing.F) {
@@ -224,6 +213,7 @@ func FuzzDaxpyFloat32s(f *testing.F) {
 	f.Add(9, 0, uint64(5), float32(1.5))
 	f.Add(9, 11, uint64(6), float32(2))      // disjoint
 	f.Add(37, -40, uint64(7), float32(-1.5)) // disjoint, several vectors
+	f.Add(61, -74, uint64(238), float32(-3)) // cancellation: fused and unfused differ by 4 ULPs
 	f.Fuzz(func(t *testing.T, nRaw, offARaw int, seed uint64, alpha float32) {
 		n := clampLen(nRaw)
 		offA := clampOverlap(offARaw, n)
@@ -242,11 +232,18 @@ func FuzzDaxpyFloat32s(f *testing.F) {
 		dstG, aG := got[dstStart:dstStart+n], got[aStart:aStart+n]
 		DaxpyFloat32s(dstG, aG, alpha)
 
-		const maxULP = 2
+		// Overlapping views take the scalar loop, which is exactly the reference. On
+		// disjoint views the generated code fuses the multiply and the add into one
+		// rounding, which can differ from two roundings by a ULP of the larger
+		// term, and by many ULPs of the result when the terms cancel.
 		for i := range dstW {
-			if !float32AlmostEqual(dstW[i], dstG[i], maxULP) {
-				t.Fatalf("DaxpyFloat32s mismatch at %d (n=%d offA=%d alpha=%v): got %v (0x%x) want %v (0x%x)",
-					i, n, offA, alpha, dstG[i], math.Float32bits(dstG[i]), dstW[i], math.Float32bits(dstW[i]))
+			if float32Equal(dstG[i], dstW[i]) {
+				continue
+			}
+			bound := fmaTolerance(src[dstStart+i], src[aStart+i]*alpha)
+			if !(math.Abs(float64(dstG[i])-float64(dstW[i])) <= bound) {
+				t.Fatalf("DaxpyFloat32s mismatch at %d (n=%d offA=%d alpha=%v): got %v (0x%x) want %v (0x%x), bound %v",
+					i, n, offA, alpha, dstG[i], math.Float32bits(dstG[i]), dstW[i], math.Float32bits(dstW[i]), bound)
 			}
 		}
 	})
