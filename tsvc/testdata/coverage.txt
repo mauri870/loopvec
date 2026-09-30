@@ -1,4 +1,4 @@
-# loopvec TSVC coverage: vectorized 9, gaps 8, declined 2, skipped 0 (of 19)
+# loopvec TSVC coverage: vectorized 9, gaps 83, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 s1111	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
@@ -8,7 +8,79 @@ s113	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 s1113	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s114	decline	no	destination is not a simple, same-index slice element
 s115	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s1115	decline	no	destination is not a simple, same-index slice element
+s1115	vectorize	no	destination is not a simple, same-index slice element
+s118	vectorize	no	loop condition is not i < limit (or i >= 0 when counting down)
+s119	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s1119	vectorize	no	destination is not a simple, same-index slice element
+s121	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s122	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s124	vectorize	no	loop body is not a single indexed assignment
+s125	vectorize	no	loop body is not a single indexed assignment
+s127	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s128	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s131	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s132	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s141	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s162	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s171	vectorize	no	destination is not a simple, same-index slice element
+s172	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s173	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s174	vectorize	no	destination is not a simple, same-index slice element
+s175	vectorize	no	loop step is not i++ (or i-- when counting down)
+s176	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s211	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s1221	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s222	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s231	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s2233	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s235	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s241	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s243	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s2244	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s251	vectorize	no	loop body is not a single indexed assignment
+s1251	vectorize	no	loop body is not a single indexed assignment
+s3251	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s252	vectorize	no	loop body is not a single indexed assignment
+s254	vectorize	no	loop body is not a single indexed assignment
+s255	vectorize	no	loop body is not a single indexed assignment
+s257	vectorize	no	loop body is not a single indexed assignment
+s271	vectorize	no	loop body is not a single indexed assignment
+s273	vectorize	no	loop body is not a single indexed assignment
+s2275	vectorize	no	destination is not a simple, same-index slice element
+s276	vectorize	no	loop body is not a single indexed assignment
+s1279	vectorize	no	loop body is not a single indexed assignment
+s2711	vectorize	no	loop body is not a single indexed assignment
+s2712	vectorize	no	loop body is not a single indexed assignment
+s1281	vectorize	no	loop body is not a single indexed assignment
+s291	vectorize	no	loop body is not a single indexed assignment
+s293	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s2101	vectorize	no	destination is not a simple, same-index slice element
+s2102	vectorize	no	destination is not a simple, same-index slice element
+s311	vectorize	no	not recognized
+s312	vectorize	no	not recognized
+s313	vectorize	no	not recognized
+s314	vectorize	no	not recognized
+s315	vectorize	no	not recognized
+s316	vectorize	no	not recognized
+s317	vectorize	no	not recognized
+s319	vectorize	no	loop body is not a single indexed assignment
+s3111	vectorize	no	not recognized
+s3113	vectorize	no	not recognized
+s331	vectorize	no	not recognized
+s351	vectorize	no	loop step is not i++ (or i-- when counting down)
+s1351	vectorize	no	loop body is not a single indexed assignment
+s352	vectorize	no	not recognized
+s421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s1421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s422	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s423	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s424	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s431	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s441	vectorize	no	loop body is not a single indexed assignment
+s443	vectorize	no	loop body is not a single indexed assignment
+s452	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s453	vectorize	no	loop body is not a single indexed assignment
+s4117	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 va	vectorize	yes
 vif	vectorize	no	loop body is not a single indexed assignment
 vpv	vectorize	yes
@@ -17,4 +89,6 @@ vpvtv	vectorize	yes
 vpvts	vectorize	yes
 vpvpv	vectorize	yes
 vtvtv	vectorize	yes
+vsumr	vectorize	no	not recognized
+vdotr	vectorize	no	not recognized
 vbor	vectorize	no	loop body is not a single indexed assignment

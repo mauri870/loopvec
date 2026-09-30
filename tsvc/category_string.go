@@ -10,11 +10,33 @@ func _() {
 	var x [1]struct{}
 	_ = x[CategoryDependence-0]
 	_ = x[CategoryControl-1]
+	_ = x[CategoryInduction-2]
+	_ = x[CategoryDataFlow-3]
+	_ = x[CategoryInterprocedural-4]
+	_ = x[CategoryControlFlow-5]
+	_ = x[CategorySymbolics-6]
+	_ = x[CategoryReordering-7]
+	_ = x[CategoryDistribution-8]
+	_ = x[CategoryInterchange-9]
+	_ = x[CategoryNodeSplitting-10]
+	_ = x[CategoryExpansion-11]
+	_ = x[CategoryThresholds-12]
+	_ = x[CategoryPeeling-13]
+	_ = x[CategoryDiagonals-14]
+	_ = x[CategoryReductions-15]
+	_ = x[CategoryRerolling-16]
+	_ = x[CategoryEquivalencing-17]
+	_ = x[CategoryParameters-18]
+	_ = x[CategoryNonLogicalIfs-19]
+	_ = x[CategoryIntrinsics-20]
+	_ = x[CategoryIndirect-21]
+	_ = x[CategoryNonlinear-22]
+	_ = x[CategorySearch-23]
 }
 
-const _Category_name = "DependenceControl"
+const _Category_name = "DependenceControlInductionDataFlowInterproceduralControlFlowSymbolicsReorderingDistributionInterchangeNodeSplittingExpansionThresholdsPeelingDiagonalsReductionsRerollingEquivalencingParametersNonLogicalIfsIntrinsicsIndirectNonlinearSearch"
 
-var _Category_index = [...]uint8{0, 10, 17}
+var _Category_index = [...]uint8{0, 10, 17, 26, 34, 49, 60, 69, 79, 91, 102, 115, 124, 134, 141, 150, 160, 169, 182, 192, 205, 215, 223, 232, 238}
 
 func (i Category) String() string {
 	idx := int(i) - 0

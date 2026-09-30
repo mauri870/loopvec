@@ -9,4 +9,27 @@ const (
 	// (assignment, plus, times, and combinations) whose rate the other loops are
 	// judged against.
 	CategoryControl
+	// The rest are the other sections of TSVC_2, named as it names them.
+	CategoryInduction
+	CategoryDataFlow
+	CategoryInterprocedural
+	CategoryControlFlow
+	CategorySymbolics
+	CategoryReordering
+	CategoryDistribution
+	CategoryInterchange
+	CategoryNodeSplitting
+	CategoryExpansion
+	CategoryThresholds
+	CategoryPeeling
+	CategoryDiagonals
+	CategoryReductions
+	CategoryRerolling
+	CategoryEquivalencing
+	CategoryParameters
+	CategoryNonLogicalIfs
+	CategoryIntrinsics
+	CategoryIndirect
+	CategoryNonlinear
+	CategorySearch
 )

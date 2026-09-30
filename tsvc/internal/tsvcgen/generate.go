@@ -17,7 +17,8 @@ import (
 var arrayFieldBytes = map[string]string{
 	"A": "4*Len1D", "B": "4*Len1D", "C": "4*Len1D", "D": "4*Len1D", "E": "4*Len1D", "X": "4*Len1D",
 	"AA": "4*Len2D*Len2D", "BB": "4*Len2D*Len2D", "CC": "4*Len2D*Len2D",
-	"S1": "", "S2": "",
+	"S1": "", "S2": "", "N1": "", "N3": "",
+	"FLAT_2D_ARRAY": "4*Len2D*Len2D",
 }
 
 // checksumFuncs maps a checksum=<value> directive to the sum and hash
@@ -26,6 +27,17 @@ var checksumFuncs = map[string][2]string{
 	"a":  {"sumA", "hashA"},
 	"x":  {"sumX", "hashX"},
 	"aa": {"sumAA", "hashAA"},
+
+	"flat_2d_array": {"sumFlat2DArray", "hashFlat2DArray"},
+	"a+b":           {"sumAB", "hashAB"},
+	"a+b+c":         {"sumABC", "hashABC"},
+	"aa+bb":         {"sumAABB", "hashAABB"},
+	"a+aa":          {"sumAAndAA", "hashAAndAA"},
+	"xx0":           {"sumXX0", "hashXX0"},
+	"xx4":           {"sumXX4", "hashXX4"},
+	"xx63":          {"sumXX63", "hashXX63"},
+	"half_xx":       {"sumHalfXX", "hashHalfXX"},
+	"r":             {"sumR", "hashR"},
 }
 
 // exactConsts maps an exact=<value> directive to its Exactness constant.
@@ -45,6 +57,29 @@ var expectConsts = map[string]string{
 var categoryConsts = map[string]string{
 	"dependence": "CategoryDependence",
 	"control":    "CategoryControl",
+
+	"induction":       "CategoryInduction",
+	"dataflow":        "CategoryDataFlow",
+	"interprocedural": "CategoryInterprocedural",
+	"controlflow":     "CategoryControlFlow",
+	"symbolics":       "CategorySymbolics",
+	"reordering":      "CategoryReordering",
+	"distribution":    "CategoryDistribution",
+	"interchange":     "CategoryInterchange",
+	"nodesplitting":   "CategoryNodeSplitting",
+	"expansion":       "CategoryExpansion",
+	"thresholds":      "CategoryThresholds",
+	"peeling":         "CategoryPeeling",
+	"diagonals":       "CategoryDiagonals",
+	"reductions":      "CategoryReductions",
+	"rerolling":       "CategoryRerolling",
+	"equivalencing":   "CategoryEquivalencing",
+	"parameters":      "CategoryParameters",
+	"nonlogicalifs":   "CategoryNonLogicalIfs",
+	"intrinsics":      "CategoryIntrinsics",
+	"indirect":        "CategoryIndirect",
+	"nonlinear":       "CategoryNonlinear",
+	"search":          "CategorySearch",
 }
 
 // entry is the data a directive renders as, one per Kernels table row.
@@ -60,6 +95,9 @@ type entry struct {
 	Bytes    string
 	RunArgs  string
 	FuncName string
+	// Assign is "x.R = " for a kernel that returns a value, which the registry
+	// stores in Arrays.R for the checksum to read.
+	Assign string
 }
 
 func toEntry(d directive) (entry, error) {
@@ -80,6 +118,10 @@ func toEntry(d directive) (entry, error) {
 		return entry{}, fmt.Errorf("%s: unknown checksum %q", d.Pos, d.Checksum)
 	}
 
+	assign := ""
+	if d.Returns {
+		assign = "x.R = "
+	}
 	args := make([]string, len(d.Params))
 	var sizes []string
 	for i, p := range d.Params {
@@ -109,6 +151,7 @@ func toEntry(d directive) (entry, error) {
 		Bytes:    strings.Join(sizes, " + "),
 		RunArgs:  strings.Join(args, ", "),
 		FuncName: d.FuncName,
+		Assign:   assign,
 	}, nil
 }
 
@@ -122,7 +165,7 @@ var Kernels = []Kernel{
 		Name: "{{.Name}}", Category: {{.Category}}, Reps: {{.Reps}}, Exact: {{.Exact}}, Expect: {{.Expect}},
 		Bytes: {{.Bytes}},
 		Setup: {{.Setup}}, Checksum: {{.Checksum}}, Hash: {{.Hash}},
-		Run: func(x *Arrays) { {{.FuncName}}({{.RunArgs}}) },
+		Run: func(x *Arrays) { {{.Assign}}{{.FuncName}}({{.RunArgs}}) },
 	},
 {{end}}}
 `))

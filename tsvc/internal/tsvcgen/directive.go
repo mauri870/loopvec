@@ -29,7 +29,9 @@ type directive struct {
 	Checksum string
 	Exact    string
 	Expect   string
-	Pos      token.Position
+	// Returns is set when the kernel returns a value.
+	Returns bool
+	Pos     token.Position
 }
 
 // parseDirectives collects every //tsvc:kernel directive in src.
@@ -56,6 +58,7 @@ func parseDirectives(fset *token.FileSet, filename string, src []byte) ([]direct
 			}
 			d.FuncName = fd.Name.Name
 			d.Params = paramNames(fd.Type.Params)
+			d.Returns = fd.Type.Results != nil && len(fd.Type.Results.List) > 0
 			directives = append(directives, d)
 			break
 		}
