@@ -78,19 +78,26 @@ func (e *emitter) operand(ref *loopir.Ref) string {
 // The loop advances by the number of lanes the first load reported, or the first
 // store when nothing was loaded before it. Running one statement over the whole
 // vector before the next is the scalar order, because every access is at the loop
-// index.
+// index. A slice already loaded is not loaded again until a store to it, since
+// distinct slices are known not to overlap.
 func (e *emitter) loop() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "for _i := 0; _i < %s; {\n", e.limit())
 	count, haveLanes := 0, false
+	loaded := map[types.Object]string{}
 	for _, stmt := range e.plan.Stmts {
 		for _, leaf := range loopir.Leaves(stmt.Root) {
 			load, ok := leaf.(*loopir.Load)
 			if !ok {
 				continue
 			}
+			if name, ok := loaded[load.Ref.Obj]; ok {
+				e.loads[load] = name
+				continue
+			}
 			count++
 			name := fmt.Sprintf("_v%d", count)
+			loaded[load.Ref.Obj] = name
 			e.loads[load] = name
 			lanes := "_"
 			if !haveLanes {
@@ -110,6 +117,7 @@ func (e *emitter) loop() string {
 			text, haveLanes = "_n := "+text, true
 		}
 		fmt.Fprintf(&b, "\t%s\n", text)
+		delete(loaded, stmt.Dst.Obj)
 	}
 	b.WriteString("\t_i += _n\n")
 	b.WriteString("}")

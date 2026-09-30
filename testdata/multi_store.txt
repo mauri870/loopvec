@@ -73,9 +73,7 @@ func Two(a, b, x, y []float32) {
 				_v1, _n := simd.LoadFloat32sPart(x[_i:len(a)])
 				_v2, _ := simd.LoadFloat32sPart(y[_i:len(a)])
 				_v1.Add(_v2).StorePart(a[_i:len(a)])
-				_v3, _ := simd.LoadFloat32sPart(x[_i:len(a)])
-				_v4, _ := simd.LoadFloat32sPart(y[_i:len(a)])
-				_v3.Mul(_v4).StorePart(b[_i:len(a)])
+				_v1.Mul(_v2).StorePart(b[_i:len(a)])
 				_i += _n
 			}
 		}

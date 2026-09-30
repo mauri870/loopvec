@@ -70,8 +70,7 @@ func Mix(dst, a, b []float32) {
 			for _i := 0; _i < len(b); {
 				_v1, _n := simd.LoadFloat32sPart(a[_i:len(b)])
 				_v2, _ := simd.LoadFloat32sPart(b[_i:len(b)])
-				_v3, _ := simd.LoadFloat32sPart(b[_i:len(b)])
-				_v1.MulAdd(_v2, _v3).StorePart(dst[_i:len(b)])
+				_v1.MulAdd(_v2, _v2).StorePart(dst[_i:len(b)])
 				_i += _n
 			}
 		}

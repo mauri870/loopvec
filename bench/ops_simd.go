@@ -370,8 +370,7 @@ func WideInt32s(dst, a, b, c []int32, k, m int32) {
 				_v1, _n := simd.LoadInt32sPart(a[_i:])
 				_v2, _ := simd.LoadInt32sPart(b[_i:])
 				_v3, _ := simd.LoadInt32sPart(c[_i:])
-				_v4, _ := simd.LoadInt32sPart(a[_i:])
-				_v1.Mul(_v2).Add(_v3.Mul(_vcInt32s20_1)).Add(_vcInt32s20_2.Sub(_v4)).StorePart(dst[_i:])
+				_v1.Mul(_v2).Add(_v3.Mul(_vcInt32s20_1)).Add(_vcInt32s20_2.Sub(_v1)).StorePart(dst[_i:])
 				_i += _n
 			}
 		}
