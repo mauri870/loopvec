@@ -354,6 +354,30 @@ func ChainInt32s(a, b, c, e []int32) {
 	}
 }
 
+func WideInt32s(dst, a, b, c []int32, k, m int32) {
+	_vcInt32s20_1 := simd.BroadcastInt32s(k)
+	_vcInt32s20_2 := simd.BroadcastInt32s(k * m)
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) || _loopvecOverlap(dst, c) {
+		for i := range dst {
+			dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			_ = c[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v2, _ := simd.LoadInt32sPart(b[_i:])
+				_v3, _ := simd.LoadInt32sPart(c[_i:])
+				_v4, _ := simd.LoadInt32sPart(a[_i:])
+				_v1.Mul(_v2).Add(_v3.Mul(_vcInt32s20_1)).Add(_vcInt32s20_2.Sub(_v4)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

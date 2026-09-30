@@ -230,3 +230,19 @@ func BenchmarkChainInt32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkWideInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			x := make([]int32, n)
+			y := make([]int32, n)
+			z := make([]int32, n)
+			setBytes(b, n, 4, 4)
+			b.ResetTimer()
+			for b.Loop() {
+				WideInt32s(dst, x, y, z, 3, 5)
+			}
+		})
+	}
+}

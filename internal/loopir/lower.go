@@ -318,11 +318,9 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	}
 
 	for _, stmt := range body {
-		var val Value
 		switch stmt := stmt.(type) {
 		case Store:
-			val = stmt.Val
-			switch v := val.(type) {
+			switch v := stmt.Val.(type) {
 			case *Load:
 				// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
 				// slice onto itself does nothing.
@@ -336,19 +334,12 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 					return nil, ReasonZeroFillSkipped
 				}
 			}
-			if !l.withinLimits(val) {
-				return nil, ReasonUnsupportedOperand
-			}
 			if SimdType(stmt.Dst.Elem) == "" {
 				return nil, ReasonUnsupportedType
 			}
 		case Let:
-			val = stmt.Val
 			if stmt.Temp.Uses == 0 {
 				return nil, ReasonUnsupportedBody
-			}
-			if !l.withinLimits(val) {
-				return nil, ReasonUnsupportedOperand
 			}
 		}
 	}
@@ -477,120 +468,6 @@ func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 		return Store{}, reason
 	}
 	return Store{Dst: dst, Val: val}, ""
-}
-
-// withinLimits reports whether val is a shape the rest of loopvec is tested
-// on. Lowering builds any expression tree, but the operand naming in the
-// emitter and the -toolexec wrapper (which rewrites every package in a build,
-// so a wider shape newly rewrites code in the standard library, including
-// constant-time crypto) are only exercised on these shapes:
-//
-//	dst[i] = literal
-//	dst[i] = src[i]
-//	dst[i] = -src[i]  or  ^src[i]
-//	dst[i] = src[i] op (src[i] or scalar)
-//	dst[i] = (src[i] op (src[i] or scalar)) op outer
-//	dst[i] = math.Abs(src[i])  or  math.Sqrt(src[i]), also of a one-operation
-//	    expression, and either of them as an operand of the forms above
-//	dst[i] = src[i] << count  or  >> count
-//
-// where outer is src[i], a scalar, or src[i]*scalar, and a scalar in a
-// two-level tree is an identifier or a literal. The range value variable is
-// an operand only in the single-operation form. A read of a temporary counts as
-// src[i], and the same shapes bound the value of a Let. Anything else is
-// rejected rather than rewritten.
-func (l *lowerer) withinLimits(val Value) bool {
-	switch v := val.(type) {
-	case *Load, *Use:
-		return true
-	case *Invariant:
-		_, literal := v.Expr.(*ast.BasicLit)
-		return literal
-	case *Shift:
-		return isVector(v.X)
-	case *Unary:
-		if v.Op == OpAbs || v.Op == OpSqrt {
-			return isVector(v.X) || l.inner(v.X)
-		}
-		return isVector(v.X)
-	case *Binary:
-		if Depth(v) == 1 {
-			if isVector(v.X) {
-				return true
-			}
-			// min and max may take the scalar first.
-			return (v.Op == OpMin || v.Op == OpMax) && l.plainScalar(v.X) && l.plainLoad(v.Y)
-		}
-		return l.twoLevel(v)
-	}
-	return false
-}
-
-// twoLevel reports whether v is an operation with one operand of the form
-// src[i] op (src[i] or scalar) and the other src[i], a scalar, or
-// src[i]*scalar.
-func (l *lowerer) twoLevel(v *Binary) bool {
-	return (l.inner(v.X) && l.outer(v.Y)) || (l.inner(v.Y) && l.outer(v.X))
-}
-
-func (l *lowerer) inner(v Value) bool {
-	if u, ok := v.(*Unary); ok {
-		return (u.Op == OpAbs || u.Op == OpSqrt) && l.plainLoad(u.X)
-	}
-	b, ok := v.(*Binary)
-	if !ok {
-		return false
-	}
-	if l.plainLoad(b.X) {
-		return l.plainLoad(b.Y) || l.plainScalar(b.Y)
-	}
-	// A scalar first is only reordered for a commutative operation.
-	return b.Op.Commutative() && l.plainScalar(b.X) && l.plainLoad(b.Y)
-}
-
-func (l *lowerer) outer(v Value) bool {
-	if l.plainLoad(v) || l.plainScalar(v) {
-		return true
-	}
-	b, ok := v.(*Binary)
-	if !ok || b.Op != OpMul {
-		return false
-	}
-	return (l.plainLoad(b.X) && l.plainScalar(b.Y)) || (l.plainScalar(b.X) && l.plainLoad(b.Y))
-}
-
-// isVector reports whether v is a read of src[i] or of a temporary.
-func isVector(v Value) bool {
-	switch v.(type) {
-	case *Load, *Use:
-		return true
-	}
-	return false
-}
-
-// plainLoad reports whether v is a read of src[i] that is not the range value
-// variable, or of a temporary.
-func (l *lowerer) plainLoad(v Value) bool {
-	if load, ok := v.(*Load); ok {
-		return load.Ref != l.valueRef
-	}
-	_, ok := v.(*Use)
-	return ok
-}
-
-// plainScalar reports whether v is an identifier, a literal, or a constant
-// expression such as float64(1).
-func (l *lowerer) plainScalar(v Value) bool {
-	inv, ok := v.(*Invariant)
-	if !ok {
-		return false
-	}
-	switch inv.Expr.(type) {
-	case *ast.Ident, *ast.BasicLit:
-		return true
-	}
-	tv, ok := l.info.Types[inv.Expr]
-	return ok && tv.Value != nil
 }
 
 // value lowers an expression evaluated once per iteration.
@@ -817,9 +694,9 @@ func (l *lowerer) index(expr ast.Expr) (*Ref, bool) {
 
 // invariant reports whether expr has the same value on every iteration and is
 // safe to evaluate before the loop, where it runs even if the loop does not:
-// a variable, a constant, or a conversion or negation of one. Anything that
-// can panic or has side effects, such as a call, an element read, or an
-// integer division, is not.
+// a variable, a constant, a conversion or negation of one, or a sum, difference,
+// product, or bitwise combination of two. Anything that can panic or has side
+// effects, such as a call, an element read, or an integer division, is not.
 func (l *lowerer) invariant(expr ast.Expr) bool {
 	if tv, ok := l.info.Types[expr]; ok && tv.Value != nil {
 		return true
@@ -838,6 +715,11 @@ func (l *lowerer) invariant(expr ast.Expr) bool {
 		switch e.Op {
 		case token.ADD, token.SUB, token.XOR:
 			return l.invariant(e.X)
+		}
+	case *ast.BinaryExpr:
+		switch e.Op {
+		case token.ADD, token.SUB, token.MUL, token.AND, token.OR, token.XOR, token.AND_NOT:
+			return l.invariant(e.X) && l.invariant(e.Y)
 		}
 	case *ast.CallExpr:
 		fun, ok := l.info.Types[e.Fun]

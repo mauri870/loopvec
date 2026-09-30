@@ -526,3 +526,42 @@ func FuzzChainInt32s(f *testing.F) {
 		}
 	})
 }
+
+func FuzzWideInt32s(f *testing.F) {
+	f.Add(0, 0, 0, 0, uint64(1), int32(3), int32(5))
+	f.Add(5, 0, 0, 0, uint64(2), int32(-7), int32(0)) // every view the same
+	f.Add(5, 1, 2, 3, uint64(3), int32(2), int32(9))  // partial overlap
+	f.Add(9, 10, -10, 20, uint64(4), int32(1<<30), int32(4))
+	f.Add(37, -40, 80, 40, uint64(5), int32(-1), int32(-1<<31)) // several vectors
+	f.Fuzz(func(t *testing.T, nRaw, offARaw, offBRaw, offCRaw int, seed uint64, k, m int32) {
+		n := clampLen(nRaw)
+		clamp := func(offset int) int {
+			if n == 0 {
+				return 0
+			}
+			return offset % (4 * n)
+		}
+		offA, offB, offC := clamp(offARaw), clamp(offBRaw), clamp(offCRaw)
+		starts, backingLen := layout(n, offA, offB, offC)
+		dstStart, aStart, bStart, cStart := starts[0], starts[1], starts[2], starts[3]
+
+		backing := randUint64Backing(seed, backingLen)
+		src := make([]int32, backingLen)
+		for i, v := range backing {
+			src[i] = int32(v)
+		}
+		want := append([]int32(nil), src...)
+		got := append([]int32(nil), src...)
+
+		for i := range n {
+			want[dstStart+i] = want[aStart+i]*want[bStart+i] + want[cStart+i]*k + (k*m - want[aStart+i])
+		}
+		WideInt32s(got[dstStart:dstStart+n], got[aStart:aStart+n], got[bStart:bStart+n], got[cStart:cStart+n], k, m)
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("mismatch at %d (n=%d offA=%d offB=%d offC=%d k=%d m=%d): got %d want %d", i, n, offA, offB, offC, k, m, got[i], want[i])
+			}
+		}
+	})
+}

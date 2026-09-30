@@ -1,0 +1,275 @@
+# Expressions of any depth are rewritten. The product of two scalars is
+# broadcast once before the loop, a scalar on the left of a subtraction is not
+# swapped, a fill takes any loop-invariant value, and a shift applies to a whole
+# expression.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// Depth 4: the histogram merge shape.
+func Merge(h, h0, h1, h2, h3 []uint16) {
+	for i := range h {
+		h[i] += h0[i] + h1[i] + h2[i] + h3[i]
+	}
+}
+
+// The product of two scalars is computed once, before the loop.
+func Poly(dst, a, b, c []int32, k, m int32) {
+	for i := range dst {
+		dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
+	}
+}
+
+// A scalar on the left of a subtraction is not swapped.
+func SubFrom(dst, a []float64, k float64) {
+	for i := range dst {
+		dst[i] = k - a[i]
+	}
+}
+
+func FillVar(dst []float64, k float64) {
+	for i := range dst {
+		dst[i] = k
+	}
+}
+
+func ShiftSum(dst, a, b []uint32, n uint) {
+	for i := range dst {
+		dst[i] = (a[i] + b[i]) << n
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// Depth 4: the histogram merge shape.
+func Merge(h, h0, h1, h2, h3 []uint16) {
+	if _loopvecOverlap(h, h0) || _loopvecOverlap(h, h1) || _loopvecOverlap(h, h2) || _loopvecOverlap(h, h3) {
+		for i := range h {
+			h[i] += h0[i] + h1[i] + h2[i] + h3[i]
+		}
+	} else {
+		if len(h) > 0 {
+			_ = h0[len(h)-1]
+			_ = h1[len(h)-1]
+			_ = h2[len(h)-1]
+			_ = h3[len(h)-1]
+			for _i := 0; _i < len(h); {
+				_v1, _n := simd.LoadUint16sPart(h0[_i:])
+				_v2, _ := simd.LoadUint16sPart(h1[_i:])
+				_v3, _ := simd.LoadUint16sPart(h2[_i:])
+				_v4, _ := simd.LoadUint16sPart(h3[_i:])
+				_v5, _ := simd.LoadUint16sPart(h[_i:])
+				_v1.Add(_v2).Add(_v3).Add(_v4).Add(_v5).StorePart(h[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// The product of two scalars is computed once, before the loop.
+func Poly(dst, a, b, c []int32, k, m int32) {
+	_vcInt32s1_1 := simd.BroadcastInt32s(k)
+	_vcInt32s1_2 := simd.BroadcastInt32s(k * m)
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) || _loopvecOverlap(dst, c) {
+		for i := range dst {
+			dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			_ = c[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v2, _ := simd.LoadInt32sPart(b[_i:])
+				_v3, _ := simd.LoadInt32sPart(c[_i:])
+				_v4, _ := simd.LoadInt32sPart(a[_i:])
+				_v1.Mul(_v2).Add(_v3.Mul(_vcInt32s1_1)).Add(_vcInt32s1_2.Sub(_v4)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// A scalar on the left of a subtraction is not swapped.
+func SubFrom(dst, a []float64, k float64) {
+	_vcFloat64s2 := simd.BroadcastFloat64s(k)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = k - a[i]
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat64sPart(a[_i:])
+				_vcFloat64s2.Sub(_v1).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func FillVar(dst []float64, k float64) {
+	_vcFloat64s3 := simd.BroadcastFloat64s(k)
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat64s3.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+func ShiftSum(dst, a, b []uint32, n uint) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := range dst {
+			dst[i] = (a[i] + b[i]) << n
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadUint32sPart(a[_i:])
+				_v2, _ := simd.LoadUint32sPart(b[_i:])
+				_v1.Add(_v2).ShiftAllLeft(uint64(n)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func u16(n int, scale uint16) []uint16 {
+	s := make([]uint16, n)
+	for i := range s {
+		s[i] = uint16(i+1) * scale
+	}
+	return s
+}
+
+func i32(n int, scale int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i+1) * scale
+	}
+	return s
+}
+
+func main() {
+	// Several vectors and a tail.
+	h := u16(11, 1000)
+	test.Merge(h, u16(11, 3000), u16(11, 7000), u16(11, 9000), u16(11, 11000))
+	fmt.Println(h)
+
+	dst := make([]int32, 11)
+	test.Poly(dst, i32(11, 2), i32(11, 3), i32(11, 5), 7, 11)
+	fmt.Println(dst)
+
+	f := make([]float64, 11)
+	a := make([]float64, 11)
+	for i := range a {
+		a[i] = float64(i) * 0.5
+	}
+	test.SubFrom(f, a, 2.5)
+	fmt.Println(f)
+	test.FillVar(f, -1.25)
+	fmt.Println(f)
+
+	u := make([]uint32, 11)
+	x := make([]uint32, 11)
+	y := make([]uint32, 11)
+	for i := range x {
+		x[i], y[i] = uint32(i), uint32(i*i)
+	}
+	test.ShiftSum(u, x, y, 3)
+	fmt.Println(u)
+}
+-- testmain/output --
+[31000 62000 27464 58464 23928 54928 20392 51392 16856 47856 13320]
+[116 167 230 305 392 491 602 725 860 1007 1166]
+[2.5 2 1.5 1 0.5 0 -0.5 -1 -1.5 -2 -2.5]
+[-1.25 -1.25 -1.25 -1.25 -1.25 -1.25 -1.25 -1.25 -1.25 -1.25 -1.25]
+[0 16 48 96 160 240 336 448 576 720 880]
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+// Depth 4: the histogram merge shape.
+func Merge(h, h0, h1, h2, h3 []uint16) {
+	for i := range h {
+		h[i] += h0[i] + h1[i] + h2[i] + h3[i]
+	}
+}
+
+// The product of two scalars is computed once, before the loop.
+func Poly(dst, a, b, c []int32, k, m int32) {
+	for i := range dst {
+		dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
+	}
+}
+
+// A scalar on the left of a subtraction is not swapped.
+func SubFrom(dst, a []float64, k float64) {
+	for i := range dst {
+		dst[i] = k - a[i]
+	}
+}
+
+func FillVar(dst []float64, k float64) {
+	for i := range dst {
+		dst[i] = k
+	}
+}
+
+func ShiftSum(dst, a, b []uint32, n uint) {
+	for i := range dst {
+		dst[i] = (a[i] + b[i]) << n
+	}
+}

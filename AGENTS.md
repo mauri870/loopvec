@@ -76,7 +76,8 @@ safety argument stays structural:
   whether they're actually dependent. That is what guarantees no two
   iterations touch the same element.
 - A non-slice operand becomes an `Invariant` only if it is a variable, a
-  constant, or a conversion or negation of one (`invariant`). It is evaluated
+  constant, a conversion or negation of one, or a sum, difference, product or
+  bitwise combination of two (`invariant`). It is evaluated
   once *before* the loop, even when the loop would not run, so anything that
   can panic or has side effects (a call, an element read like `a[0]`, an
   integer division) is rejected.
@@ -92,15 +93,16 @@ safety argument stays structural:
   loop-invariant. `if` and nested loops (2-D access, `aa[i][j]`) are rejected on
   body shape alone.
 
-`withinLimits` is the acceptance boundary. Lowering can build a tree of any
-depth, but only the shapes listed there are accepted. Widening it changes
-which packages `loopvec-toolexec` rewrites in a whole-program build, and it
-has bitten before: depth-3 trees picked up constant-time crypto in
-`crypto/internal/fips140/subtle`, and any package newly rewritable there
-breaks `go test fmt` with a link fingerprint mismatch (the wrapper cannot yet
-rewrite a build that contains a test variant of a package simd imports).
-Before widening, run the old and new binaries with `-json` over the standard
-library (`loopvec -json std`) and gonum and diff the vectorized set.
+There is no shape whitelist: lowering builds a value tree of any depth, and
+the capability table (`checkOps` in `plan.go`) decides whether simd can express
+each operation on the element type. What bounds acceptance is structural: the
+index and invariant rules above, and the slice budget (`maxSlices`). Widening
+what lowering builds changes which packages `loopvec-toolexec` rewrites in a
+whole-program build (it skips `crypto`, and rewrites nothing when the build tests
+a package simd depends on, because the wrapper cannot yet rewrite a test variant
+of one). Before widening, run the old and new binaries with `-json` over the
+standard library (`loopvec -json std`) and gonum and diff the vectorized set,
+then read every added loop.
 
 Consequence: several TSVC_2 kernels that a real dependence checker would
 call trivially vectorizable (`s1112`, reverse with no dependence; `s113`,

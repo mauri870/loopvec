@@ -1,0 +1,102 @@
+# The range value variable as a multiplier is another read of the slice being
+# ranged over, not a loop-invariant scalar: it must not be broadcast.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Mix(dst, a, b []float32) {
+	for i, v := range b {
+		dst[i] = a[i]*v + b[i]
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	dst := make([]float32, 11)
+	a := []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	b := []float32{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110}
+	test.Mix(dst, a, b)
+	fmt.Println(dst)
+}
+-- testmain/output --
+[20 60 120 200 300 420 560 720 900 1100 1320]
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func Mix(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i, v := range b {
+			dst[i] = a[i]*v + b[i]
+		}
+	} else {
+		if len(b) > 0 {
+			_ = dst[len(b)-1]
+			_ = a[len(b)-1]
+			_ = b[len(b)-1]
+			for _i := 0; _i < len(b); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:len(b)])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:len(b)])
+				_v3, _ := simd.LoadFloat32sPart(b[_i:len(b)])
+				_v1.MulAdd(_v2, _v3).StorePart(dst[_i:len(b)])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- stderr.want --
+loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Mix(dst, a, b []float32) {
+	for i, v := range b {
+		dst[i] = a[i]*v + b[i]
+	}
+}

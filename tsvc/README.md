@@ -83,7 +83,7 @@ value.
 | s1279 | control flow | vector if/gotos | fused | vectorize | no |
 | s2711 | control flow | semantic if removal | fused | vectorize | no |
 | s2712 | control flow | if to elemental min | fused | vectorize | no |
-| s1281 | crossing thresholds | index set splitting; reverse data access | fused | vectorize | no |
+| s1281 | crossing thresholds | index set splitting; reverse data access | fused | vectorize | yes |
 | s291 | loop peeling | wrap around variable, 1 level | bits | vectorize | no |
 | s293 | loop peeling | a(i)=a(0) with actual dependence cycle, loop is vectorizable | bits | vectorize | no |
 | s2101 | diagonals | main diagonal calculation; jump in data access | fused | vectorize | no |
@@ -158,7 +158,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 11, gaps 81, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 12, gaps 80, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

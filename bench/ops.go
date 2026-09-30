@@ -126,3 +126,9 @@ func ChainInt32s(a, b, c, e []int32) {
 		b[i] = x - a[i]
 	}
 }
+
+func WideInt32s(dst, a, b, c []int32, k, m int32) {
+	for i := range dst {
+		dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
+	}
+}

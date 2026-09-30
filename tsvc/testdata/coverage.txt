@@ -1,4 +1,4 @@
-# loopvec TSVC coverage: vectorized 11, gaps 81, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 12, gaps 80, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 s1111	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
@@ -51,7 +51,7 @@ s276	vectorize	no	loop body is not a sequence of indexed assignments
 s1279	vectorize	no	loop body is not a sequence of indexed assignments
 s2711	vectorize	no	loop body is not a sequence of indexed assignments
 s2712	vectorize	no	loop body is not a sequence of indexed assignments
-s1281	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s1281	vectorize	yes
 s291	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s293	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s2101	vectorize	no	destination is not a simple, same-index slice element
