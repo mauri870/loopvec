@@ -185,3 +185,18 @@ func BenchmarkCopyFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkAndNotUint64s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]uint64, n)
+			a := make([]uint64, n)
+			src := make([]uint64, n)
+			setBytes(b, n, 8, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				AndNotUint64s(dst, a, src)
+			}
+		})
+	}
+}
