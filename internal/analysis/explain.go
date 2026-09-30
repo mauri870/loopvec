@@ -31,6 +31,7 @@ func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, allow
 			continue
 		}
 		isMethod := fn.Recv != nil
+		results := loopir.NamedResults(fn, info)
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			var body *ast.BlockStmt
 			switch stmt := n.(type) {
@@ -53,7 +54,7 @@ func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, allow
 				return true
 			}
 
-			plan, reason := analyzeLoop(n.(ast.Stmt), info)
+			plan, reason := analyzeLoop(n.(ast.Stmt), info, results)
 			c.Vectorized = plan != nil
 			c.Reason = reason
 			out = append(out, c)

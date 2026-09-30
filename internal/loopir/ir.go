@@ -118,18 +118,40 @@ type Induction struct {
 }
 
 // Loop is a canonical counted loop whose body is a sequence of same-index
-// stores.
+// stores and per-iteration temporaries.
 type Loop struct {
 	// Node is the for or range statement, for its source span.
 	Node ast.Stmt
 	Ind  Induction
-	Body []Store
+	Body []Stmt
 }
+
+// Stmt is a statement of a loop body: a Store or a Let.
+type Stmt interface{ isStmt() }
 
 // Store writes Val to Dst[i].
 type Store struct {
 	Dst *Ref
 	Val Value
+}
+
+// Let defines a temporary, x := Val or x = Val, that later statements read.
+type Let struct {
+	Temp *Temp
+	Val  Value
+}
+
+func (Store) isStmt() {}
+func (Let) isStmt()   {}
+
+// Temp is a scalar local written by one Let and read by later statements of the
+// same iteration. The vector loop holds it as a vector. A local declared before
+// the loop is accepted only when nothing outside the loop uses it.
+type Temp struct {
+	Var  types.Object
+	Name string
+	// Uses counts the reads in the body.
+	Uses int
 }
 
 // Value is an element-wise expression evaluated once per iteration.
@@ -169,7 +191,11 @@ type Shift struct {
 	Count ast.Expr
 }
 
+// Use reads a temporary.
+type Use struct{ Temp *Temp }
+
 func (*Shift) isValue()     {}
+func (*Use) isValue()       {}
 func (*Load) isValue()      {}
 func (*Invariant) isValue() {}
 func (*Unary) isValue()     {}

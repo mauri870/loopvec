@@ -14,8 +14,8 @@ type Plan struct {
 	// SimdType is the simd vector type name, such as Float32s. Every store in
 	// the loop uses it.
 	SimdType string
-	// Stores are the loop's assignments in source order.
-	Stores []PlanStore
+	// Stmts are the loop's statements in source order.
+	Stmts []PlanStmt
 	// Copy is set when the loop only copies one slice onto another. It is
 	// emitted as the copy builtin, which needs no simd at all.
 	Copy bool
@@ -35,29 +35,56 @@ type Plan struct {
 	Overlaps [][2]*Ref
 }
 
-// PlanStore is a Store whose value has been normalized; see Normalize.
-type PlanStore struct {
+// PlanStmt is a statement whose value has been normalized; see Normalize. It
+// stores to Dst, or defines Temp when Dst is nil.
+type PlanStmt struct {
 	Dst  *Ref
+	Temp *Temp
 	Root Value
+}
+
+// FirstDst is the destination of the first store.
+func (p *Plan) FirstDst() *Ref {
+	for _, stmt := range p.Stmts {
+		if stmt.Dst != nil {
+			return stmt.Dst
+		}
+	}
+	return nil
 }
 
 // NewPlan checks that simd implements every operation in l for its element
 // type and derives the rest of the plan.
 func NewPlan(l *Loop) (*Plan, Reason) {
-	elem := l.Body[0].Dst.Elem
-	p := &Plan{Loop: l, SimdType: SimdType(elem)}
-	for _, store := range l.Body {
-		if !types.Identical(store.Dst.Elem, elem) {
-			return nil, ReasonMixedTypes
+	var elem types.Type
+	for _, stmt := range l.Body {
+		if store, ok := stmt.(Store); ok {
+			elem = store.Dst.Elem
+			break
 		}
-		root := Normalize(store.Val)
-		if reason := checkOps(elem, root); reason != "" {
+	}
+	p := &Plan{Loop: l, SimdType: SimdType(elem)}
+	for _, stmt := range l.Body {
+		var planned PlanStmt
+		switch stmt := stmt.(type) {
+		case Store:
+			if !types.Identical(stmt.Dst.Elem, elem) {
+				return nil, ReasonMixedTypes
+			}
+			planned = PlanStmt{Dst: stmt.Dst, Root: Normalize(stmt.Val)}
+		case Let:
+			if !types.Identical(stmt.Temp.Var.Type(), elem) {
+				return nil, ReasonMixedTypes
+			}
+			planned = PlanStmt{Temp: stmt.Temp, Root: Normalize(stmt.Val)}
+		}
+		if reason := checkOps(elem, planned.Root); reason != "" {
 			return nil, reason
 		}
-		p.Stores = append(p.Stores, PlanStore{Dst: store.Dst, Root: root})
+		p.Stmts = append(p.Stmts, planned)
 	}
-	if len(p.Stores) == 1 {
-		_, p.Copy = p.Stores[0].Root.(*Load)
+	if len(p.Stmts) == 1 {
+		_, p.Copy = p.Stmts[0].Root.(*Load)
 	}
 
 	trip := l.Ind.Trip
@@ -66,8 +93,8 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 		// The generated loop stops at the length of the stored slice, so when
 		// another slice limits the loop, or a second slice is stored, the limit
 		// must be spelled out or a longer slice would run past the data.
-		for _, store := range p.Stores {
-			if store.Dst.Obj != trip.Slice.Obj {
+		for _, stmt := range p.Stmts {
+			if stmt.Dst != nil && stmt.Dst.Obj != trip.Slice.Obj {
 				p.Bound = "len(" + trip.Slice.Name + ")"
 				break
 			}
@@ -78,10 +105,12 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 	}
 
 	stored := map[types.Object]bool{}
-	for _, store := range p.Stores {
-		stored[store.Dst.Obj] = true
-		p.Checked = appendRef(p.Checked, store.Dst)
-		for _, leaf := range Leaves(store.Root) {
+	for _, stmt := range p.Stmts {
+		if stmt.Dst != nil {
+			stored[stmt.Dst.Obj] = true
+			p.Checked = appendRef(p.Checked, stmt.Dst)
+		}
+		for _, leaf := range Leaves(stmt.Root) {
 			if load, ok := leaf.(*Load); ok {
 				p.Checked = appendRef(p.Checked, load.Ref)
 			}

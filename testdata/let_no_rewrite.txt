@@ -1,0 +1,77 @@
+# A temporary is rejected when the vector loop would not match the scalar loop:
+# a local that the code after the loop reads or the function returns, a local
+# read before the loop assigns it (carried from the previous iteration), a
+# scalar the loop reassigns, a second assignment to one temporary, and a
+# temporary of another element type.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func UsedAfter(a, b []float32) float32 {
+	var s float32
+	for i := range a {
+		s = b[i] + 1
+		a[i] = s * s
+	}
+	return s
+}
+
+func NamedResult(a, b []float32) (s float32) {
+	for i := range a {
+		s = b[i] + 1
+		a[i] = s * s
+	}
+	return
+}
+
+func Carried(a, b []float32) {
+	var s float32
+	for i := range a {
+		a[i] = s * b[i]
+		s = b[i]
+	}
+}
+
+func Reassigned(a, b []float32, k float32) {
+	for i := range a {
+		a[i] = b[i] * k
+		k = b[i]
+	}
+}
+
+func Twice(a, b []float32) {
+	for i := range a {
+		s := b[i] + 1
+		s = s * 2
+		a[i] = s
+	}
+}
+
+func OtherType(a []float32, b []int32) {
+	for i := range a {
+		s := b[i] + 1
+		a[i] = 2
+		b[i] = s
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":5,"func":"UsedAfter","vectorized":false,"reason":"a local assigned in the loop is used outside it","stage":"lower"}
+{"file":"$WORK/ops.go","line":13,"func":"NamedResult","vectorized":false,"reason":"a local assigned in the loop is used outside it","stage":"lower"}
+{"file":"$WORK/ops.go","line":22,"func":"Carried","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":29,"func":"Reassigned","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":36,"func":"Twice","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":44,"func":"OtherType","vectorized":false,"reason":"assignments write slices of different element types","stage":"plan"}

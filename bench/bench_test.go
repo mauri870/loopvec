@@ -214,3 +214,19 @@ func BenchmarkNormalizeFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkChainInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]int32, n)
+			x := make([]int32, n)
+			c := make([]int32, n)
+			e := make([]int32, n)
+			setBytes(b, n, 4, 6)
+			b.ResetTimer()
+			for b.Loop() {
+				ChainInt32s(a, x, c, e)
+			}
+		})
+	}
+}

@@ -20,8 +20,11 @@ import (
 // a sequence of assignments to dst[i], each with a right-hand side built from
 // same-index slice reads, loop-invariant scalars, and the operators simd
 // provides.
-func Lower(stmt ast.Stmt, info *types.Info) (*Loop, Reason) {
-	l := &lowerer{info: info}
+//
+// results holds the named result variables of the enclosing functions (see
+// NamedResults): a bare return reads them, so a temporary cannot be one.
+func Lower(stmt ast.Stmt, info *types.Info, results map[types.Object]bool) (*Loop, Reason) {
+	l := &lowerer{info: info, node: stmt, results: results}
 	switch s := stmt.(type) {
 	case *ast.RangeStmt:
 		return l.rangeLoop(s)
@@ -33,6 +36,16 @@ func Lower(stmt ast.Stmt, info *types.Info) (*Loop, Reason) {
 
 type lowerer struct {
 	info *types.Info
+	// node is the loop being lowered, and results the named result variables of
+	// the functions around it.
+	node    ast.Stmt
+	results map[types.Object]bool
+	// assigned holds the local variables the body assigns. They change during
+	// the loop, so none of them is loop-invariant.
+	assigned map[types.Object]bool
+	// temps maps a local to its temporary, once the Let that defines it is
+	// lowered.
+	temps map[types.Object]*Temp
 	// iv is the loop index variable.
 	iv types.Object
 	// valueVar is the range value variable and valueRef the slice it ranges over;
@@ -237,57 +250,119 @@ func (l *lowerer) intTrip(limit ast.Expr) (Trip, bool) {
 	return trip, true
 }
 
+// NamedResults returns the named result variables of fn and of every function
+// literal inside it.
+func NamedResults(fn *ast.FuncDecl, info *types.Info) map[types.Object]bool {
+	results := map[types.Object]bool{}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if typ, ok := n.(*ast.FuncType); ok && typ.Results != nil {
+			for _, field := range typ.Results.List {
+				for _, name := range field.Names {
+					if obj := info.Defs[name]; obj != nil {
+						results[obj] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return results
+}
+
 // body lowers the loop body, a sequence of assignments.
 func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int64) (*Loop, Reason) {
 	if len(block.List) == 0 {
 		return nil, ReasonUnsupportedBody
 	}
-	stores := make([]Store, 0, len(block.List))
+	l.assigned = map[types.Object]bool{}
+	l.temps = map[types.Object]*Temp{}
+	for _, stmt := range block.List {
+		assign, ok := stmt.(*ast.AssignStmt)
+		if !ok {
+			continue
+		}
+		for _, lhs := range assign.Lhs {
+			if id, ok := ast.Unparen(lhs).(*ast.Ident); ok {
+				if obj := l.info.Defs[id]; obj != nil {
+					l.assigned[obj] = true
+				} else if obj := l.info.Uses[id]; obj != nil {
+					l.assigned[obj] = true
+				}
+			}
+		}
+	}
+	// A limit the body assigns would change while the loop runs.
+	if id, ok := trip.Limit.(*ast.Ident); ok && l.assigned[l.info.Uses[id]] {
+		return nil, ReasonUnsupportedBound
+	}
+
+	body := make([]Stmt, 0, len(block.List))
 	for _, stmt := range block.List {
 		assign, ok := stmt.(*ast.AssignStmt)
 		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 			return nil, ReasonUnsupportedBody
 		}
+		if id, ok := ast.Unparen(assign.Lhs[0]).(*ast.Ident); ok {
+			let, reason := l.let(assign, id)
+			if reason != "" {
+				return nil, reason
+			}
+			body = append(body, let)
+			continue
+		}
 		store, reason := l.store(assign)
 		if reason != "" {
 			return nil, reason
 		}
-		stores = append(stores, store)
+		body = append(body, store)
 	}
 
-	for _, store := range stores {
-		switch v := store.Val.(type) {
-		case *Load:
-			// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
-			// slice onto itself does nothing.
-			if v.Ref.Obj == store.Dst.Obj {
+	for _, stmt := range body {
+		var val Value
+		switch stmt := stmt.(type) {
+		case Store:
+			val = stmt.Val
+			switch v := val.(type) {
+			case *Load:
+				// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
+				// slice onto itself does nothing.
+				if v.Ref.Obj == stmt.Dst.Obj {
+					return nil, ReasonUnsupportedOperand
+				}
+			case *Invariant:
+				// A loop that only zeroes is left to memclr; among other statements
+				// the zero is one more broadcast store.
+				if len(body) == 1 && l.isZero(v.Expr) {
+					return nil, ReasonZeroFillSkipped
+				}
+			}
+			if !l.withinLimits(val) {
 				return nil, ReasonUnsupportedOperand
 			}
-		case *Invariant:
-			// A loop that only zeroes is left to memclr; among other statements
-			// the zero is one more broadcast store.
-			if len(stores) == 1 && l.isZero(v.Expr) {
-				return nil, ReasonZeroFillSkipped
+			if SimdType(stmt.Dst.Elem) == "" {
+				return nil, ReasonUnsupportedType
 			}
-		}
-		if !l.withinLimits(store.Val) {
-			return nil, ReasonUnsupportedOperand
-		}
-		if SimdType(store.Dst.Elem) == "" {
-			return nil, ReasonUnsupportedType
+		case Let:
+			val = stmt.Val
+			if stmt.Temp.Uses == 0 {
+				return nil, ReasonUnsupportedBody
+			}
+			if !l.withinLimits(val) {
+				return nil, ReasonUnsupportedOperand
+			}
 		}
 	}
 
 	// The range value variable holds the element as it was when the iteration
 	// began, but the vector loop reloads the slice after an earlier store to it.
-	for k, store := range stores {
-		for _, leaf := range Leaves(store.Val) {
+	for k, stmt := range body {
+		for _, leaf := range Leaves(stmtValue(stmt)) {
 			load, ok := leaf.(*Load)
 			if !ok || !load.FromRange {
 				continue
 			}
-			for _, earlier := range stores[:k] {
-				if earlier.Dst.Obj == load.Ref.Obj {
+			for _, earlier := range body[:k] {
+				if store, ok := earlier.(Store); ok && store.Dst.Obj == load.Ref.Obj {
 					return nil, ReasonUnsupportedOperand
 				}
 			}
@@ -297,8 +372,68 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	return &Loop{
 		Node: node,
 		Ind:  Induction{Var: l.iv, Step: step, Trip: trip},
-		Body: stores,
+		Body: body,
 	}, ""
+}
+
+// stmtValue is the expression a statement computes.
+func stmtValue(stmt Stmt) Value {
+	switch stmt := stmt.(type) {
+	case Store:
+		return stmt.Val
+	case Let:
+		return stmt.Val
+	}
+	return nil
+}
+
+// let lowers x := value, or x = value for a local declared before the loop. The
+// temporary is written before it is read in every iteration, so no iteration sees
+// another's value, and a local declared outside the loop is accepted only when
+// nothing outside the loop uses it, so the value it would hold afterwards is
+// never observed.
+func (l *lowerer) let(assign *ast.AssignStmt, id *ast.Ident) (Let, Reason) {
+	var obj types.Object
+	switch assign.Tok {
+	case token.DEFINE:
+		obj = l.info.Defs[id]
+	case token.ASSIGN:
+		obj = l.info.Uses[id]
+	default:
+		return Let{}, ReasonUnsupportedBody
+	}
+	v, ok := obj.(*types.Var)
+	if !ok || obj == l.iv || obj == l.valueVar || l.temps[obj] != nil {
+		return Let{}, ReasonUnsupportedBody
+	}
+	if assign.Tok == token.ASSIGN && !l.deadOutsideLoop(v) {
+		return Let{}, ReasonLiveTemp
+	}
+	val, reason := l.value(assign.Rhs[0])
+	if reason != "" {
+		return Let{}, reason
+	}
+	temp := &Temp{Var: v, Name: id.Name}
+	l.temps[obj] = temp
+	return Let{Temp: temp, Val: val}, ""
+}
+
+// deadOutsideLoop reports whether v, declared before the loop, is a local that
+// nothing outside the loop reads or writes, and that is not a result the function
+// returns.
+func (l *lowerer) deadOutsideLoop(v *types.Var) bool {
+	if v.IsField() || l.results[v] || v.Pos() >= l.node.Pos() {
+		return false
+	}
+	if v.Pkg() == nil || v.Parent() == v.Pkg().Scope() {
+		return false
+	}
+	for id, obj := range l.info.Uses {
+		if obj == v && (id.Pos() < l.node.Pos() || id.Pos() >= l.node.End()) {
+			return false
+		}
+	}
+	return true
 }
 
 // store lowers one assignment to dst[i].
@@ -361,27 +496,26 @@ func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 //
 // where outer is src[i], a scalar, or src[i]*scalar, and a scalar in a
 // two-level tree is an identifier or a literal. The range value variable is
-// an operand only in the single-operation form. Anything else is rejected
-// rather than rewritten.
+// an operand only in the single-operation form. A read of a temporary counts as
+// src[i], and the same shapes bound the value of a Let. Anything else is
+// rejected rather than rewritten.
 func (l *lowerer) withinLimits(val Value) bool {
 	switch v := val.(type) {
-	case *Load:
+	case *Load, *Use:
 		return true
 	case *Invariant:
 		_, literal := v.Expr.(*ast.BasicLit)
 		return literal
 	case *Shift:
-		_, load := v.X.(*Load)
-		return load
+		return isVector(v.X)
 	case *Unary:
-		_, load := v.X.(*Load)
 		if v.Op == OpAbs || v.Op == OpSqrt {
-			return load || l.inner(v.X)
+			return isVector(v.X) || l.inner(v.X)
 		}
-		return load
+		return isVector(v.X)
 	case *Binary:
 		if Depth(v) == 1 {
-			if _, load := v.X.(*Load); load {
+			if isVector(v.X) {
 				return true
 			}
 			// min and max may take the scalar first.
@@ -425,11 +559,23 @@ func (l *lowerer) outer(v Value) bool {
 	return (l.plainLoad(b.X) && l.plainScalar(b.Y)) || (l.plainScalar(b.X) && l.plainLoad(b.Y))
 }
 
+// isVector reports whether v is a read of src[i] or of a temporary.
+func isVector(v Value) bool {
+	switch v.(type) {
+	case *Load, *Use:
+		return true
+	}
+	return false
+}
+
 // plainLoad reports whether v is a read of src[i] that is not the range value
-// variable.
+// variable, or of a temporary.
 func (l *lowerer) plainLoad(v Value) bool {
-	load, ok := v.(*Load)
-	return ok && load.Ref != l.valueRef
+	if load, ok := v.(*Load); ok {
+		return load.Ref != l.valueRef
+	}
+	_, ok := v.(*Use)
+	return ok
 }
 
 // plainScalar reports whether v is an identifier, a literal, or a constant
@@ -452,6 +598,12 @@ func (l *lowerer) value(expr ast.Expr) (Value, Reason) {
 	expr = ast.Unparen(expr)
 	if load, ok := l.load(expr); ok {
 		return load, ""
+	}
+	if ident, ok := expr.(*ast.Ident); ok {
+		if temp := l.temps[l.info.Uses[ident]]; temp != nil {
+			temp.Uses++
+			return &Use{Temp: temp}, ""
+		}
 	}
 	if l.invariant(expr) {
 		return &Invariant{Expr: expr}, ""
@@ -610,7 +762,7 @@ func (l *lowerer) shiftOf(tok token.Token, x Value, count ast.Expr) (Value, Reas
 	if tv, isConst := l.info.Types[count]; isConst && tv.Value != nil {
 		_, ok = constant.Uint64Val(tv.Value)
 	} else if ident, isIdent := count.(*ast.Ident); isIdent {
-		if obj, isVar := l.info.Uses[ident].(*types.Var); isVar && obj != l.iv && obj != l.valueVar {
+		if obj, isVar := l.info.Uses[ident].(*types.Var); isVar && obj != l.iv && obj != l.valueVar && !l.assigned[obj] {
 			basic, isBasic := obj.Type().Underlying().(*types.Basic)
 			ok = isBasic && basic.Info()&types.IsUnsigned != 0
 		}
@@ -677,7 +829,7 @@ func (l *lowerer) invariant(expr ast.Expr) bool {
 		return l.invariant(e.X)
 	case *ast.Ident:
 		obj, ok := l.info.Uses[e].(*types.Var)
-		if !ok || obj == l.iv || obj == l.valueVar {
+		if !ok || obj == l.iv || obj == l.valueVar || l.assigned[obj] {
 			return false
 		}
 		_, basic := obj.Type().Underlying().(*types.Basic)

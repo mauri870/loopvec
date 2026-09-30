@@ -118,3 +118,11 @@ func NormalizeFloat32s(auth, delta []float32, norm float32) {
 		delta[i] -= auth[i]
 	}
 }
+
+func ChainInt32s(a, b, c, e []int32) {
+	for i := range a {
+		x := b[i] * c[i]
+		a[i] = x + e[i]
+		b[i] = x - a[i]
+	}
+}

@@ -327,6 +327,33 @@ func NormalizeFloat32s(auth, delta []float32, norm float32) {
 	}
 }
 
+func ChainInt32s(a, b, c, e []int32) {
+	if _loopvecOverlap(b, c) || _loopvecOverlap(b, a) || _loopvecOverlap(b, e) || _loopvecOverlap(c, a) || _loopvecOverlap(a, e) {
+		for i := range a {
+			x := b[i] * c[i]
+			a[i] = x + e[i]
+			b[i] = x - a[i]
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			_ = c[len(a)-1]
+			_ = a[len(a)-1]
+			_ = e[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadInt32sPart(b[_i:len(a)])
+				_v2, _ := simd.LoadInt32sPart(c[_i:len(a)])
+				_t1 := _v1.Mul(_v2)
+				_v3, _ := simd.LoadInt32sPart(e[_i:len(a)])
+				_t1.Add(_v3).StorePart(a[_i:len(a)])
+				_v4, _ := simd.LoadInt32sPart(a[_i:len(a)])
+				_t1.Sub(_v4).StorePart(b[_i:len(a)])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

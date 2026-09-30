@@ -1,0 +1,215 @@
+# A temporary in a loop body, x := value or x = value, is held as a vector for
+# the statements after it. A local declared before the loop is accepted only
+# when nothing outside the loop uses it. The temporary is computed before the
+# statements that store to its operands, as in the scalar loop.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Define(a, b, c []int32) {
+	for i := range a {
+		s := b[i] + c[i]
+		a[i] = s * s
+	}
+}
+
+func Outer(a, b, c []int32) {
+	var s int32
+	for i := range a {
+		s = b[i] - c[i]
+		a[i] = s ^ 3
+	}
+}
+
+func Chain(a, b, c, e []int32) {
+	var x int32
+	for i := range a {
+		x = b[i] * c[i]
+		a[i] = x + e[i]
+		b[i] = x - a[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func Define(a, b, c []int32) {
+	if _loopvecOverlap(b, a) || _loopvecOverlap(c, a) {
+		for i := range a {
+			s := b[i] + c[i]
+			a[i] = s * s
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			_ = c[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadInt32sPart(b[_i:])
+				_v2, _ := simd.LoadInt32sPart(c[_i:])
+				_t1 := _v1.Add(_v2)
+				_t1.Mul(_t1).StorePart(a[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Outer(a, b, c []int32) {
+	var s int32
+	_vcInt32s1_1 := simd.BroadcastInt32s(3)
+	if _loopvecOverlap(b, a) || _loopvecOverlap(c, a) {
+		for i := range a {
+			s = b[i] - c[i]
+			a[i] = s ^ 3
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			_ = c[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadInt32sPart(b[_i:])
+				_v2, _ := simd.LoadInt32sPart(c[_i:])
+				_t1 := _v1.Sub(_v2)
+				_t1.Xor(_vcInt32s1_1).StorePart(a[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Chain(a, b, c, e []int32) {
+	var x int32
+	if _loopvecOverlap(b, c) || _loopvecOverlap(b, a) || _loopvecOverlap(b, e) || _loopvecOverlap(c, a) || _loopvecOverlap(a, e) {
+		for i := range a {
+			x = b[i] * c[i]
+			a[i] = x + e[i]
+			b[i] = x - a[i]
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			_ = c[len(a)-1]
+			_ = a[len(a)-1]
+			_ = e[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadInt32sPart(b[_i:len(a)])
+				_v2, _ := simd.LoadInt32sPart(c[_i:len(a)])
+				_t1 := _v1.Mul(_v2)
+				_v3, _ := simd.LoadInt32sPart(e[_i:len(a)])
+				_t1.Add(_v3).StorePart(a[_i:len(a)])
+				_v4, _ := simd.LoadInt32sPart(a[_i:len(a)])
+				_t1.Sub(_v4).StorePart(b[_i:len(a)])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func ints(n int, scale int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i+1) * scale
+	}
+	return s
+}
+
+func main() {
+	// Several vectors and a tail.
+	a := make([]int32, 11)
+	test.Define(a, ints(11, 1), ints(11, 3))
+	fmt.Println(a)
+
+	a = make([]int32, 11)
+	test.Outer(a, ints(11, 5), ints(11, 2))
+	fmt.Println(a)
+
+	// The temporary is computed before the statements that store to its operands.
+	a, b := make([]int32, 10), ints(10, 2)
+	test.Chain(a, b, ints(10, 3), ints(10, 1))
+	fmt.Println(a, b)
+
+	// Views that share memory take the scalar loop.
+	buf := ints(13, 1)
+	test.Chain(buf[:12], buf[1:], ints(12, 1), ints(12, 2))
+	fmt.Println(buf)
+}
+-- testmain/output --
+[16 64 144 256 400 576 784 1024 1296 1600 1936]
+[0 5 10 15 12 17 22 27 24 29 34]
+[7 26 57 100 155 222 301 392 495 610] [-1 -2 -3 -4 -5 -6 -7 -8 -9 -10]
+[4 10 18 28 40 54 70 88 108 130 154 180 -24]
+-- stderr.want --
+loopvec: rewrote 3 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Define(a, b, c []int32) {
+	for i := range a {
+		s := b[i] + c[i]
+		a[i] = s * s
+	}
+}
+
+func Outer(a, b, c []int32) {
+	var s int32
+	for i := range a {
+		s = b[i] - c[i]
+		a[i] = s ^ 3
+	}
+}
+
+func Chain(a, b, c, e []int32) {
+	var x int32
+	for i := range a {
+		x = b[i] * c[i]
+		a[i] = x + e[i]
+		b[i] = x - a[i]
+	}
+}

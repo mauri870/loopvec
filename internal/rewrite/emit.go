@@ -21,7 +21,7 @@ func generateReplacement(plan *loopir.Plan, fset *token.FileSet, idx int) (strin
 		e := &emitter{plan: plan}
 		return e.checked(e.copyCall()), "", nil
 	}
-	e := &emitter{plan: plan, loads: map[*loopir.Load]string{}, broadcasts: broadcastNames(plan, idx)}
+	e := &emitter{plan: plan, loads: map[*loopir.Load]string{}, temps: map[*loopir.Temp]string{}, broadcasts: broadcastNames(plan, idx)}
 
 	var pre strings.Builder
 	for _, inv := range invariants(plan) {
@@ -40,6 +40,7 @@ func generateReplacement(plan *loopir.Plan, fset *token.FileSet, idx int) (strin
 type emitter struct {
 	plan       *loopir.Plan
 	loads      map[*loopir.Load]string
+	temps      map[*loopir.Temp]string
 	broadcasts map[*loopir.Invariant]string
 }
 
@@ -47,7 +48,7 @@ type emitter struct {
 // (see checked) guarantee the source has at least as many elements as the loop
 // runs, so copy moves exactly that many.
 func (e *emitter) copyCall() string {
-	store := e.plan.Stores[0]
+	store := e.plan.Stmts[0]
 	destination := store.Dst.Name
 	if e.plan.Bound != "" {
 		destination += "[:" + e.plan.Bound + "]"
@@ -60,7 +61,7 @@ func (e *emitter) limit() string {
 	if e.plan.Bound != "" {
 		return e.plan.Bound
 	}
-	return "len(" + e.plan.Stores[0].Dst.Name + ")"
+	return "len(" + e.plan.FirstDst().Name + ")"
 }
 
 // operand slices ref from the current position, capped at the limit when it is
@@ -72,17 +73,18 @@ func (e *emitter) operand(ref *loopir.Ref) string {
 	return ref.Name + "[_i:]"
 }
 
-// loop generates the vector loop: for each assignment in order, load each
-// operand a partial vector at a time, compute, and store. The loop advances by
-// the number of lanes the first statement's first load (or its store, when it
-// loads nothing) reported. Running one statement over the whole vector before the
-// next is the scalar order, because every access is at the loop index.
+// loop generates the vector loop: for each statement in order, load each operand
+// a partial vector at a time, compute, and store it or keep it in a temporary.
+// The loop advances by the number of lanes the first load reported, or the first
+// store when nothing was loaded before it. Running one statement over the whole
+// vector before the next is the scalar order, because every access is at the loop
+// index.
 func (e *emitter) loop() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "for _i := 0; _i < %s; {\n", e.limit())
-	count := 0
-	for n, store := range e.plan.Stores {
-		for _, leaf := range loopir.Leaves(store.Root) {
+	count, haveLanes := 0, false
+	for _, stmt := range e.plan.Stmts {
+		for _, leaf := range loopir.Leaves(stmt.Root) {
 			load, ok := leaf.(*loopir.Load)
 			if !ok {
 				continue
@@ -91,15 +93,21 @@ func (e *emitter) loop() string {
 			name := fmt.Sprintf("_v%d", count)
 			e.loads[load] = name
 			lanes := "_"
-			if count == 1 {
-				lanes = "_n"
+			if !haveLanes {
+				lanes, haveLanes = "_n", true
 			}
 			fmt.Fprintf(&b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref))
 		}
-		text := fmt.Sprintf("%s.StorePart(%s)", e.expr(store.Root), e.operand(store.Dst))
-		if n == 0 && count == 0 {
+		if stmt.Temp != nil {
+			name := fmt.Sprintf("_t%d", len(e.temps)+1)
+			e.temps[stmt.Temp] = name
+			fmt.Fprintf(&b, "\t%s := %s\n", name, e.expr(stmt.Root))
+			continue
+		}
+		text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst))
+		if !haveLanes {
 			// Nothing was loaded, so the store reports how many lanes it wrote.
-			text = "_n := " + text
+			text, haveLanes = "_n := "+text, true
 		}
 		fmt.Fprintf(&b, "\t%s\n", text)
 	}
@@ -115,6 +123,8 @@ func (e *emitter) expr(v loopir.Value) string {
 		return e.loads[v]
 	case *loopir.Invariant:
 		return e.broadcasts[v]
+	case *loopir.Use:
+		return e.temps[v.Temp]
 	case *loopir.Shift:
 		return fmt.Sprintf("%s.%s(uint64(%s))", e.expr(v.X), v.Op.Method(), types.ExprString(v.Count))
 	case *loopir.Unary:
@@ -146,7 +156,7 @@ func (e *emitter) checked(loopText string) string {
 	limit := e.limit()
 	var checks strings.Builder
 	for _, ref := range e.plan.Checked {
-		if e.plan.Bound == "" && ref.Obj == e.plan.Stores[0].Dst.Obj {
+		if e.plan.Bound == "" && ref.Obj == e.plan.FirstDst().Obj {
 			continue
 		}
 		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", ref.Name, limit)
@@ -164,7 +174,7 @@ func (e *emitter) checked(loopText string) string {
 // order.
 func invariants(plan *loopir.Plan) []*loopir.Invariant {
 	var out []*loopir.Invariant
-	for _, store := range plan.Stores {
+	for _, store := range plan.Stmts {
 		for _, leaf := range loopir.Leaves(store.Root) {
 			if inv, ok := leaf.(*loopir.Invariant); ok {
 				out = append(out, inv)
@@ -182,8 +192,8 @@ func invariants(plan *loopir.Plan) []*loopir.Invariant {
 func broadcastNames(plan *loopir.Plan, idx int) map[*loopir.Invariant]string {
 	all := invariants(plan)
 	names := map[*loopir.Invariant]string{}
-	if len(plan.Stores) == 1 {
-		root := plan.Stores[0].Root
+	if len(plan.Stmts) == 1 {
+		root := plan.Stmts[0].Root
 		depth := loopir.Depth(root)
 		switch {
 		case len(all) == 1 && depth <= 1:

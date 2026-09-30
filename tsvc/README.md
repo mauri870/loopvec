@@ -69,8 +69,8 @@ value.
 | s241 | node splitting | preloading necessary to allow vectorization | fused | vectorize | no |
 | s243 | node splitting | false dependence cycle breaking | fused | vectorize | no |
 | s2244 | node splitting | cycle with ture and anti dependency | bits | vectorize | no |
-| s251 | scalar and array expansion | scalar expansion | fused | vectorize | no |
-| s1251 | scalar and array expansion | scalar expansion | fused | vectorize | no |
+| s251 | scalar and array expansion | scalar expansion | fused | vectorize | yes |
+| s1251 | scalar and array expansion | scalar expansion | fused | vectorize | yes |
 | s3251 | scalar and array expansion | scalar expansion | fused | vectorize | no |
 | s252 | scalar and array expansion | loop with ambiguous scalar temporary | bits | vectorize | no |
 | s254 | scalar and array expansion | carry around variable | bits | vectorize | no |
@@ -158,7 +158,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 9, gaps 83, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 11, gaps 81, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

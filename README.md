@@ -29,6 +29,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 | `for i := range dst { dst[i] = -src[i] }` | `Neg` (unary negation) |
 | `for i := range dst { dst[i] = ^src[i] }` | `Not` (unary bitwise NOT) |
 | `for i := range a { a[i] /= norm; d[i] -= a[i] }` | several assignments in one vector loop |
+| `for i := range a { t := b[i] + c[i]*d[i]; a[i] = t * t }` | temporary held as a vector |
 | `for i := 0; i < len(s); i++ { ... }` | three-clause for (all body shapes above) |
 | `for i := len(s) - 1; i >= 0; i-- { ... }` | reverse three-clause for (rewritten to run forward) |
 | `for i := 0; i < n; i++ { ... }`, `for i := range n { ... }` | explicit int limit; slices are length-checked first |
@@ -349,8 +350,8 @@ go1.27's emulated `float64` vectors return wrong results, so rewritten `float64`
 loops are unreliable there.
 
 **Loop shapes.** Range loops must declare their index (`for i := range x`). The
-body must be assignments to `dst[i]`, with no temporaries or `if`; `dst[i+1]`,
-`a[i+1]` and `a[0]` are not rewritten.
+body must be assignments to `dst[i]` and to temporaries that nothing reads after
+the loop, with no `if`; `dst[i+1]`, `a[i+1]` and `a[0]` are not rewritten.
 
 </details>
 

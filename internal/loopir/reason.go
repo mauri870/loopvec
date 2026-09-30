@@ -44,6 +44,10 @@ const (
 	// ReasonUnsupportedOp covers an operation simd doesn't implement for an
 	// otherwise-supported element type (for example, int64 multiply).
 	ReasonUnsupportedOp Reason = "operation not supported by simd for this element type"
+	// ReasonLiveTemp covers a local declared before the loop and assigned in it
+	// that is also used outside the loop: the vector loop would not leave it
+	// holding the last iteration's value.
+	ReasonLiveTemp Reason = "a local assigned in the loop is used outside it"
 	// ReasonMixedTypes covers a body whose assignments write slices of
 	// different element types: one vector type is used for the whole loop.
 	ReasonMixedTypes Reason = "assignments write slices of different element types"

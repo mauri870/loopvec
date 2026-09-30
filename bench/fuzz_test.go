@@ -480,3 +480,49 @@ func FuzzNormalizeFloat32s(f *testing.F) {
 		}
 	})
 }
+
+func FuzzChainInt32s(f *testing.F) {
+	f.Add(0, 0, 0, 0, uint64(1))
+	f.Add(5, 0, 0, 0, uint64(2))       // every view the same
+	f.Add(5, 1, 2, 3, uint64(3))       // partial overlap
+	f.Add(9, 10, -10, 20, uint64(4))   // disjoint
+	f.Add(37, -40, 80, 40, uint64(5))  // disjoint, several vectors
+	f.Add(37, 40, -80, -40, uint64(6)) // disjoint
+	f.Fuzz(func(t *testing.T, nRaw, offBRaw, offCRaw, offERaw int, seed uint64) {
+		n := clampLen(nRaw)
+		// Four views need room to be disjoint, which the two-view clampOverlap
+		// range does not leave.
+		clamp := func(offset int) int {
+			if n == 0 {
+				return 0
+			}
+			return offset % (4 * n)
+		}
+		offB, offC, offE := clamp(offBRaw), clamp(offCRaw), clamp(offERaw)
+		starts, backingLen := layout(n, offB, offC, offE)
+		aStart, bStart, cStart, eStart := starts[0], starts[1], starts[2], starts[3]
+
+		backing := randUint64Backing(seed, backingLen)
+		src := make([]int32, backingLen)
+		for i, v := range backing {
+			src[i] = int32(v)
+		}
+		want := append([]int32(nil), src...)
+		got := append([]int32(nil), src...)
+
+		// The temporary is computed before the two stores, and the second store
+		// reads what the first wrote.
+		for i := range n {
+			x := want[bStart+i] * want[cStart+i]
+			want[aStart+i] = x + want[eStart+i]
+			want[bStart+i] = x - want[aStart+i]
+		}
+		ChainInt32s(got[aStart:aStart+n], got[bStart:bStart+n], got[cStart:cStart+n], got[eStart:eStart+n])
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("mismatch at %d (n=%d offB=%d offC=%d offE=%d): got %d want %d", i, n, offB, offC, offE, got[i], want[i])
+			}
+		}
+	})
+}

@@ -27,9 +27,10 @@ func Analyze(file *ast.File, info *types.Info, allowMethods bool) []*loopir.Plan
 		if !ok || fn.Body == nil || (fn.Recv != nil && !allowMethods) {
 			continue
 		}
+		results := loopir.NamedResults(fn, info)
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			if stmt, ok := n.(ast.Stmt); ok {
-				if plan, _ := analyzeLoop(stmt, info); plan != nil {
+				if plan, _ := analyzeLoop(stmt, info, results); plan != nil {
 					plans = append(plans, plan)
 				}
 			}
@@ -41,13 +42,13 @@ func Analyze(file *ast.File, info *types.Info, allowMethods bool) []*loopir.Plan
 
 // analyzeLoop lowers stmt, which must be a for or range statement, and plans
 // it. It returns the reason when the loop is not vectorizable.
-func analyzeLoop(stmt ast.Stmt, info *types.Info) (*loopir.Plan, loopir.Reason) {
+func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool) (*loopir.Plan, loopir.Reason) {
 	switch stmt.(type) {
 	case *ast.RangeStmt, *ast.ForStmt:
 	default:
 		return nil, ""
 	}
-	loop, reason := loopir.Lower(stmt, info)
+	loop, reason := loopir.Lower(stmt, info, results)
 	if reason != "" {
 		return nil, reason
 	}

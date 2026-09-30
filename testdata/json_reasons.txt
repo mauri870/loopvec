@@ -84,10 +84,12 @@ func BodyIfGuardedStore(dst, a []float32) {
 }
 
 func BodyTwoStatements(dst, a []float32) {
+	n := 0
 	for i := range dst {
-		x := a[i] + 1
-		dst[i] = x
+		dst[i] = a[i] + 1
+		n++
 	}
+	_ = n
 }
 
 func TypeString(dst, a, b []string) {
@@ -131,9 +133,9 @@ func Vectorized(dst, a []float32) {
 {"file":"$WORK/ops.go","line":53,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
 {"file":"$WORK/ops.go","line":59,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
 {"file":"$WORK/ops.go","line":67,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
-{"file":"$WORK/ops.go","line":75,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
-{"file":"$WORK/ops.go","line":82,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
-{"file":"$WORK/ops.go","line":88,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
-{"file":"$WORK/ops.go","line":94,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
-{"file":"$WORK/ops.go","line":100,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
-{"file":"$WORK/ops.go","line":106,"func":"Vectorized","vectorized":true}
+{"file":"$WORK/ops.go","line":76,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":84,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
+{"file":"$WORK/ops.go","line":90,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
+{"file":"$WORK/ops.go","line":96,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
+{"file":"$WORK/ops.go","line":102,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
+{"file":"$WORK/ops.go","line":108,"func":"Vectorized","vectorized":true}
