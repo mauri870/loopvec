@@ -31,9 +31,9 @@ const (
 	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
 	// nested index (dst[i][j]).
 	ReasonUnsupportedDestination Reason = "destination is not a simple, same-index slice element"
-	// ReasonUnsupportedBody covers a loop body that isn't a single indexed
-	// assignment: multiple statements, or a nested loop.
-	ReasonUnsupportedBody Reason = "loop body is not a single indexed assignment"
+	// ReasonUnsupportedBody covers a loop body that isn't a sequence of
+	// assignments: an if, a nested loop, or any other statement.
+	ReasonUnsupportedBody Reason = "loop body is not a sequence of indexed assignments"
 	// ReasonUnsupportedOperand covers a right-hand side that isn't a
 	// same-index slice read, the range value variable, or a plain
 	// identifier/literal scalar.
@@ -44,6 +44,12 @@ const (
 	// ReasonUnsupportedOp covers an operation simd doesn't implement for an
 	// otherwise-supported element type (for example, int64 multiply).
 	ReasonUnsupportedOp Reason = "operation not supported by simd for this element type"
+	// ReasonMixedTypes covers a body whose assignments write slices of
+	// different element types: one vector type is used for the whole loop.
+	ReasonMixedTypes Reason = "assignments write slices of different element types"
+	// ReasonTooManySlices covers a body that touches more slices than the
+	// runtime overlap checks are budgeted for.
+	ReasonTooManySlices Reason = "loop touches more than 8 distinct slices"
 	// ReasonFloatMinMax covers min and max of floating-point values: the simd
 	// method is the hardware instruction, which on amd64 returns the second
 	// operand for a NaN and does not order -0 below +0, where Go's min and max
@@ -69,7 +75,7 @@ func (r Reason) Stage() string {
 	switch r {
 	case ReasonMethodSkipped:
 		return "analysis"
-	case ReasonUnsupportedOp, ReasonFloatMinMax:
+	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonMixedTypes, ReasonTooManySlices:
 		return "plan"
 	}
 	return "lower"

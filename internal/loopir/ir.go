@@ -135,8 +135,13 @@ type Store struct {
 // Value is an element-wise expression evaluated once per iteration.
 type Value interface{ isValue() }
 
-// Load reads Ref[i].
-type Load struct{ Ref *Ref }
+// Load reads Ref[i]. FromRange is set when the source is the range value
+// variable, which holds the element as it was when the iteration began: a store
+// to the same slice earlier in the body does not change it.
+type Load struct {
+	Ref       *Ref
+	FromRange bool
+}
 
 // Invariant is an expression that has the same value on every iteration and
 // is evaluated once, before the loop, and broadcast.

@@ -130,8 +130,8 @@ func Vectorized(dst, a []float32) {
 {"file":"$WORK/ops.go","line":47,"func":"DownBoundNotZero","vectorized":false,"reason":"loop limit is not len(slice), an int variable, or a positive integer constant","stage":"lower"}
 {"file":"$WORK/ops.go","line":53,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
 {"file":"$WORK/ops.go","line":59,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
-{"file":"$WORK/ops.go","line":67,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a single indexed assignment","stage":"lower"}
-{"file":"$WORK/ops.go","line":75,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a single indexed assignment","stage":"lower"}
+{"file":"$WORK/ops.go","line":67,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":75,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
 {"file":"$WORK/ops.go","line":82,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
 {"file":"$WORK/ops.go","line":88,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
 {"file":"$WORK/ops.go","line":94,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}

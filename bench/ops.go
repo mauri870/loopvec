@@ -111,3 +111,10 @@ func ShlUint32s(dst, a []uint32, n uint) {
 		dst[i] = a[i] << n
 	}
 }
+
+func NormalizeFloat32s(auth, delta []float32, norm float32) {
+	for i := range auth {
+		auth[i] /= norm
+		delta[i] -= auth[i]
+	}
+}

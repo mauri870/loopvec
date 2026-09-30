@@ -446,3 +446,37 @@ func FuzzShiftInt32s(f *testing.F) {
 		}
 	})
 }
+
+func FuzzNormalizeFloat32s(f *testing.F) {
+	f.Add(0, 0, uint64(1), float32(2))
+	f.Add(5, 0, uint64(2), float32(3)) // auth == delta
+	f.Add(5, 1, uint64(3), float32(0)) // partial overlap
+	f.Add(9, 11, uint64(4), float32(-1.5))
+	f.Add(9, 11, uint64(5), float32(0))       // disjoint, division by zero
+	f.Add(37, -40, uint64(6), float32(1e-30)) // disjoint, several vectors
+	f.Add(37, 40, uint64(7), float32(math.Inf(1)))
+	f.Fuzz(func(t *testing.T, nRaw, offRaw int, seed uint64, norm float32) {
+		n := clampLen(nRaw)
+		off := clampOverlap(offRaw, n)
+		starts, backingLen := layout(n, off)
+		authStart, deltaStart := starts[0], starts[1]
+
+		src := randFloat32Backing(seed, backingLen)
+		want := append([]float32(nil), src...)
+		got := append([]float32(nil), src...)
+
+		// The second statement reads what the first stored.
+		for i := range n {
+			want[authStart+i] /= norm
+			want[deltaStart+i] -= want[authStart+i]
+		}
+		NormalizeFloat32s(got[authStart:authStart+n], got[deltaStart:deltaStart+n], norm)
+
+		for i := range want {
+			if !float32Equal(got[i], want[i]) {
+				t.Fatalf("mismatch at %d (n=%d off=%d norm=%v): got %v (0x%x) want %v (0x%x)",
+					i, n, off, norm, got[i], math.Float32bits(got[i]), want[i], math.Float32bits(want[i]))
+			}
+		}
+	})
+}

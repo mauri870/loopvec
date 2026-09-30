@@ -200,3 +200,17 @@ func BenchmarkAndNotUint64s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkNormalizeFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			auth := make([]float32, n)
+			delta := make([]float32, n)
+			setBytes(b, n, 4, 4)
+			b.ResetTimer()
+			for b.Loop() {
+				NormalizeFloat32s(auth, delta, 3)
+			}
+		})
+	}
+}

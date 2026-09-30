@@ -17,8 +17,9 @@ import (
 //	for i := 0; i < len(s); i++   for i := len(s) - 1; i >= 0; i--
 //
 // where n is an int variable or a positive integer constant. The body must be
-// one assignment to dst[i] whose right-hand side is built from same-index
-// slice reads, loop-invariant scalars, and the operators simd provides.
+// a sequence of assignments to dst[i], each with a right-hand side built from
+// same-index slice reads, loop-invariant scalars, and the operators simd
+// provides.
 func Lower(stmt ast.Stmt, info *types.Info) (*Loop, Reason) {
 	l := &lowerer{info: info}
 	switch s := stmt.(type) {
@@ -236,84 +237,111 @@ func (l *lowerer) intTrip(limit ast.Expr) (Trip, bool) {
 	return trip, true
 }
 
-// body lowers the loop body, a single assignment.
+// body lowers the loop body, a sequence of assignments.
 func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int64) (*Loop, Reason) {
-	if len(block.List) != 1 {
+	if len(block.List) == 0 {
 		return nil, ReasonUnsupportedBody
 	}
-	assign, ok := block.List[0].(*ast.AssignStmt)
-	if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
-		return nil, ReasonUnsupportedBody
-	}
-
-	var dst *Ref
-	var val Value
-	switch assign.Tok {
-	case token.ASSIGN:
-		dst, ok = l.index(assign.Lhs[0])
-		if !ok {
-			return nil, ReasonUnsupportedDestination
+	stores := make([]Store, 0, len(block.List))
+	for _, stmt := range block.List {
+		assign, ok := stmt.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+			return nil, ReasonUnsupportedBody
 		}
-		var reason Reason
-		val, reason = l.value(assign.Rhs[0])
+		store, reason := l.store(assign)
 		if reason != "" {
 			return nil, reason
 		}
-		switch v := val.(type) {
+		stores = append(stores, store)
+	}
+
+	for _, store := range stores {
+		switch v := store.Val.(type) {
 		case *Load:
 			// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
 			// slice onto itself does nothing.
-			if v.Ref.Obj == dst.Obj {
+			if v.Ref.Obj == store.Dst.Obj {
 				return nil, ReasonUnsupportedOperand
 			}
 		case *Invariant:
-			if l.isZero(v.Expr) {
+			// A loop that only zeroes is left to memclr; among other statements
+			// the zero is one more broadcast store.
+			if len(stores) == 1 && l.isZero(v.Expr) {
 				return nil, ReasonZeroFillSkipped
 			}
 		}
-	case token.SHL_ASSIGN, token.SHR_ASSIGN:
-		// dst[i] <<= count is dst[i] = dst[i] << count.
-		dst, ok = l.index(assign.Lhs[0])
-		if !ok {
-			return nil, ReasonUnsupportedDestination
-		}
-		op := token.SHL
-		if assign.Tok == token.SHR_ASSIGN {
-			op = token.SHR
-		}
-		var reason Reason
-		val, reason = l.shiftOf(op, &Load{Ref: dst}, assign.Rhs[0])
-		if reason != "" {
-			return nil, reason
-		}
-	default:
-		// dst[i] op= rhs is dst[i] = dst[i] op rhs.
-		op, ok := binaryOp(assign.Tok)
-		if !ok {
+		if !l.withinLimits(store.Val) {
 			return nil, ReasonUnsupportedOperand
 		}
-		dst, ok = l.index(assign.Lhs[0])
-		if !ok {
-			return nil, ReasonUnsupportedDestination
+		if SimdType(store.Dst.Elem) == "" {
+			return nil, ReasonUnsupportedType
 		}
-		rhs, reason := l.value(assign.Rhs[0])
-		if reason != "" {
-			return nil, reason
-		}
-		val = &Binary{Op: op, X: &Load{Ref: dst}, Y: rhs}
 	}
 
-	if !l.withinLimits(val) {
-		return nil, ReasonUnsupportedOperand
+	// The range value variable holds the element as it was when the iteration
+	// began, but the vector loop reloads the slice after an earlier store to it.
+	for k, store := range stores {
+		for _, leaf := range Leaves(store.Val) {
+			load, ok := leaf.(*Load)
+			if !ok || !load.FromRange {
+				continue
+			}
+			for _, earlier := range stores[:k] {
+				if earlier.Dst.Obj == load.Ref.Obj {
+					return nil, ReasonUnsupportedOperand
+				}
+			}
+		}
 	}
-	if SimdType(dst.Elem) == "" {
-		return nil, ReasonUnsupportedType
-	}
+
 	return &Loop{
 		Node: node,
 		Ind:  Induction{Var: l.iv, Step: step, Trip: trip},
-		Body: []Store{{Dst: dst, Val: val}},
+		Body: stores,
 	}, ""
+}
+
+// store lowers one assignment to dst[i].
+func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
+	var op Op
+	switch assign.Tok {
+	case token.ASSIGN, token.SHL_ASSIGN, token.SHR_ASSIGN:
+	case token.DEFINE:
+		return Store{}, ReasonUnsupportedBody
+	default:
+		var ok bool
+		if op, ok = binaryOp(assign.Tok); !ok {
+			return Store{}, ReasonUnsupportedOperand
+		}
+	}
+	dst, ok := l.index(assign.Lhs[0])
+	if !ok {
+		return Store{}, ReasonUnsupportedDestination
+	}
+
+	var val Value
+	var reason Reason
+	switch assign.Tok {
+	case token.ASSIGN:
+		val, reason = l.value(assign.Rhs[0])
+	case token.SHL_ASSIGN, token.SHR_ASSIGN:
+		// dst[i] <<= count is dst[i] = dst[i] << count.
+		shift := token.SHL
+		if assign.Tok == token.SHR_ASSIGN {
+			shift = token.SHR
+		}
+		val, reason = l.shiftOf(shift, &Load{Ref: dst}, assign.Rhs[0])
+	default:
+		// dst[i] op= rhs is dst[i] = dst[i] op rhs.
+		var rhs Value
+		if rhs, reason = l.value(assign.Rhs[0]); reason == "" {
+			val = &Binary{Op: op, X: &Load{Ref: dst}, Y: rhs}
+		}
+	}
+	if reason != "" {
+		return Store{}, reason
+	}
+	return Store{Dst: dst, Val: val}, ""
 }
 
 // withinLimits reports whether val is a shape the rest of loopvec is tested
@@ -422,8 +450,8 @@ func (l *lowerer) plainScalar(v Value) bool {
 // value lowers an expression evaluated once per iteration.
 func (l *lowerer) value(expr ast.Expr) (Value, Reason) {
 	expr = ast.Unparen(expr)
-	if ref, ok := l.load(expr); ok {
-		return &Load{Ref: ref}, ""
+	if load, ok := l.load(expr); ok {
+		return load, ""
 	}
 	if l.invariant(expr) {
 		return &Invariant{Expr: expr}, ""
@@ -604,14 +632,18 @@ func isKind(t types.Type, kind types.BasicKind) bool {
 }
 
 // load matches src[i], or the range value variable, which is the same read.
-func (l *lowerer) load(expr ast.Expr) (*Ref, bool) {
+func (l *lowerer) load(expr ast.Expr) (*Load, bool) {
 	if ident, ok := expr.(*ast.Ident); ok {
 		if l.valueVar != nil && l.info.Uses[ident] == l.valueVar {
-			return l.valueRef, true
+			return &Load{Ref: l.valueRef, FromRange: true}, true
 		}
 		return nil, false
 	}
-	return l.index(expr)
+	ref, ok := l.index(expr)
+	if !ok {
+		return nil, false
+	}
+	return &Load{Ref: ref}, true
 }
 
 // index matches slice[i] where slice is an identifier and i the loop index.

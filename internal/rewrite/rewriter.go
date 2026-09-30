@@ -82,7 +82,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		// when any pair could overlap, the same way LLVM/GCC/HotSpot's own
 		// vectorizers version a loop on an unprovable aliasing check rather
 		// than require static proof. See AGENTS.md's correctness gaps.
-		if len(plan.Others) > 0 {
+		if len(plan.Overlaps) > 0 {
 			origStart, origEnd := tf.Offset(stmtNode.Pos()), tf.Offset(stmtNode.End())
 			repl = wrapWithOverlapCheck(plan, string(src[origStart:origEnd]), repl)
 			needsOverlapHelper = true
@@ -186,19 +186,19 @@ func HasBuildConstraint(file *ast.File) bool {
 	return false
 }
 
-// wrapWithOverlapCheck guards simdText behind a runtime check that
-// the destination's backing memory doesn't overlap any of plan.Others, falling back to
-// origText (the loop's own original source) when it might. This is the
+// wrapWithOverlapCheck guards simdText behind a runtime check that no stored
+// slice's backing memory overlaps another slice in the loop (plan.Overlaps),
+// falling back to origText (the loop's own original source) when it might. This is the
 // same technique LLVM, GCC, and (since 2025) HotSpot's C2 use for loops
 // they can't statically prove don't alias: a bounded runtime check plus a
 // scalar fallback, not a static proof requirement.
 func wrapWithOverlapCheck(plan *loopir.Plan, origText, simdText string) string {
 	var cond strings.Builder
-	for i, other := range plan.Others {
+	for i, pair := range plan.Overlaps {
 		if i > 0 {
 			cond.WriteString(" || ")
 		}
-		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", plan.Dst.Name, other.Name)
+		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", pair[0].Name, pair[1].Name)
 	}
 	return "if " + cond.String() + " {\n" + origText + "\n} else {\n" + simdText + "\n}"
 }

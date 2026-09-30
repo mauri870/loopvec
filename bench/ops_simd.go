@@ -304,6 +304,29 @@ func ShlUint32s(dst, a []uint32, n uint) {
 	}
 }
 
+func NormalizeFloat32s(auth, delta []float32, norm float32) {
+	_vcFloat32s18_1 := simd.BroadcastFloat32s(norm)
+	if _loopvecOverlap(auth, delta) {
+		for i := range auth {
+			auth[i] /= norm
+			delta[i] -= auth[i]
+		}
+	} else {
+		if len(auth) > 0 {
+			_ = auth[len(auth)-1]
+			_ = delta[len(auth)-1]
+			for _i := 0; _i < len(auth); {
+				_v1, _n := simd.LoadFloat32sPart(auth[_i:len(auth)])
+				_v1.Div(_vcFloat32s18_1).StorePart(auth[_i:len(auth)])
+				_v2, _ := simd.LoadFloat32sPart(delta[_i:len(auth)])
+				_v3, _ := simd.LoadFloat32sPart(auth[_i:len(auth)])
+				_v2.Sub(_v3).StorePart(delta[_i:len(auth)])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

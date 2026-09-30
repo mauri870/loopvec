@@ -1,0 +1,56 @@
+# Bodies of several assignments stay scalar when the vector loop would not
+# match the scalar order or one vector type cannot hold every store: the range
+# value variable after a store to the ranged slice, stores of different element
+# types, a self copy, and more slices than the overlap checks are budgeted for.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// v is the element before the store to a[i], which a reload would not see.
+func RangeValueAfterStore(a, b []int32) {
+	for i, v := range a {
+		a[i] = 1
+		b[i] = v
+	}
+}
+
+func MixedTypes(a []int32, b []float32) {
+	for i := range a {
+		a[i] = 1
+		b[i] = 2
+	}
+}
+
+func SelfCopy(a, b, c []float32) {
+	for i := range a {
+		a[i] = a[i]
+		b[i] = c[i]
+	}
+}
+
+func TooManySlices(a, b, c, d, e, f, g, h, k []float32) {
+	for i := range a {
+		a[i] = b[i] + c[i]
+		d[i] = e[i] + f[i]
+		g[i] = h[i] + k[i]
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":5,"func":"RangeValueAfterStore","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":12,"func":"MixedTypes","vectorized":false,"reason":"assignments write slices of different element types","stage":"plan"}
+{"file":"$WORK/ops.go","line":19,"func":"SelfCopy","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":26,"func":"TooManySlices","vectorized":false,"reason":"loop touches more than 8 distinct slices","stage":"plan"}

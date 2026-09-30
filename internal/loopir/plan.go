@@ -2,70 +2,99 @@ package loopir
 
 import "go/types"
 
+// maxSlices is the most distinct slices a loop may touch. Each stored slice is
+// checked at run time against every other slice in the loop, so the number of
+// checks grows with it.
+const maxSlices = 8
+
 // Plan is a Loop that simd can express, with the decisions the emitted code
 // depends on.
 type Plan struct {
 	Loop *Loop
-	// SimdType is the simd vector type name, such as Float32s.
+	// SimdType is the simd vector type name, such as Float32s. Every store in
+	// the loop uses it.
 	SimdType string
-	// Dst and Root are the store's destination and its normalized value; see
-	// Normalize.
-	Dst  *Ref
-	Root Value
+	// Stores are the loop's assignments in source order.
+	Stores []PlanStore
 	// Copy is set when the loop only copies one slice onto another. It is
 	// emitted as the copy builtin, which needs no simd at all.
 	Copy bool
-	// Bound is the iteration limit when it is not len(Dst): an int variable
-	// or constant, or len of another slice. Empty means len(Dst).
+	// Bound is the iteration limit when it is not len of the stored slice: an
+	// int variable or constant, or len of another slice. Empty means every store
+	// is to the slice that limits the loop, and its length is the limit.
 	Bound string
 	// BoundConst is set when Bound is a positive integer constant.
 	BoundConst bool
 	// Checked lists every slice whose length must be verified against the
-	// limit before the loop runs: Dst first, then each slice read, in the
-	// order the loads are emitted.
+	// limit before the loop runs: for each store in order, its destination and
+	// then each slice it reads, in the order the loads are emitted.
 	Checked []*Ref
-	// Others lists the slices read that are not Dst. Each may alias Dst at an
-	// offset and needs a runtime overlap check.
-	Others []*Ref
+	// Overlaps lists the pairs of distinct slices that need a runtime overlap
+	// check: every pair where at least one is stored, since two slice variables
+	// may share memory at an offset.
+	Overlaps [][2]*Ref
+}
+
+// PlanStore is a Store whose value has been normalized; see Normalize.
+type PlanStore struct {
+	Dst  *Ref
+	Root Value
 }
 
 // NewPlan checks that simd implements every operation in l for its element
 // type and derives the rest of the plan.
 func NewPlan(l *Loop) (*Plan, Reason) {
-	store := l.Body[0]
-	p := &Plan{
-		Loop:     l,
-		SimdType: SimdType(store.Dst.Elem),
-		Dst:      store.Dst,
-		Root:     Normalize(store.Val),
+	elem := l.Body[0].Dst.Elem
+	p := &Plan{Loop: l, SimdType: SimdType(elem)}
+	for _, store := range l.Body {
+		if !types.Identical(store.Dst.Elem, elem) {
+			return nil, ReasonMixedTypes
+		}
+		root := Normalize(store.Val)
+		if reason := checkOps(elem, root); reason != "" {
+			return nil, reason
+		}
+		p.Stores = append(p.Stores, PlanStore{Dst: store.Dst, Root: root})
 	}
-	_, p.Copy = p.Root.(*Load)
-	if reason := p.checkOps(p.Root); reason != "" {
-		return nil, reason
+	if len(p.Stores) == 1 {
+		_, p.Copy = p.Stores[0].Root.(*Load)
 	}
 
 	trip := l.Ind.Trip
 	switch trip.Kind {
 	case TripLen:
-		// The generated loop stops at len(Dst), so any other bounding slice
-		// must be spelled out or a longer Dst would run past the data.
-		if trip.Slice.Obj != p.Dst.Obj {
-			p.Bound = "len(" + trip.Slice.Name + ")"
+		// The generated loop stops at the length of the stored slice, so when
+		// another slice limits the loop, or a second slice is stored, the limit
+		// must be spelled out or a longer slice would run past the data.
+		for _, store := range p.Stores {
+			if store.Dst.Obj != trip.Slice.Obj {
+				p.Bound = "len(" + trip.Slice.Name + ")"
+				break
+			}
 		}
 	case TripInt:
 		p.Bound = types.ExprString(trip.Limit)
 		p.BoundConst = trip.Const
 	}
 
-	p.Checked = []*Ref{p.Dst}
-	for _, leaf := range Leaves(p.Root) {
-		load, ok := leaf.(*Load)
-		if !ok {
-			continue
+	stored := map[types.Object]bool{}
+	for _, store := range p.Stores {
+		stored[store.Dst.Obj] = true
+		p.Checked = appendRef(p.Checked, store.Dst)
+		for _, leaf := range Leaves(store.Root) {
+			if load, ok := leaf.(*Load); ok {
+				p.Checked = appendRef(p.Checked, load.Ref)
+			}
 		}
-		p.Checked = appendRef(p.Checked, load.Ref)
-		if load.Ref.Obj != p.Dst.Obj {
-			p.Others = appendRef(p.Others, load.Ref)
+	}
+	if len(p.Checked) > maxSlices {
+		return nil, ReasonTooManySlices
+	}
+	for i, first := range p.Checked {
+		for _, second := range p.Checked[i+1:] {
+			if stored[first.Obj] || stored[second.Obj] {
+				p.Overlaps = append(p.Overlaps, [2]*Ref{first, second})
+			}
 		}
 	}
 	return p, ""
@@ -73,7 +102,7 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 
 // checkOps returns why simd cannot express an operation in v on the element
 // type, or "".
-func (p *Plan) checkOps(v Value) Reason {
+func checkOps(elem types.Type, v Value) Reason {
 	var op Op
 	var operands []Value
 	switch v := v.(type) {
@@ -86,14 +115,14 @@ func (p *Plan) checkOps(v Value) Reason {
 	default:
 		return ""
 	}
-	if (op == OpMin || op == OpMax) && isFloat(p.Dst.Elem) {
+	if (op == OpMin || op == OpMax) && isFloat(elem) {
 		return ReasonFloatMinMax
 	}
-	if !supports(p.Dst.Elem, op) {
+	if !supports(elem, op) {
 		return ReasonUnsupportedOp
 	}
 	for _, operand := range operands {
-		if reason := p.checkOps(operand); reason != "" {
+		if reason := checkOps(elem, operand); reason != "" {
 			return reason
 		}
 	}

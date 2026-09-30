@@ -24,11 +24,7 @@ func generateReplacement(plan *loopir.Plan, fset *token.FileSet, idx int) (strin
 	e := &emitter{plan: plan, loads: map[*loopir.Load]string{}, broadcasts: broadcastNames(plan, idx)}
 
 	var pre strings.Builder
-	for _, leaf := range loopir.Leaves(plan.Root) {
-		inv, ok := leaf.(*loopir.Invariant)
-		if !ok {
-			continue
-		}
+	for _, inv := range invariants(plan) {
 		var text bytes.Buffer
 		if err := format.Node(&text, fset, inv.Expr); err != nil {
 			return "", "", err
@@ -51,11 +47,12 @@ type emitter struct {
 // (see checked) guarantee the source has at least as many elements as the loop
 // runs, so copy moves exactly that many.
 func (e *emitter) copyCall() string {
-	destination := e.plan.Dst.Name
+	store := e.plan.Stores[0]
+	destination := store.Dst.Name
 	if e.plan.Bound != "" {
 		destination += "[:" + e.plan.Bound + "]"
 	}
-	return fmt.Sprintf("copy(%s, %s)", destination, e.plan.Root.(*loopir.Load).Ref.Name)
+	return fmt.Sprintf("copy(%s, %s)", destination, store.Root.(*loopir.Load).Ref.Name)
 }
 
 // limit is the loop's iteration limit.
@@ -63,7 +60,7 @@ func (e *emitter) limit() string {
 	if e.plan.Bound != "" {
 		return e.plan.Bound
 	}
-	return "len(" + e.plan.Dst.Name + ")"
+	return "len(" + e.plan.Stores[0].Dst.Name + ")"
 }
 
 // operand slices ref from the current position, capped at the limit when it is
@@ -75,33 +72,37 @@ func (e *emitter) operand(ref *loopir.Ref) string {
 	return ref.Name + "[_i:]"
 }
 
-// loop generates the vector loop: load each operand a partial vector at a
-// time, compute, store, and advance by the number of lanes the first load
-// returned.
+// loop generates the vector loop: for each assignment in order, load each
+// operand a partial vector at a time, compute, and store. The loop advances by
+// the number of lanes the first statement's first load (or its store, when it
+// loads nothing) reported. Running one statement over the whole vector before the
+// next is the scalar order, because every access is at the loop index.
 func (e *emitter) loop() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "for _i := 0; _i < %s; {\n", e.limit())
 	count := 0
-	for _, leaf := range loopir.Leaves(e.plan.Root) {
-		load, ok := leaf.(*loopir.Load)
-		if !ok {
-			continue
+	for n, store := range e.plan.Stores {
+		for _, leaf := range loopir.Leaves(store.Root) {
+			load, ok := leaf.(*loopir.Load)
+			if !ok {
+				continue
+			}
+			count++
+			name := fmt.Sprintf("_v%d", count)
+			e.loads[load] = name
+			lanes := "_"
+			if count == 1 {
+				lanes = "_n"
+			}
+			fmt.Fprintf(&b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref))
 		}
-		count++
-		name := fmt.Sprintf("_v%d", count)
-		e.loads[load] = name
-		lanes := "_"
-		if count == 1 {
-			lanes = "_n"
+		text := fmt.Sprintf("%s.StorePart(%s)", e.expr(store.Root), e.operand(store.Dst))
+		if n == 0 && count == 0 {
+			// Nothing was loaded, so the store reports how many lanes it wrote.
+			text = "_n := " + text
 		}
-		fmt.Fprintf(&b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref))
+		fmt.Fprintf(&b, "\t%s\n", text)
 	}
-	store := fmt.Sprintf("%s.StorePart(%s)", e.expr(e.plan.Root), e.operand(e.plan.Dst))
-	if count == 0 {
-		// Nothing was loaded, so the store reports how many lanes it wrote.
-		store = "_n := " + store
-	}
-	fmt.Fprintf(&b, "\t%s\n", store)
 	b.WriteString("\t_i += _n\n")
 	b.WriteString("}")
 	return b.String()
@@ -145,7 +146,7 @@ func (e *emitter) checked(loopText string) string {
 	limit := e.limit()
 	var checks strings.Builder
 	for _, ref := range e.plan.Checked {
-		if e.plan.Bound == "" && ref.Obj == e.plan.Dst.Obj {
+		if e.plan.Bound == "" && ref.Obj == e.plan.Stores[0].Dst.Obj {
 			continue
 		}
 		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", ref.Name, limit)
@@ -159,44 +160,57 @@ func (e *emitter) checked(loopText string) string {
 	return "if " + limit + " > 0 {\n" + checks.String() + loopText + "\n}"
 }
 
+// invariants returns the loop-invariant operands of every store in evaluation
+// order.
+func invariants(plan *loopir.Plan) []*loopir.Invariant {
+	var out []*loopir.Invariant
+	for _, store := range plan.Stores {
+		for _, leaf := range loopir.Leaves(store.Root) {
+			if inv, ok := leaf.(*loopir.Invariant); ok {
+				out = append(out, inv)
+			}
+		}
+	}
+	return out
+}
+
 // broadcastNames names the broadcast of each invariant operand. A single
 // broadcast in a simple loop is _vc<Type><n>. In a two-level expression the
 // operands under the operand evaluated first are _vcA<Type><n> and the rest
-// _vcB<Type><n>. Anything else is numbered.
+// _vcB<Type><n>. Anything else, including every loop with several stores, is
+// numbered.
 func broadcastNames(plan *loopir.Plan, idx int) map[*loopir.Invariant]string {
-	var invariants []*loopir.Invariant
-	for _, leaf := range loopir.Leaves(plan.Root) {
-		if inv, ok := leaf.(*loopir.Invariant); ok {
-			invariants = append(invariants, inv)
-		}
-	}
+	all := invariants(plan)
 	names := map[*loopir.Invariant]string{}
-	depth := loopir.Depth(plan.Root)
-	switch {
-	case len(invariants) == 1 && depth <= 1:
-		names[invariants[0]] = fmt.Sprintf("_vc%s%d", plan.SimdType, idx)
-		return names
-	case depth == 2:
-		first := map[loopir.Value]bool{}
-		for _, leaf := range loopir.Leaves(loopir.Children(plan.Root)[0]) {
-			first[leaf] = true
-		}
-		used := map[string]bool{}
-		unique := true
-		for _, inv := range invariants {
-			letter := "B"
-			if first[inv] {
-				letter = "A"
-			}
-			unique = unique && !used[letter]
-			used[letter] = true
-			names[inv] = fmt.Sprintf("_vc%s%s%d", letter, plan.SimdType, idx)
-		}
-		if unique {
+	if len(plan.Stores) == 1 {
+		root := plan.Stores[0].Root
+		depth := loopir.Depth(root)
+		switch {
+		case len(all) == 1 && depth <= 1:
+			names[all[0]] = fmt.Sprintf("_vc%s%d", plan.SimdType, idx)
 			return names
+		case depth == 2:
+			first := map[loopir.Value]bool{}
+			for _, leaf := range loopir.Leaves(loopir.Children(root)[0]) {
+				first[leaf] = true
+			}
+			used := map[string]bool{}
+			unique := true
+			for _, inv := range all {
+				letter := "B"
+				if first[inv] {
+					letter = "A"
+				}
+				unique = unique && !used[letter]
+				used[letter] = true
+				names[inv] = fmt.Sprintf("_vc%s%s%d", letter, plan.SimdType, idx)
+			}
+			if unique {
+				return names
+			}
 		}
 	}
-	for n, inv := range invariants {
+	for n, inv := range all {
 		names[inv] = fmt.Sprintf("_vc%s%d_%d", plan.SimdType, idx, n+1)
 	}
 	return names

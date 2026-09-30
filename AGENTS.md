@@ -80,8 +80,13 @@ safety argument stays structural:
   once *before* the loop, even when the loop would not run, so anything that
   can panic or has side effects (a call, an element read like `a[0]`, an
   integer division) is rejected.
-- The loop body must be exactly one assignment. Nested loops (2-D access,
-  `aa[i][j]`) are rejected on body shape alone.
+- The loop body must be a sequence of assignments. The emitted loop runs each
+  statement over the whole vector before the next, which is the scalar order
+  because every access is at the loop index, and every pair of distinct slices
+  with one stored gets a runtime overlap check. A range value variable is
+  rejected once an earlier statement stored to its slice, since the vector
+  loop would reload the new value. Temporaries (`x := ...`), `if` and nested
+  loops (2-D access, `aa[i][j]`) are rejected on body shape alone.
 
 `withinLimits` is the acceptance boundary. Lowering can build a tree of any
 depth, but only the shapes listed there are accepted. Widening it changes
