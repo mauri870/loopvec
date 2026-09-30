@@ -4,49 +4,30 @@
 It exists primarily to test [loopvec](..), it gives a coverage score and a
 correctness gate (scalar vs SIMD build) and a benchmark set that is standardized.
 
-The loop shapes are kept exactly as TSVC_2, and so are its names: a kernel is
-named after its TSVC_2 function, its arguments after the arrays and scalars it
-uses (`a`, `b`, `aa`, `x`, `s1`), and its comment after the TSVC_2 section and
-description. The adaptations for Go are a `range` loop where TSVC_2 counts to
-`LEN_1D`, a repetition count (`Reps`) in place of the `iterations` timing loop
-and its `dummy` call, and a checksum accumulated in float64.
+Names follow TSVC_2: the kernels, their arguments (`a`, `aa`, `x`, `s1`), and their
+comments. The Go adaptations are `range` loops, a repetition count (`Reps`) instead
+of the timing loop, and a float64 checksum.
 
 ## Kernel inventory
 
-Upstream `tsvc.c` has 151 kernels. This package has 93: every kernel a vectorizer
-can plausibly vectorize, and `s114`, which is declined on purpose. Each has an
-expectation:
+Upstream `tsvc.c` has 151 kernels. 93 are ported: those a vectorizer can plausibly
+vectorize, plus `s114`. Each has an expectation:
 
 - `vectorize`: a vectorizer can do it, so leaving it alone is a gap in loopvec.
-- `decline`: a shape loopvec avoids on purpose, or a dependence no
-  transformation removes. Vectorizing it fails the test.
+- `decline`: a dependence, or a shape loopvec avoids. Vectorizing it fails the test.
 - `skip`: something else does it better, such as `copy`.
 
-### How an expectation is decided
+A kernel is `vectorize` if GCC 16.2 or clang vectorizes its loop at `-O3` with
+upstream's flags (GCC also at AVX2, and both with `-ffast-math` for float
+reductions), or TSVC's own comment says it can be, and it needs no gather, scatter,
+call, early exit or `sinf`/`cosf`. GCC vectorizes 71 of the 151, clang 64, either 83.
+Everything else is `decline`, which means "not planned", not "unsafe".
 
-A kernel is `vectorize` when a mainstream compiler vectorizes its loop, or
-TSVC's own comment says it can be vectorized, and it needs no gather, scatter,
-call, early exit, or `sinf`/`cosf`. The compiler evidence comes from compiling
-upstream's `tsvc.c` with GCC 16.2 and clang at `-O3` and upstream's own flags
-(`-fstrict-aliasing -fivopts -ftree-vectorize`, plus `-fno-inline` so a call stays
-a call), for GCC at the SSE2 baseline and at AVX2, and again with `-ffast-math`,
-which float reductions need and which is the trade-off loopvec plans behind
-`-fp-reassoc`. GCC vectorizes 71 of the 151 kernels and clang 64; 83 by at least
-one; `-ffast-math` adds 9 more that loopvec plans to handle. TSVC's comments add
-five more (`s1113`, `s211`, `s241`, `s2102`, `s317`) and explicitly rule out
-five (`s114`, `s123`, `s341`, `s342`, `s343`).
-
-Where a kernel differs from upstream it says so in its comment. The values that
-matter for reading a checksum:
-
-- TSVC_2's `init` gives every array a baseline value, and each kernel's
-  initialisation overrides some of them; a kernel with no initialisation of its own
-  (`setupBaseline`) runs on the baseline, where upstream runs it on whatever the
-  previous kernel left behind.
-- A kernel that returns a value, such as a reduction, is checked by that value.
-  Upstream checks the unchanged array `a` for `s311`, which never looks at the sum.
-- The integers TSVC_2's main passes (`n1`, `n3`) are 1, and so are the scalars
-  read back through a void pointer, where upstream reads a float as an int.
+Each kernel's comment notes where it differs from upstream. Two differences apply
+widely: a kernel with no `initialise_arrays` branch (`setupBaseline`) runs on the
+values TSVC_2's `init` sets, where upstream runs it on the previous kernel's
+leftovers; and a kernel that returns a value, such as a reduction, is checked by that
+value.
 
 | Kernel | Section | What it tests | Exactness | Expect | Vectorized |
 | --- | --- | --- | --- | --- | --- |
@@ -146,7 +127,7 @@ matter for reading a checksum:
 
 ### Not ported
 
-The 58 kernels the rule declines are not ported yet:
+The other 58 kernels are not ported:
 
 - no compiler vectorizes it and TSVC does not claim it (31): `s116` `s126` `s1161` `s212` `s1213` `s221` `s232` `s1232` `s233` `s242` `s244` `s1244` `s2251` `s253` `s256` `s258` `s261` `s272` `s274` `s275` `s2710` `s281` `s292` `s2111` `s31111` `s3110` `s13110` `s3112` `s321` `s322` `s323`
 - gather (6): `s353` `s4112` `s4114` `s4115` `s4116` `vag`
@@ -160,10 +141,7 @@ The 58 kernels the rule declines are not ported yet:
 - sinf and cosf (1): `s451`
 - gather and scatter (1): `s4113`
 
-Porting them would add tests that loopvec leaves them alone. The first group, where
-no compiler vectorizes the loop and TSVC does not claim it, is the one to revisit as
-the roadmap lands (if-conversion, loop distribution, interchange): port a kernel
-with `expect=vectorize` when a milestone covers it.
+Porting them would only test that loopvec leaves them alone.
 
 To see what loopvec does to the kernels:
 

@@ -35,6 +35,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.
+Slices of named types (`type Values []float64`) work; named element types (`[]Celsius`) do not.
 
 Supported binary operators: `+`, `-`, `*`, `/`, `&`, `|`, `^`, `&^` (and their `op=` forms). `/` requires `float32` or `float64` (no integer division in simd).
 Supported unary operators: `-` (negation, all except unsigned integers), `^` (bitwise NOT, all integer types).
@@ -43,14 +44,10 @@ Note: `*` is not supported for `int64` and `uint64` (no SIMD multiply for 64-bit
 Zero fills (`dst[i] = 0`) are left alone: the compiler already turns them into `memclr`,
 which is faster than a vector loop.
 
-**Copy loops** become the `copy` builtin, which the runtime implements with wide
-moves: the compiler turns a zero-fill loop into a `memclr` but leaves a copy loop
-as one scalar load and store per element, and `copy` is 4-10x faster from 64
-elements up (slightly slower below 4). `copy` moves elements as if through a
-temporary, so it differs from the loop when `dst` starts after `src` inside the
-same array (the loop repeats the first element); the overlap check above sends
-that case to the original loop, and a source shorter than the destination still
-panics before anything is written. The rewritten code does not import `simd`.
+**Copy loops** become `copy(dst, src)`. The compiler does this for zero fills but
+not for copies, and `copy` is 4-10x faster from 64 elements up. Overlapping
+operands keep the original loop, and a source shorter than the destination still
+panics before anything is written.
 
 **Overlapping slices.** `dst[i] = a[i] + b[i]` is safe to vectorize when `dst`
 and `a` are the exact same slice, but not when they partially overlap (e.g.
@@ -63,10 +60,8 @@ exactly that case. loopvec guards against this: every rewritten loop with
 more than one distinct slice operand is wrapped in a runtime check
 (`_loopvecOverlap`, comparing `unsafe.SliceData` ranges) that falls back to
 the original scalar loop whenever the operands' memory overlaps, regardless
-of loop direction. The check does not tell an exact alias from an offset
-one, so a call like `Add(x, x, y)`, which is safe to vectorize, also takes
-the scalar loop. Only an operand that is written as the destination slice
-itself (`dst[i] += a[i]*alpha`) is exempt.
+of loop direction. It does not tell an exact alias from an offset one, so
+`Add(x, x, y)` also takes the scalar loop.
 
 **FMA.** `dst[i] = a[i]*alpha + b[i]` (and the DAXPY/two-scalar-axpy
 patterns) lower to a single fused multiply-add instruction, not a separate
@@ -243,6 +238,10 @@ $ loopvec -json ./mypkg/
 {"file":"/path/to/mypkg/ops.go","line":10,"func":"Stride","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
 ```
 
+Loops with an `if` in the body or several statements are listed too. `stage` is
+`lower` (the shape of the loop), `plan` (no simd method for that type), or
+`analysis` (a method, skipped without `-methods`).
+
 ### As a `go tool` (Go 1.24+)
 
 Add `loopvec` as a tool dependency in your module:
@@ -334,6 +333,13 @@ already split is a no-op.
 and similar are not rewritten. The `simd` package's `ReduceSum` and friends
 are only in `gotip`, not the current `go1.27` release.
 
+**No calls in the loop body.** `math.Abs`, `math.Sqrt`, `min` and `max` are not
+rewritten yet.
+
+**Loop shapes.** Range loops must declare their index (`for i := range x`). The
+body must be one assignment to `dst[i]`; `dst[i+1]`, `a[i+1]` and `a[0]` are not
+rewritten.
+
 </details>
 
 ## Testing
@@ -346,4 +352,6 @@ make test
 ```
 
 [tsvc/](tsvc/) is a Go port of the [TSVC_2](https://github.com/UoB-HPC/TSVC_2)
-vectorizer kernel suite. It exists to test rewrites, and as a guardrail for drifts in the scalar vs SIMD builds. See [tsvc/README.md](tsvc/README.md).
+vectorizer kernel suite (93 of 151 kernels). It checks the scalar and SIMD builds
+against the same golden on amd64 and arm64, and records which kernels loopvec
+vectorizes (9 today). See [tsvc/README.md](tsvc/README.md).
