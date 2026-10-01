@@ -687,6 +687,84 @@ func IncDownFloat32s(dst, a []float32, hi, lo int) {
 	}
 }
 
+func DiffInt32s(dst, a []int32) {
+	if _loopvecOverlap(dst, a) {
+		for i := 0; i < len(dst)-1; i++ {
+			dst[i] = a[i+1] - a[i]
+		}
+	} else {
+		if len(dst)-1 > 0 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[len(dst)-1]
+			_ = a[(len(dst)-1)-1]
+			for _i := 0; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
+				_v2, _ := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v1.Sub(_v2).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func SmoothInt32s(dst, a []int32) {
+	if _loopvecOverlap(dst, a) {
+		for i := 1; i < len(dst)-1; i++ {
+			dst[i] = a[i-1] + a[i] + a[i+1]
+		}
+	} else {
+		if len(dst)-1 > 1 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-2]
+			_ = a[(len(dst)-1)-1]
+			_ = a[len(dst)-1]
+			for _i := 1; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i-1:])
+				_v2, _ := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v3, _ := simd.LoadInt32sPart(a[_i+1:])
+				_v1.Add(_v2).Add(_v3).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ShiftInt32s(dst, a []int32, off int) {
+	_vcInt32s33 := simd.BroadcastInt32s(3)
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i+off] * 3
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)+off-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i+off:])
+				_v1.Mul(_vcInt32s33).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func AccumRowInt32s(work, a []int32, row, lda int) {
+	if _loopvecOverlap(work, a) {
+		for j := range work {
+			work[j] += a[row*lda+j]
+		}
+	} else {
+		if len(work) > 0 {
+			_ = a[len(work)+(row*lda)-1]
+			for _i := 0; _i < len(work); {
+				_v1, _n := simd.LoadInt32sPart(work[_i:])
+				_v2, _ := simd.LoadInt32sPart(a[_i+(row*lda):])
+				_v1.Add(_v2).StorePart(work[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

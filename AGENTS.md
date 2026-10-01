@@ -79,8 +79,13 @@ safety argument stays structural:
   the forward `Start <= i < Limit`; a limit that is not exactly `len` of the stored
   slice makes every operand slice carry an explicit cap (`Plan.Bound`), or the last
   vector would write past it.
-- Every slice access is `ident[i]` where `i` is *exactly* the loop variable
-  (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
+- A store is `ident[i]` where `i` is *exactly* the loop variable (`index`). A load
+  may also be `ident[i+e]`, `ident[e+i]` or `ident[i-e]` for a loop-invariant integer
+  `e` (`indexAt`, `Load.Off`), but only from a slice that is not stored in the loop
+  (`ReasonOffsetOfStored`): reading a stored slice at an offset is a carried
+  dependence, which needs the dependence test of M5 slice 3. The length check is
+  against the last index read (`lastIndex`), and offset loads are not capped at the
+  limit. Every other store and load is `ident[i]` (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
   whether they're actually dependent. That is what guarantees no two
   iterations touch the same element.
 - A non-slice operand becomes an `Invariant` only if it is a variable, a

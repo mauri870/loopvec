@@ -206,3 +206,27 @@ func IncDownFloat32s(dst, a []float32, hi, lo int) {
 		dst[i] += a[i]
 	}
 }
+
+func DiffInt32s(dst, a []int32) {
+	for i := 0; i < len(dst)-1; i++ {
+		dst[i] = a[i+1] - a[i]
+	}
+}
+
+func SmoothInt32s(dst, a []int32) {
+	for i := 1; i < len(dst)-1; i++ {
+		dst[i] = a[i-1] + a[i] + a[i+1]
+	}
+}
+
+func ShiftInt32s(dst, a []int32, off int) {
+	for i := range dst {
+		dst[i] = a[i+off] * 3
+	}
+}
+
+func AccumRowInt32s(work, a []int32, row, lda int) {
+	for j := range work {
+		work[j] += a[row*lda+j]
+	}
+}

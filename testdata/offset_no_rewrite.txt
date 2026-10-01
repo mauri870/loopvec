@@ -1,0 +1,83 @@
+# A slice read at an offset must not be written in the same loop. A recurrence
+# (a[i] = a[i-1] + b[i]) carries a value from one iteration to the next, and a
+# store to a slice that another statement reads at an offset changes what the
+# vector loop would read. Offsets that are not the same on every iteration, a
+# stride, and a store at an offset are left alone too. StoredAhead is safe, since
+# it only reads elements ahead of the one it writes, but telling it from a
+# recurrence needs a dependence test, which loopvec does not have yet.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Recurrence(a, b []int32) {
+	for i := 1; i < len(a); i++ {
+		a[i] = a[i-1] + b[i]
+	}
+}
+
+func StoredElsewhere(a, b, c []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = b[i]
+		c[i] = a[i+1]
+	}
+}
+
+func StoredAhead(a, b []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = a[i+1] + b[i]
+	}
+}
+
+func Strided(dst, a []int32) {
+	for i := 0; i < len(dst)/2; i++ {
+		dst[i] = a[2*i]
+	}
+}
+
+func OffsetFromSlice(dst, a, b []int32) {
+	for i := 0; i < len(dst); i++ {
+		dst[i] = a[i+int(b[0])]
+	}
+}
+
+func OffsetAssigned(dst, a []int32, off int) {
+	for i := 0; i < len(dst); i++ {
+		dst[i] = a[i+off]
+		off++
+	}
+}
+
+func StoreAtOffset(dst, a []int32) {
+	for i := 0; i < len(dst)-1; i++ {
+		dst[i+1] = a[i]
+	}
+}
+
+func OffsetFromIndex(dst, a []int32) {
+	for i := 0; i < len(dst); i++ {
+		dst[i] = a[i+i]
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"Recurrence","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":10,"func":"StoredElsewhere","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":17,"func":"StoredAhead","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":23,"func":"Strided","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":29,"func":"OffsetFromSlice","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":35,"func":"OffsetAssigned","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":42,"func":"StoreAtOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":48,"func":"OffsetFromIndex","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}

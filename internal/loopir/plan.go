@@ -1,6 +1,9 @@
 package loopir
 
-import "go/types"
+import (
+	"go/types"
+	"strconv"
+)
 
 // maxSlices is the most distinct slices a loop may touch. Each stored slice is
 // checked at run time against every other slice in the loop, so the number of
@@ -38,12 +41,19 @@ type Plan struct {
 	NonEmpty bool
 	// Checked lists every slice whose length must be verified against the
 	// limit before the loop runs: for each store in order, its destination and
-	// then each slice it reads, in the order the loads are emitted.
-	Checked []*Ref
+	// then each slice it reads, in the order the loads are emitted. A slice read
+	// at several offsets is listed once for each.
+	Checked []Access
 	// Overlaps lists the pairs of distinct slices that need a runtime overlap
 	// check: every pair where at least one is stored, since two slice variables
 	// may share memory at an offset.
 	Overlaps [][2]*Ref
+}
+
+// Access is a slice and the offset from the loop index it is read at, "" for none.
+type Access struct {
+	Ref *Ref
+	Off string
 }
 
 // PlanStmt is a statement whose value has been normalized; see Normalize. It
@@ -117,7 +127,9 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 		p.Stmts = append(p.Stmts, planned)
 	}
 	if len(p.Stmts) == 1 && p.Stmts[0].Dst != nil {
-		_, p.Copy = p.Stmts[0].Root.(*Load)
+		if load, ok := p.Stmts[0].Root.(*Load); ok {
+			p.Copy = !negativeSource(l.Ind.Trip.Start, load.Off)
+		}
 	}
 
 	trip := l.Ind.Trip
@@ -133,28 +145,41 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 	}
 
 	stored := map[types.Object]bool{}
+	var refs []*Ref
 	for _, stmt := range p.Stmts {
 		if stmt.Dst != nil {
 			stored[stmt.Dst.Obj] = true
-			p.Checked = appendRef(p.Checked, stmt.Dst)
+			p.Checked = appendAccess(p.Checked, Access{Ref: stmt.Dst})
+			refs = appendRef(refs, stmt.Dst)
 		}
 		for _, leaf := range Leaves(stmt.Root) {
 			if load, ok := leaf.(*Load); ok {
-				p.Checked = appendRef(p.Checked, load.Ref)
+				p.Checked = appendAccess(p.Checked, Access{Ref: load.Ref, Off: load.Off})
+				refs = appendRef(refs, load.Ref)
 			}
 		}
 	}
-	if len(p.Checked) > maxSlices {
+	if len(refs) > maxSlices {
 		return nil, ReasonTooManySlices
 	}
-	for i, first := range p.Checked {
-		for _, second := range p.Checked[i+1:] {
+	for i, first := range refs {
+		for _, second := range refs[i+1:] {
 			if stored[first.Obj] || stored[second.Obj] {
 				p.Overlaps = append(p.Overlaps, [2]*Ref{first, second})
 			}
 		}
 	}
 	return p, ""
+}
+
+// negativeSource reports whether a copy would slice its source at a negative
+// constant, which does not compile: the loop starts at start and reads at offset
+// off, and both are constants that add up to less than zero. Such a loop panics
+// when it runs, which the ordinary vector loop does as well.
+func negativeSource(start, off string) bool {
+	s, errStart := strconv.ParseInt(start, 10, 64)
+	o, errOff := strconv.ParseInt(off, 10, 64)
+	return errStart == nil && errOff == nil && s+o < 0
 }
 
 // checkOps returns why simd cannot express an operation in v on the element
@@ -189,6 +214,15 @@ func checkOps(elem types.Type, v Value) Reason {
 func isFloat(t types.Type) bool {
 	basic, ok := t.(*types.Basic)
 	return ok && basic.Info()&types.IsFloat != 0
+}
+
+func appendAccess(accesses []Access, access Access) []Access {
+	for _, have := range accesses {
+		if have.Ref.Obj == access.Ref.Obj && have.Off == access.Off {
+			return accesses
+		}
+	}
+	return append(accesses, access)
 }
 
 func appendRef(refs []*Ref, ref *Ref) []*Ref {

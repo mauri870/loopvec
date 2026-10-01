@@ -732,3 +732,98 @@ func FuzzRangeFloat32s(f *testing.F) {
 			func(dst []float32) { IncDownFloat32s(dst, a, hi, lo) })
 	})
 }
+
+// FuzzOffsetInt32s checks loops that read a slice at an offset from the loop
+// index. The views are carved out of one backing array at fuzzed positions, so they
+// overlap or not; overlapping ones must give the scalar loop's result, and the
+// generated code must panic exactly when the scalar loop does (a source too short
+// for the offset). After a panic the array is not compared, since the generated
+// code checks the lengths before it writes anything.
+func FuzzOffsetInt32s(f *testing.F) {
+	f.Add(0, 0, 0, 0, uint64(1), 1, 3)
+	f.Add(10, 0, 0, 2, uint64(2), 1, 2)  // dst and a the same: overlap
+	f.Add(10, 0, 30, 4, uint64(3), 1, 1) // disjoint
+	f.Add(37, 0, 60, 4, uint64(4), 3, 5) // disjoint, several vectors
+	f.Add(37, 0, 60, 0, uint64(5), 3, 4) // a too short for the offset
+	f.Add(37, 5, 8, 4, uint64(6), -1, 2) // overlap and a negative offset
+	f.Add(100, 0, 150, 6, uint64(7), 4, 7)
+	f.Fuzz(func(t *testing.T, nRaw, dstRaw, aRaw, extraRaw int, seed uint64, off, row int) {
+		n := clampLen(nRaw)
+		off = off % 7
+		row = row % 5
+		lda := n + 3
+		const slack = 8
+		length := 6*n + 5*lda + slack
+		abs := func(v int) int {
+			if v < 0 {
+				return -v
+			}
+			return v
+		}
+		dstStart := abs(dstRaw) % (n + 1)
+		aStart := abs(aRaw) % (4*n + 1)
+		extra := abs(extraRaw) % 8 // elements a has past n, may be too few for the offset
+		aLen := min(n+extra, length-aStart)
+
+		backing := randUint64Backing(seed, length)
+		src := make([]int32, length)
+		for i, v := range backing {
+			src[i] = int32(v)
+		}
+
+		check := func(name string, run func(buf []int32)) {
+			want := append([]int32(nil), src...)
+			got := append([]int32(nil), src...)
+			wantPanic := panics(func() { run(want) })
+			var gotPanic bool
+			switch name {
+			case "Diff":
+				gotPanic = panics(func() { DiffInt32s(got[dstStart:dstStart+n], got[aStart:aStart+aLen]) })
+			case "Smooth":
+				gotPanic = panics(func() { SmoothInt32s(got[dstStart:dstStart+n], got[aStart:aStart+aLen]) })
+			case "Shift":
+				gotPanic = panics(func() { ShiftInt32s(got[dstStart:dstStart+n], got[aStart:aStart+aLen], off) })
+			case "AccumRow":
+				rowLen := min(row*lda+n+extra, length-aStart) // the row it reads is row*lda in
+				gotPanic = panics(func() { AccumRowInt32s(got[dstStart:dstStart+n], got[aStart:aStart+rowLen], row, lda) })
+			}
+			if wantPanic != gotPanic {
+				t.Fatalf("%s(n=%d dst=%d a=%d len=%d off=%d row=%d): panic = %v, want %v", name, n, dstStart, aStart, aLen, off, row, gotPanic, wantPanic)
+			}
+			if wantPanic {
+				return
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("%s(n=%d dst=%d a=%d len=%d off=%d row=%d) differs at %d: got %d want %d", name, n, dstStart, aStart, aLen, off, row, i, got[i], want[i])
+				}
+			}
+		}
+
+		check("Diff", func(buf []int32) {
+			dst, a := buf[dstStart:dstStart+n], buf[aStart:aStart+aLen]
+			for i := 0; i < len(dst)-1; i++ {
+				dst[i] = a[i+1] - a[i]
+			}
+		})
+		check("Smooth", func(buf []int32) {
+			dst, a := buf[dstStart:dstStart+n], buf[aStart:aStart+aLen]
+			for i := 1; i < len(dst)-1; i++ {
+				dst[i] = a[i-1] + a[i] + a[i+1]
+			}
+		})
+		check("Shift", func(buf []int32) {
+			dst, a := buf[dstStart:dstStart+n], buf[aStart:aStart+aLen]
+			for i := range dst {
+				dst[i] = a[i+off] * 3
+			}
+		})
+		check("AccumRow", func(buf []int32) {
+			rowLen := min(row*lda+n+extra, length-aStart)
+			work, a := buf[dstStart:dstStart+n], buf[aStart:aStart+rowLen]
+			for j := range work {
+				work[j] += a[row*lda+j]
+			}
+		})
+	})
+}

@@ -34,6 +34,10 @@ const (
 	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
 	// nested index (dst[i][j]).
 	ReasonUnsupportedDestination Reason = "destination is not a simple, same-index slice element"
+	// ReasonOffsetOfStored covers a slice that is read at an offset from the loop
+	// index (a[i+1]) and also written in the loop: an iteration reads an element
+	// another iteration writes, which needs a dependence test loopvec does not have.
+	ReasonOffsetOfStored Reason = "a slice is read at an offset and written in the same loop"
 	// ReasonUnsupportedBody covers a loop body that isn't a sequence of
 	// assignments: an if, a nested loop, or any other statement.
 	ReasonUnsupportedBody Reason = "loop body is not a sequence of indexed assignments"

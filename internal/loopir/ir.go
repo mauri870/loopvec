@@ -165,11 +165,15 @@ type Temp struct {
 // Value is an element-wise expression evaluated once per iteration.
 type Value interface{ isValue() }
 
-// Load reads Ref[i]. FromRange is set when the source is the range value
-// variable, which holds the element as it was when the iteration began: a store
-// to the same slice earlier in the body does not change it.
+// Load reads Ref[i+Off]. Off is source text for an integer expression that is the
+// same on every iteration, "" for zero. A slice read at an offset is never also a
+// store destination in the loop, so no iteration reads what another writes.
+// FromRange is set when the source is the range value variable, which holds the
+// element as it was when the iteration began: a store to the same slice earlier in
+// the body does not change it.
 type Load struct {
 	Ref       *Ref
+	Off       string
 	FromRange bool
 }
 

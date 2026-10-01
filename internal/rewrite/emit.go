@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/mauri870/loopvec/internal/loopir"
@@ -62,13 +63,19 @@ type emitter struct {
 // runs, so copy moves exactly that many.
 func (e *emitter) copyCall() string {
 	store := e.plan.Stmts[0]
-	destination, source := store.Dst.Name, store.Root.(*loopir.Load).Ref.Name
+	load := store.Root.(*loopir.Load)
+	destination, source := store.Dst.Name, load.Ref.Name
 	switch {
 	case e.plan.Start != "0":
 		destination += "[" + e.plan.Start + ":" + e.plan.Bound + "]"
-		source += "[" + e.plan.Start + ":]"
+		source += "[" + addOffset(e.plan.Start, load.Off) + ":]"
 	case e.plan.Bound != "":
 		destination += "[:" + e.plan.Bound + "]"
+		if load.Off != "" {
+			source += "[" + load.Off + ":]"
+		}
+	case load.Off != "":
+		source += "[" + load.Off + ":]"
 	}
 	return fmt.Sprintf("copy(%s, %s)", destination, source)
 }
@@ -95,13 +102,51 @@ func operand(expr string) string {
 	return expr
 }
 
-// operand slices ref from position offset, capped at the limit when it is not
-// len(Dst).
-func (e *emitter) operand(ref *loopir.Ref, offset string) string {
-	if e.plan.Bound != "" {
-		return ref.Name + "[" + offset + ":" + e.plan.Bound + "]"
+// operand slices ref from position pos, capped at the limit when it is not
+// len(Dst). A slice read at an offset is not capped: the cap is the limit, and
+// the elements it needs end past it.
+func (e *emitter) operand(ref *loopir.Ref, pos, off string) string {
+	if e.plan.Bound != "" && off == "" {
+		return ref.Name + "[" + pos + ":" + e.plan.Bound + "]"
 	}
-	return ref.Name + "[" + offset + ":]"
+	return ref.Name + "[" + addOffset(pos, off) + ":]"
+}
+
+// addOffset is the expression pos + off, where off is "" for zero, a constant, or
+// an expression.
+func addOffset(pos, off string) string {
+	if p, err := strconv.ParseInt(pos, 10, 64); err == nil {
+		if o, err := strconv.ParseInt(off, 10, 64); err == nil {
+			return strconv.FormatInt(p+o, 10)
+		}
+	}
+	switch {
+	case off == "":
+		return pos
+	case off[0] == '-' && !strings.ContainsAny(off[1:], " +-*/"):
+		return pos + off
+	case strings.ContainsAny(off, " +-*/"):
+		return pos + "+(" + off + ")"
+	}
+	return pos + "+" + off
+}
+
+// lastIndex is the expression limit + off - 1, the last index read at offset off.
+func lastIndex(limit, off string) string {
+	if off == "" {
+		return operand(limit) + "-1"
+	}
+	if v, err := strconv.ParseInt(off, 10, 64); err == nil {
+		switch c := v - 1; {
+		case c == 0:
+			return limit
+		case c > 0:
+			return operand(limit) + "+" + strconv.FormatInt(c, 10)
+		default:
+			return operand(limit) + strconv.FormatInt(c, 10)
+		}
+	}
+	return operand(limit) + addOffset("", off) + "-1"
 }
 
 // loop generates the vector loop: for each statement in order, load each operand
@@ -134,7 +179,11 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 		}
 	}
 	haveLanes := false
-	loaded := map[types.Object]string{}
+	type key struct {
+		obj types.Object
+		off string
+	}
+	loaded := map[key]string{}
 	accs := 0
 	for _, stmt := range e.plan.Stmts {
 		for _, leaf := range loopir.Leaves(stmt.Root) {
@@ -142,23 +191,23 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 			if !ok {
 				continue
 			}
-			if name, ok := loaded[load.Ref.Obj]; ok {
+			if name, ok := loaded[key{load.Ref.Obj, load.Off}]; ok {
 				e.loads[load] = name
 				continue
 			}
 			e.loadCount++
 			name := fmt.Sprintf("_v%d", e.loadCount)
-			loaded[load.Ref.Obj] = name
+			loaded[key{load.Ref.Obj, load.Off}] = name
 			e.loads[load] = name
 			if full {
-				fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref, offset))
+				fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
 				continue
 			}
 			lanes := "_"
 			if !haveLanes {
 				lanes, haveLanes = "_n", true
 			}
-			fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset))
+			fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
 		}
 		switch {
 		case stmt.Temp != nil:
@@ -171,16 +220,16 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 			acc := accName(accs, copy, copies)
 			fmt.Fprintf(b, "\t%s = %s\n", acc, e.fold(stmt, acc))
 		case full:
-			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.operand(stmt.Dst, offset))
-			delete(loaded, stmt.Dst.Obj)
+			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.operand(stmt.Dst, offset, ""))
+			delete(loaded, key{stmt.Dst.Obj, ""})
 		default:
-			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst, offset))
+			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst, offset, ""))
 			if !haveLanes {
 				// Nothing was loaded, so the store reports how many lanes it wrote.
 				text, haveLanes = "_n := "+text, true
 			}
 			fmt.Fprintf(b, "\t%s\n", text)
-			delete(loaded, stmt.Dst.Obj)
+			delete(loaded, key{stmt.Dst.Obj, ""})
 		}
 	}
 }
@@ -404,11 +453,11 @@ func (e *emitter) isFloat() bool {
 func (e *emitter) checked(loopText string) string {
 	limit := e.limit()
 	var checks strings.Builder
-	for _, ref := range e.plan.Checked {
-		if e.plan.Bound == "" && e.plan.TripRef != nil && ref.Obj == e.plan.TripRef.Obj {
+	for _, access := range e.plan.Checked {
+		if e.plan.Bound == "" && access.Off == "" && e.plan.TripRef != nil && access.Ref.Obj == e.plan.TripRef.Obj {
 			continue
 		}
-		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", ref.Name, operand(limit))
+		fmt.Fprintf(&checks, "_ = %s[%s]\n", access.Ref.Name, lastIndex(limit, access.Off))
 	}
 	if checks.Len() == 0 {
 		return loopText

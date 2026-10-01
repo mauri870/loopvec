@@ -477,6 +477,23 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		}
 	}
 
+	// A slice read at an offset must not be written in the loop: the element
+	// iteration i reads is one a store in another iteration writes, and the vector
+	// loop would not keep their order.
+	stored := map[types.Object]bool{}
+	for _, stmt := range body {
+		if store, ok := stmt.(Store); ok {
+			stored[store.Dst.Obj] = true
+		}
+	}
+	for _, stmt := range body {
+		for _, leaf := range Leaves(stmtValue(stmt)) {
+			if load, ok := leaf.(*Load); ok && load.Off != "" && stored[load.Ref.Obj] {
+				return nil, ReasonOffsetOfStored
+			}
+		}
+	}
+
 	loop := &Loop{
 		Node: node,
 		Ind:  Induction{Var: l.iv, Step: step, Trip: trip},
@@ -889,28 +906,80 @@ func (l *lowerer) load(expr ast.Expr) (*Load, bool) {
 		}
 		return nil, false
 	}
-	ref, ok := l.index(expr)
+	ref, off, ok := l.indexAt(expr)
 	if !ok {
 		return nil, false
 	}
-	return &Load{Ref: ref}, true
+	return &Load{Ref: ref, Off: off}, true
 }
 
 // index matches slice[i] where slice is an identifier and i the loop index.
 func (l *lowerer) index(expr ast.Expr) (*Ref, bool) {
-	index, ok := ast.Unparen(expr).(*ast.IndexExpr)
-	if !ok {
-		return nil, false
+	ref, off, ok := l.indexAt(expr)
+	return ref, ok && off == ""
+}
+
+// maxOffset bounds a constant offset, so that adding it to a limit cannot
+// overflow.
+const maxOffset = 1 << 31
+
+// indexAt matches slice[i], slice[i+e], slice[e+i], and slice[i-e], where slice is
+// an identifier, i the loop index, and e an integer expression that is the same on
+// every iteration. off is the offset as source text, "" for zero.
+func (l *lowerer) indexAt(expr ast.Expr) (ref *Ref, off string, ok bool) {
+	index, isIndex := ast.Unparen(expr).(*ast.IndexExpr)
+	if !isIndex {
+		return nil, "", false
 	}
-	base, ok := index.X.(*ast.Ident)
-	if !ok || !l.isSlice(base) {
-		return nil, false
+	base, isIdent := index.X.(*ast.Ident)
+	if !isIdent || !l.isSlice(base) {
+		return nil, "", false
 	}
-	pos, ok := index.Index.(*ast.Ident)
-	if !ok || l.info.Uses[pos] != l.iv {
-		return nil, false
+	if l.isIndex(index.Index) {
+		return l.ref(base), "", true
 	}
-	return l.ref(base), true
+	sum, isBinary := ast.Unparen(index.Index).(*ast.BinaryExpr)
+	if !isBinary {
+		return nil, "", false
+	}
+	var offset ast.Expr
+	negate := false
+	switch {
+	case sum.Op == token.ADD && l.isIndex(sum.X):
+		offset = sum.Y
+	case sum.Op == token.ADD && l.isIndex(sum.Y):
+		offset = sum.X
+	case sum.Op == token.SUB && l.isIndex(sum.X):
+		offset, negate = sum.Y, true
+	default:
+		return nil, "", false
+	}
+	if !l.pureInt(offset) {
+		return nil, "", false
+	}
+	if v, isConst := l.constant(offset); isConst {
+		if v < -maxOffset || v > maxOffset {
+			return nil, "", false
+		}
+		if negate {
+			v = -v
+		}
+		if v != 0 {
+			off = strconv.FormatInt(v, 10)
+		}
+		return l.ref(base), off, true
+	}
+	off = types.ExprString(offset)
+	if negate {
+		off = "-(" + off + ")"
+	}
+	return l.ref(base), off, true
+}
+
+// isIndex reports whether e is the loop index.
+func (l *lowerer) isIndex(e ast.Expr) bool {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	return ok && l.info.Uses[id] == l.iv
 }
 
 // invariant reports whether expr has the same value on every iteration and is
