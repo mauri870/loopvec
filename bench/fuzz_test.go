@@ -661,3 +661,74 @@ func FuzzReduceFloats(f *testing.F) {
 		check("ProductFloat32s", float64(ProductFloat32s(near)), wantProd, 1.01*float64(n)*u32*math.Abs(wantProd)+1e-300)
 	})
 }
+
+// panics reports whether f panics.
+func panics(f func()) (p bool) {
+	defer func() { p = recover() != nil }()
+	f()
+	return false
+}
+
+// FuzzRangeFloat32s checks loops that start or stop away from the ends of the
+// slices, including bounds outside them: the generated code must panic exactly
+// when the scalar loop does, and otherwise leave every element, in and out of the
+// range, as the scalar loop does. After a panic the slices are not compared: the
+// generated code checks the lengths first, so it has written nothing, where the
+// scalar loop has written what came before the bad index.
+func FuzzRangeFloat32s(f *testing.F) {
+	f.Add(0, 0, 0, uint64(1), float32(2))
+	f.Add(10, 0, 10, uint64(2), float32(2))
+	f.Add(10, 3, 7, uint64(3), float32(-1.5))
+	f.Add(37, 1, 36, uint64(4), float32(3))
+	f.Add(37, 0, 38, uint64(5), float32(3))  // past the end
+	f.Add(37, -1, 20, uint64(6), float32(3)) // before the start
+	f.Add(100, 20, 20, uint64(7), float32(1))
+	f.Add(100, 30, 10, uint64(8), float32(1)) // empty
+	f.Add(131, 5, 129, uint64(9), float32(0.5))
+	f.Fuzz(func(t *testing.T, nRaw, lo, hi int, seed uint64, k float32) {
+		n := clampLen(nRaw)
+		lo, hi = lo%(n+3), hi%(n+3)
+		src := randFloat32Backing(seed, 4*n+4)
+		a, b := src[:n:n], src[n:2*n:2*n]
+		sentinel := func() []float32 { return append([]float32(nil), src[2*n:3*n]...) }
+
+		check := func(name string, reference, generated func(dst []float32)) {
+			want, got := sentinel(), sentinel()
+			wantPanic := panics(func() { reference(want) })
+			gotPanic := panics(func() { generated(got) })
+			if wantPanic != gotPanic {
+				t.Fatalf("%s(n=%d lo=%d hi=%d): panic = %v, want %v", name, n, lo, hi, gotPanic, wantPanic)
+			}
+			if wantPanic {
+				return
+			}
+			for i := range want {
+				if !float32Equal(got[i], want[i]) {
+					t.Fatalf("%s(n=%d lo=%d hi=%d) differs at %d: got %v want %v", name, n, lo, hi, i, got[i], want[i])
+				}
+			}
+		}
+
+		check("AddWindowFloat32s",
+			func(dst []float32) {
+				for i := lo; i < hi; i++ {
+					dst[i] = a[i] + b[i]
+				}
+			},
+			func(dst []float32) { AddWindowFloat32s(dst, a, b, lo, hi) })
+		check("ScaleInnerFloat32s",
+			func(dst []float32) {
+				for i := 1; i < len(dst)-1; i++ {
+					dst[i] = a[i] * k
+				}
+			},
+			func(dst []float32) { ScaleInnerFloat32s(dst, a, k) })
+		check("IncDownFloat32s",
+			func(dst []float32) {
+				for i := hi - 1; i >= lo; i-- {
+					dst[i] += a[i]
+				}
+			},
+			func(dst []float32) { IncDownFloat32s(dst, a, hi, lo) })
+	})
+}

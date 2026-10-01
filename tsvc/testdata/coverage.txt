@@ -1,45 +1,45 @@
-# loopvec TSVC coverage: vectorized 17, gaps 75, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 18, gaps 74, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
-s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s1111	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s112	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s111	vectorize	no	loop step is not i++ (or i-- when counting down)
+s1111	vectorize	no	destination is not a simple, same-index slice element
+s112	vectorize	no	destination is not a simple, same-index slice element
 s1112	vectorize	yes
-s113	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s113	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s1113	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s114	decline	no	destination is not a simple, same-index slice element
-s115	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s115	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s1115	vectorize	no	destination is not a simple, same-index slice element
-s118	vectorize	no	loop condition is not i < limit (or i >= 0 when counting down)
-s119	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s118	vectorize	no	destination is not a simple, same-index slice element
+s119	vectorize	no	destination is not a simple, same-index slice element
 s1119	vectorize	no	destination is not a simple, same-index slice element
-s121	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s122	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s121	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s122	vectorize	no	loop step is not i++ (or i-- when counting down)
 s124	vectorize	no	loop body is not a sequence of indexed assignments
 s125	vectorize	no	loop body is not a sequence of indexed assignments
-s127	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s128	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s131	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s132	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s141	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s162	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s127	vectorize	no	loop body is not a sequence of indexed assignments
+s128	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s131	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s132	vectorize	no	destination is not a simple, same-index slice element
+s141	vectorize	no	destination is not a simple, same-index slice element
+s162	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s171	vectorize	no	destination is not a simple, same-index slice element
-s172	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s173	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s172	vectorize	no	loop step is not i++ (or i-- when counting down)
+s173	vectorize	no	destination is not a simple, same-index slice element
 s174	vectorize	no	destination is not a simple, same-index slice element
 s175	vectorize	no	loop step is not i++ (or i-- when counting down)
 s176	vectorize	no	operand is not a same-index slice, range value, or plain scalar
-s211	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s1221	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s222	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s231	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s2233	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s235	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
-s241	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s243	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s2244	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s211	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s1221	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s222	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s231	vectorize	no	destination is not a simple, same-index slice element
+s2233	vectorize	no	destination is not a simple, same-index slice element
+s235	vectorize	no	destination is not a simple, same-index slice element
+s241	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s243	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s2244	vectorize	no	destination is not a simple, same-index slice element
 s251	vectorize	yes
 s1251	vectorize	yes
-s3251	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s3251	vectorize	no	destination is not a simple, same-index slice element
 s252	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s254	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s255	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -61,7 +61,7 @@ s312	vectorize	yes
 s313	vectorize	yes
 s314	vectorize	no	loop body is not a sequence of indexed assignments
 s315	vectorize	no	loop body is not a sequence of indexed assignments
-s316	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
+s316	vectorize	no	loop body is not a sequence of indexed assignments
 s317	vectorize	no	not recognized
 s319	vectorize	no	loop body is not a sequence of indexed assignments
 s3111	vectorize	no	loop body is not a sequence of indexed assignments
@@ -70,11 +70,11 @@ s331	vectorize	no	not recognized
 s351	vectorize	no	loop step is not i++ (or i-- when counting down)
 s1351	vectorize	no	range clause is not i := range s, i, v := range s, or i := range n
 s352	vectorize	no	loop step is not i++ (or i-- when counting down)
-s421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s1421	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s421	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s1421	vectorize	yes
 s422	vectorize	no	operand is not a same-index slice, range value, or plain scalar
-s423	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
-s424	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
+s423	vectorize	no	destination is not a simple, same-index slice element
+s424	vectorize	no	destination is not a simple, same-index slice element
 s431	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s441	vectorize	no	loop body is not a sequence of indexed assignments
 s443	vectorize	no	loop body is not a sequence of indexed assignments

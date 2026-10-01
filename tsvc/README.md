@@ -105,7 +105,7 @@ by `n*2^-24`, for the kernels that vectorize only with `-fp-reassoc`).
 | s1351 | induction pointer recognition |  | bits | vectorize | no |
 | s352 | loop rerolling | unrolled dot product | fused | vectorize | no |
 | s421 | storage classes and equivalencing | equivalence- no overlap | bits | vectorize | no |
-| s1421 | storage classes and equivalencing | equivalence- no overlap | bits | vectorize | no |
+| s1421 | storage classes and equivalencing | equivalence- no overlap | bits | vectorize | yes |
 | s422 | storage classes and equivalencing | common and equivalence statement; anti-dependence, threshold of 4 | bits | vectorize | no |
 | s423 | storage classes and equivalencing | common and equivalenced variables - with anti-dependence; do this again here | bits | vectorize | no |
 | s424 | storage classes and equivalencing | common and equivalenced variables - overlap; vectorizeable in strips of 64 or less; do this again here | bits | vectorize | no |
@@ -160,7 +160,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 17, gaps 75, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 18, gaps 74, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

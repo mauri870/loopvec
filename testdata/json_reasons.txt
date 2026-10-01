@@ -25,14 +25,16 @@ func RangeNotDefined(dst, a []float32) {
 	}
 }
 
-func StartNotZero(dst, a []float32) {
-	for i := 1; i < len(dst); i++ {
+func one() int { return 1 }
+
+func StartCall(dst, a []float32) {
+	for i := one(); i < len(dst); i++ {
 		dst[i] = a[i] + 1
 	}
 }
 
-func ConditionNotLess(dst, a []float32) {
-	for i := 0; i <= len(dst)-1; i++ {
+func ConditionNotOrdered(dst, a []float32) {
+	for i := 0; i != len(dst); i++ {
 		dst[i] = a[i] + 1
 	}
 }
@@ -43,8 +45,8 @@ func StepNotOne(dst, a []float32) {
 	}
 }
 
-func BoundNotInvariant(dst, a []float32) {
-	for i := 0; i < len(dst)/2; i++ {
+func BoundDivideByVariable(dst, a []float32, n int) {
+	for i := 0; i < len(dst)/n; i++ {
 		dst[i] = a[i] + 1
 	}
 }
@@ -55,8 +57,8 @@ func DownStartNotLast(dst, a []float32) {
 	}
 }
 
-func DownBoundNotZero(dst, a []float32) {
-	for i := len(dst) - 1; i >= 1; i-- {
+func DownBoundCall(dst, a []float32) {
+	for i := len(dst) - 1; i >= one(); i-- {
 		dst[i] = a[i] + 1
 	}
 }
@@ -124,18 +126,18 @@ func Vectorized(dst, a []float32) {
 -- stdout.want --
 {"file":"$WORK/ops.go","line":4,"func":"NotCounted","vectorized":false,"reason":"loop is not a counted for loop (init; condition; post)","stage":"lower"}
 {"file":"$WORK/ops.go","line":11,"func":"RangeNotDefined","vectorized":false,"reason":"range clause is not i := range s, i, v := range s, or i := range n","stage":"lower"}
-{"file":"$WORK/ops.go","line":17,"func":"StartNotZero","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
-{"file":"$WORK/ops.go","line":23,"func":"ConditionNotLess","vectorized":false,"reason":"loop condition is not i \u003c limit (or i \u003e= 0 when counting down)","stage":"lower"}
-{"file":"$WORK/ops.go","line":29,"func":"StepNotOne","vectorized":false,"reason":"loop step is not i++ (or i-- when counting down)","stage":"lower"}
-{"file":"$WORK/ops.go","line":35,"func":"BoundNotInvariant","vectorized":false,"reason":"loop limit is not len(slice), an int variable, or a positive integer constant","stage":"lower"}
-{"file":"$WORK/ops.go","line":41,"func":"DownStartNotLast","vectorized":false,"reason":"loop start is not 0 (or len(s)-1 when counting down)","stage":"lower"}
-{"file":"$WORK/ops.go","line":47,"func":"DownBoundNotZero","vectorized":false,"reason":"loop limit is not len(slice), an int variable, or a positive integer constant","stage":"lower"}
-{"file":"$WORK/ops.go","line":53,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
-{"file":"$WORK/ops.go","line":59,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
-{"file":"$WORK/ops.go","line":67,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
-{"file":"$WORK/ops.go","line":76,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
-{"file":"$WORK/ops.go","line":84,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
-{"file":"$WORK/ops.go","line":90,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
-{"file":"$WORK/ops.go","line":96,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
-{"file":"$WORK/ops.go","line":102,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
-{"file":"$WORK/ops.go","line":108,"func":"Vectorized","vectorized":true}
+{"file":"$WORK/ops.go","line":19,"func":"StartCall","vectorized":false,"reason":"loop start is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":25,"func":"ConditionNotOrdered","vectorized":false,"reason":"loop condition is not i \u003c limit, i \u003c= limit, i \u003e= limit, or i \u003e limit","stage":"lower"}
+{"file":"$WORK/ops.go","line":31,"func":"StepNotOne","vectorized":false,"reason":"loop step is not i++ (or i-- when counting down)","stage":"lower"}
+{"file":"$WORK/ops.go","line":37,"func":"BoundDivideByVariable","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":43,"func":"DownStartNotLast","vectorized":false,"reason":"loop start is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":49,"func":"DownBoundCall","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":55,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":61,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":69,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":78,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":86,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
+{"file":"$WORK/ops.go","line":92,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
+{"file":"$WORK/ops.go","line":98,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
+{"file":"$WORK/ops.go","line":104,"func":"ZeroFill","vectorized":false,"reason":"zero fill is left to the compiler's memclr","stage":"lower"}
+{"file":"$WORK/ops.go","line":110,"func":"Vectorized","vectorized":true}

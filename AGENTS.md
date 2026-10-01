@@ -68,9 +68,17 @@ coverage. `internal/loopir/lower.go` does **no general dependence or invariance
 analysis**. It canonicalizes the loop header and builds a value tree, and the
 safety argument stays structural:
 
-- Loop clauses must match one of a small fixed set exactly (`for i := 0;
-  i < len(s); i++`, `for i := len(s) - 1; i >= 0; i--`, `range s`, `range n`,
-  `i < n`) — no other start, step, or direction.
+- The loop moves by exactly one (`i++`, or `i--` counting down). The start and
+  limit are integer expressions that are the same on every evaluation and cannot
+  panic: constants, `int` variables the body does not assign, `len` of a slice,
+  `+ - *`, and `/` by a nonzero constant (`pureInt`). `<=`, and a loop that counts
+  down, need one added to a bound, so they are accepted only where that cannot
+  overflow (`plusOne`): a constant, or something minus a positive constant. A
+  constant limit of zero or less, or a negative constant start, would put a negative
+  constant index in the emitted code and is rejected. `Trip` states every loop as
+  the forward `Start <= i < Limit`; a limit that is not exactly `len` of the stored
+  slice makes every operand slice carry an explicit cap (`Plan.Bound`), or the last
+  vector would write past it.
 - Every slice access is `ident[i]` where `i` is *exactly* the loop variable
   (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
   whether they're actually dependent. That is what guarantees no two

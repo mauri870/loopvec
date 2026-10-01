@@ -188,3 +188,21 @@ func DotFloat64s(a, b []float64) float64 {
 	}
 	return sum
 }
+
+func AddWindowFloat32s(dst, a, b []float32, lo, hi int) {
+	for i := lo; i < hi; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func ScaleInnerFloat32s(dst, a []float32, k float32) {
+	for i := 1; i < len(dst)-1; i++ {
+		dst[i] = a[i] * k
+	}
+}
+
+func IncDownFloat32s(dst, a []float32, hi, lo int) {
+	for i := hi - 1; i >= lo; i-- {
+		dst[i] += a[i]
+	}
+}

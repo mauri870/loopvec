@@ -89,25 +89,18 @@ type Ref struct {
 	Elem types.Type
 }
 
-// TripKind says what limits a loop.
-type TripKind int
-
-const (
-	// TripLen limits the loop to len(Slice).
-	TripLen TripKind = iota
-	// TripInt limits the loop to an int variable or a positive constant.
-	TripInt
-)
-
-// Trip is the iteration limit of a loop.
+// Trip is the range of iterations of a loop, written as the forward loop runs
+// them: Start <= i < Limit. A loop that counts down, or is written with <=, is
+// stated this way too, so the rest of loopvec sees one shape.
 type Trip struct {
-	Kind TripKind
-	// Slice is the slice whose length limits the loop (TripLen).
+	// Start and Limit are loop-invariant integer expressions, as source text.
+	// Start is "0" for the common case.
+	Start, Limit string
+	// Slice is the slice whose length is Limit, when Limit is exactly len(Slice).
 	Slice *Ref
-	// Limit is the int variable or constant that limits the loop (TripInt).
-	Limit ast.Expr
-	// Const is set when Limit is a positive integer constant.
-	Const bool
+	// NonEmpty is set when both are constants and Start < Limit, so the loop runs
+	// at least once.
+	NonEmpty bool
 }
 
 // Induction describes how the loop index moves.

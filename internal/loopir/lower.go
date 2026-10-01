@@ -5,6 +5,8 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"math"
+	"strconv"
 )
 
 // Lower canonicalizes a for or range statement into a Loop. When the loop is
@@ -27,8 +29,10 @@ func Lower(stmt ast.Stmt, info *types.Info, results map[types.Object]bool) (*Loo
 	l := &lowerer{info: info, node: stmt, results: results}
 	switch s := stmt.(type) {
 	case *ast.RangeStmt:
+		l.assigned = l.assignedIn(s.Body)
 		return l.rangeLoop(s)
 	case *ast.ForStmt:
+		l.assigned = l.assignedIn(s.Body)
 		return l.forLoop(s)
 	}
 	return nil, ReasonNotCountedLoop
@@ -84,25 +88,30 @@ func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 			l.valueVar = l.info.Defs[valueIdent]
 			l.valueRef = ref
 		}
-		return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, 1)
+		return l.body(s, s.Body, Trip{Start: "0", Limit: "len(" + ref.Name + ")", Slice: ref}, 1)
 	}
 	if s.Value != nil {
 		return nil, ReasonUnsupportedRange
 	}
-	trip, ok := l.intTrip(s.X)
+	limit, ok := l.bound(s.X)
 	if !ok {
 		return nil, ReasonUnsupportedBound
 	}
-	return l.body(s, s.Body, trip, 1)
+	from := bound{text: "0", isConst: true}
+	if reason := rangeReason(from, limit); reason != "" {
+		return nil, reason
+	}
+	return l.body(s, s.Body, l.trip(from, limit), 1)
 }
 
-// forLoop handles for i := 0; i < limit; i++ and
-// for i := len(s) - 1; i >= 0; i--.
+// forLoop handles a counted loop that moves by one: for i := start; i < limit; i++
+// (or <=), and for i := start; i >= limit; i-- (or >), where start and limit are
+// integer expressions that do not change while the loop runs.
 //
-// The reverse form is accepted for the same reason the forward one is safe:
-// every slice is read or written at exactly index i, so different iterations
-// never touch the same element and the direction cannot change the result.
-// The rewritten loop always runs forward.
+// Every slice is read or written at exactly index i, so different iterations
+// never touch the same element: where the loop starts, where it stops, and which
+// way it counts cannot change the result. The rewritten loop always runs forward
+// over the same indexes.
 //
 // The comparison picks the direction, and the start, step, and limit are then
 // checked in that order, so the reason names the first part that is wrong.
@@ -131,61 +140,77 @@ func (l *lowerer) forLoop(s *ast.ForStmt) (*Loop, Reason) {
 	}
 
 	switch cond.Op {
-	case token.LSS:
-		return l.forward(s, init.Rhs[0], cond.Y)
-	case token.GEQ:
-		return l.reverse(s, init.Rhs[0], cond.Y)
+	case token.LSS, token.LEQ:
+		return l.forward(s, init.Rhs[0], cond.Y, cond.Op == token.LEQ)
+	case token.GEQ, token.GTR:
+		return l.reverse(s, init.Rhs[0], cond.Y, cond.Op == token.GTR)
 	}
 	return nil, ReasonUnsupportedCondition
 }
 
-// forward handles for i := 0; i < limit; i++, where limit is either len(slice)
-// or an integer expression.
-func (l *lowerer) forward(s *ast.ForStmt, start, limit ast.Expr) (*Loop, Reason) {
-	if lit, ok := start.(*ast.BasicLit); !ok || lit.Value != "0" {
+// forward handles for i := start; i < limit; i++ and i <= limit.
+func (l *lowerer) forward(s *ast.ForStmt, start, limit ast.Expr, inclusive bool) (*Loop, Reason) {
+	from, ok := l.bound(start)
+	if !ok {
 		return nil, ReasonUnsupportedStart
 	}
 	if !l.step(s.Post, token.INC) {
 		return nil, ReasonUnsupportedStep
 	}
-	if call, ok := limit.(*ast.CallExpr); ok {
-		ref, ok := l.lenOf(call)
-		if !ok {
-			return nil, ReasonUnsupportedBound
-		}
-		return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, 1)
+	var to bound
+	if inclusive {
+		to, ok = l.plusOne(limit)
+	} else {
+		to, ok = l.bound(limit)
 	}
-	trip, ok := l.intTrip(limit)
 	if !ok {
 		return nil, ReasonUnsupportedBound
 	}
-	return l.body(s, s.Body, trip, 1)
+	if reason := rangeReason(from, to); reason != "" {
+		return nil, reason
+	}
+	return l.body(s, s.Body, l.trip(from, to), 1)
 }
 
-// reverse handles for i := len(s) - 1; i >= 0; i--.
-func (l *lowerer) reverse(s *ast.ForStmt, start, limit ast.Expr) (*Loop, Reason) {
-	sub, ok := start.(*ast.BinaryExpr)
-	if !ok || sub.Op != token.SUB {
-		return nil, ReasonUnsupportedStart
+// rangeReason rejects a constant start or limit the emitted code could not
+// contain: a negative start, which always panics, and a limit of zero or less,
+// which never runs and would put a negative constant index in the length check.
+func rangeReason(from, to bound) Reason {
+	if from.isConst && from.value < 0 {
+		return ReasonUnsupportedStart
 	}
-	if one, ok := sub.Y.(*ast.BasicLit); !ok || one.Value != "1" {
-		return nil, ReasonUnsupportedStart
+	if to.isConst && to.value <= 0 {
+		return ReasonUnsupportedBound
 	}
-	call, ok := sub.X.(*ast.CallExpr)
-	if !ok {
-		return nil, ReasonUnsupportedStart
-	}
-	ref, ok := l.lenOf(call)
+	return ""
+}
+
+// reverse handles for i := high; i >= low; i-- and i > low. The loop runs the
+// indexes low..high, so as a forward loop it starts at low and stops before
+// high+1.
+func (l *lowerer) reverse(s *ast.ForStmt, start, limit ast.Expr, strict bool) (*Loop, Reason) {
+	to, ok := l.plusOne(start)
 	if !ok {
 		return nil, ReasonUnsupportedStart
 	}
 	if !l.step(s.Post, token.DEC) {
 		return nil, ReasonUnsupportedStep
 	}
-	if lit, ok := limit.(*ast.BasicLit); !ok || lit.Value != "0" {
+	var from bound
+	if strict {
+		// i > low is i >= low+1, which is only known not to overflow for a constant.
+		low, isConst := l.constant(limit)
+		if !isConst || low == math.MaxInt64 {
+			return nil, ReasonUnsupportedBound
+		}
+		from = bound{text: strconv.FormatInt(low+1, 10), value: low + 1, isConst: true}
+	} else if from, ok = l.bound(limit); !ok {
 		return nil, ReasonUnsupportedBound
 	}
-	return l.body(s, s.Body, Trip{Kind: TripLen, Slice: ref}, -1)
+	if reason := rangeReason(from, to); reason != "" {
+		return nil, reason
+	}
+	return l.body(s, s.Body, l.trip(from, to), -1)
 }
 
 // step reports whether post is i++ (tok INC) or i-- (tok DEC) on the loop
@@ -199,7 +224,8 @@ func (l *lowerer) step(post ast.Stmt, tok token.Token) bool {
 	return ok && l.info.Uses[ident] == l.iv
 }
 
-// lenOf matches the builtin call len(s) where s is a slice identifier.
+// lenOf matches the builtin call len(s) where s is a slice identifier that the
+// loop body does not assign.
 func (l *lowerer) lenOf(call *ast.CallExpr) (*Ref, bool) {
 	fn, ok := call.Fun.(*ast.Ident)
 	if !ok || len(call.Args) != 1 {
@@ -209,47 +235,124 @@ func (l *lowerer) lenOf(call *ast.CallExpr) (*Ref, bool) {
 		return nil, false
 	}
 	arg, ok := call.Args[0].(*ast.Ident)
-	if !ok || !l.isSlice(arg) {
+	if !ok || !l.isSlice(arg) || l.assigned[l.info.Uses[arg]] {
 		return nil, false
 	}
 	return l.ref(arg), true
 }
 
-// intTrip accepts a loop limit that is a variable of type int or a positive
-// integer constant, so it is the same value every time the loop condition
-// would evaluate it.
-func (l *lowerer) intTrip(limit ast.Expr) (Trip, bool) {
-	trip := Trip{Kind: TripInt, Limit: limit}
-	switch expr := limit.(type) {
-	case *ast.BasicLit:
-		if expr.Kind != token.INT {
-			return Trip{}, false
-		}
-	case *ast.Ident:
-		tv, ok := l.info.Types[expr]
-		if !ok || l.info.Uses[expr] == l.iv {
-			return Trip{}, false
-		}
-		basic, ok := tv.Type.(*types.Basic)
-		if !ok || (basic.Kind() != types.Int && basic.Kind() != types.UntypedInt) {
-			return Trip{}, false
-		}
-		if tv.Value == nil {
-			return trip, true
-		}
-	default:
-		return Trip{}, false
+// bound is a loop-invariant integer expression: its source text, and its value
+// when it is a constant.
+type bound struct {
+	text    string
+	value   int64
+	isConst bool
+	// slice is set when the expression is exactly len(slice).
+	slice *Ref
+}
+
+// trip states a loop that runs from to to (exclusive) as a Trip.
+func (l *lowerer) trip(from, to bound) Trip {
+	return Trip{
+		Start:    from.text,
+		Limit:    to.text,
+		Slice:    to.slice,
+		NonEmpty: from.isConst && to.isConst && from.value < to.value,
 	}
-	tv, ok := l.info.Types[limit]
+}
+
+// bound accepts a start or limit that is the same value every time the loop
+// would evaluate it and cannot panic: a constant, a variable of type int that the
+// body does not assign, len of a slice, and sums, differences, and products of
+// those, and a quotient by a non-zero constant.
+func (l *lowerer) bound(e ast.Expr) (bound, bool) {
+	if !l.pureInt(e) {
+		return bound{}, false
+	}
+	b := bound{text: types.ExprString(e)}
+	b.value, b.isConst = l.constant(e)
+	if call, ok := ast.Unparen(e).(*ast.CallExpr); ok {
+		b.slice, _ = l.lenOf(call)
+	}
+	return b, true
+}
+
+// plusOne is bound for e+1, which a <= limit and a loop that counts down from e
+// need. It is only accepted where adding one cannot overflow: a constant below the
+// largest int, or something minus a positive constant.
+func (l *lowerer) plusOne(e ast.Expr) (bound, bool) {
+	if v, isConst := l.constant(e); isConst {
+		if v == math.MaxInt64 {
+			return bound{}, false
+		}
+		return bound{text: strconv.FormatInt(v+1, 10), value: v + 1, isConst: true}, true
+	}
+	sub, ok := ast.Unparen(e).(*ast.BinaryExpr)
+	if !ok || sub.Op != token.SUB {
+		return bound{}, false
+	}
+	k, isConst := l.constant(sub.Y)
+	if !isConst || k < 1 || !l.pureInt(sub.X) {
+		return bound{}, false
+	}
+	// x - k + 1 is x - (k-1); with k == 1 that is x itself.
+	x, ok := l.bound(sub.X)
+	if !ok {
+		return bound{}, false
+	}
+	if k == 1 {
+		return x, true
+	}
+	return bound{text: x.text + " - " + strconv.FormatInt(k-1, 10)}, true
+}
+
+// constant returns the value of e when it is an integer constant that fits an int64.
+func (l *lowerer) constant(e ast.Expr) (int64, bool) {
+	tv, ok := l.info.Types[e]
 	if !ok || tv.Value == nil {
-		return Trip{}, false
+		return 0, false
 	}
-	n, exact := constant.Int64Val(tv.Value)
-	if !exact || n <= 0 {
-		return Trip{}, false
+	v, exact := constant.Int64Val(constant.ToInt(tv.Value))
+	return v, exact
+}
+
+// pureInt reports whether e is an integer expression of type int that is the same
+// value on every evaluation and cannot panic.
+func (l *lowerer) pureInt(e ast.Expr) bool {
+	e = ast.Unparen(e)
+	tv, ok := l.info.Types[e]
+	if !ok || !isIntType(tv.Type) {
+		return false
 	}
-	trip.Const = true
-	return trip, true
+	if tv.Value != nil {
+		return true
+	}
+	switch e := e.(type) {
+	case *ast.Ident:
+		obj, ok := l.info.Uses[e].(*types.Var)
+		return ok && obj != l.iv && obj != l.valueVar && !l.assigned[obj]
+	case *ast.CallExpr:
+		_, ok := l.lenOf(e)
+		return ok
+	case *ast.UnaryExpr:
+		return e.Op == token.SUB && l.pureInt(e.X)
+	case *ast.BinaryExpr:
+		switch e.Op {
+		case token.ADD, token.SUB, token.MUL:
+			return l.pureInt(e.X) && l.pureInt(e.Y)
+		case token.QUO:
+			// A constant divisor other than zero cannot panic.
+			v, isConst := l.constant(e.Y)
+			return isConst && v != 0 && l.pureInt(e.X)
+		}
+	}
+	return false
+}
+
+// isIntType reports whether t is int, or the type of an untyped integer constant.
+func isIntType(t types.Type) bool {
+	basic, ok := t.(*types.Basic)
+	return ok && (basic.Kind() == types.Int || basic.Kind() == types.UntypedInt)
 }
 
 // NamedResults returns the named result variables of fn and of every function
@@ -271,14 +374,11 @@ func NamedResults(fn *ast.FuncDecl, info *types.Info) map[types.Object]bool {
 	return results
 }
 
-// body lowers the loop body, a sequence of assignments.
-func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int64) (*Loop, Reason) {
-	if len(block.List) == 0 {
-		return nil, ReasonUnsupportedBody
-	}
-	l.assigned = map[types.Object]bool{}
-	l.temps = map[types.Object]*Temp{}
-	l.reduced = map[types.Object]bool{}
+// assignedIn returns the variables the top-level assignments of block write. They
+// change while the loop runs, so none of them is loop-invariant: not a start, a
+// limit, or an operand.
+func (l *lowerer) assignedIn(block *ast.BlockStmt) map[types.Object]bool {
+	assigned := map[types.Object]bool{}
 	for _, stmt := range block.List {
 		assign, ok := stmt.(*ast.AssignStmt)
 		if !ok {
@@ -287,17 +387,23 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		for _, lhs := range assign.Lhs {
 			if id, ok := ast.Unparen(lhs).(*ast.Ident); ok {
 				if obj := l.info.Defs[id]; obj != nil {
-					l.assigned[obj] = true
+					assigned[obj] = true
 				} else if obj := l.info.Uses[id]; obj != nil {
-					l.assigned[obj] = true
+					assigned[obj] = true
 				}
 			}
 		}
 	}
-	// A limit the body assigns would change while the loop runs.
-	if id, ok := trip.Limit.(*ast.Ident); ok && l.assigned[l.info.Uses[id]] {
-		return nil, ReasonUnsupportedBound
+	return assigned
+}
+
+// body lowers the loop body, a sequence of assignments.
+func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int64) (*Loop, Reason) {
+	if len(block.List) == 0 {
+		return nil, ReasonUnsupportedBody
 	}
+	l.temps = map[types.Object]*Temp{}
+	l.reduced = map[types.Object]bool{}
 
 	body := make([]Stmt, 0, len(block.List))
 	for _, stmt := range block.List {

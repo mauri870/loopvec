@@ -1,5 +1,7 @@
-# Only an int variable or a positive integer constant can serve as an explicit
-# limit. Computed limits, field limits, zero and non-int limits are left alone.
+# A limit must be an integer expression that is the same on every evaluation and
+# cannot panic. A field, a call, a division by a variable, a limit the body
+# assigns, zero, a non-int limit, and a <= limit that could overflow when one is
+# added are left alone.
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -16,12 +18,6 @@ go 1.27.1
 package test
 
 type T struct{ n int }
-
-func Computed(n int, x, y []float32) {
-	for i := 0; i < n+1; i++ {
-		y[i] += x[i]
-	}
-}
 
 func Field(t T, x, y []float32) {
 	for i := 0; i < t.n; i++ {
@@ -44,5 +40,26 @@ func Narrow(n int32, x, y []float32) {
 func LessOrEqual(n int, x, y []float32) {
 	for i := 0; i <= n; i++ {
 		y[i] += x[i]
+	}
+}
+
+func Call(n int, x, y []float32) {
+	for i := 0; i < abs(n); i++ {
+		y[i] += x[i]
+	}
+}
+
+func abs(n int) int { return max(n, -n) }
+
+func DivideByVariable(n, m int, x, y []float32) {
+	for i := 0; i < n/m; i++ {
+		y[i] += x[i]
+	}
+}
+
+func LimitAssigned(n int, x, y []float32) {
+	for i := 0; i < n; i++ {
+		y[i] += x[i]
+		n = n - 1
 	}
 }

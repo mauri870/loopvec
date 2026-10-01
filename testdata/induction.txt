@@ -1,0 +1,573 @@
+# A loop may start anywhere, stop at any integer expression that is the same on
+# every evaluation, be written with <=, and count down to a bound. Every access is
+# still at exactly index i, so no two iterations touch the same element and only
+# the range of indexes changes. The rewritten loop runs forward over the same
+# indexes, never touches an element outside them (Short stops one before the end
+# of dst), and panics when the scalar loop would; only the state left behind by a
+# panic differs, since the lengths are checked before anything is written.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// The loop starts after the first element.
+func StartOne(dst, a []int32) {
+	for i := 1; i < len(dst); i++ {
+		dst[i] = a[i] * 2
+	}
+}
+
+// The limit stops one short of len(dst): the last element must not be written.
+func Short(dst, a, b []int32) {
+	for i := 0; i < len(dst)-1; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func Inclusive(dst, a []int32) {
+	for i := 0; i <= len(dst)-2; i++ {
+		dst[i] = a[i] - 1
+	}
+}
+
+// Both ends are variables, so the loop may be empty or run past the data.
+func Window(dst, a, b []float32, lo, hi int) {
+	for i := lo; i < hi; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func Half(dst, a []int32) {
+	for i := 0; i < len(dst)/2; i++ {
+		dst[i] = a[i] ^ 7
+	}
+}
+
+// Counting down, from an expression and to a variable.
+func Down(dst, a []int32, n, lo int) {
+	for i := n - 1; i >= lo; i-- {
+		dst[i] += a[i]
+	}
+}
+
+func DownStrict(dst, a []int32) {
+	for i := len(dst) - 2; i > 0; i-- {
+		dst[i] = a[i] + 5
+	}
+}
+
+// A copy that starts at an offset.
+func CopyFrom(dst, src []int32, from int) {
+	for i := from; i < len(dst); i++ {
+		dst[i] = src[i]
+	}
+}
+
+// A reduction over the inside of a slice.
+func SumInner(a []int32) int32 {
+	var s int32
+	for i := 1; i < len(a)-1; i++ {
+		s += a[i]
+	}
+	return s
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// The loop starts after the first element.
+func StartOne(dst, a []int32) {
+	_vcInt32s0 := simd.BroadcastInt32s(2)
+	if _loopvecOverlap(dst, a) {
+		for i := 1; i < len(dst); i++ {
+			dst[i] = a[i] * 2
+		}
+	} else {
+		if len(dst) > 1 {
+			_ = a[len(dst)-1]
+			for _i := 1; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.Mul(_vcInt32s0).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// The limit stops one short of len(dst): the last element must not be written.
+func Short(dst, a, b []int32) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := 0; i < len(dst)-1; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if len(dst)-1 > 0 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			_ = b[(len(dst)-1)-1]
+			for _i := 0; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(dst)-1])
+				_v1.Add(_v2).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Inclusive(dst, a []int32) {
+	_vcInt32s2 := simd.BroadcastInt32s(1)
+	if _loopvecOverlap(dst, a) {
+		for i := 0; i <= len(dst)-2; i++ {
+			dst[i] = a[i] - 1
+		}
+	} else {
+		if len(dst)-1 > 0 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			for _i := 0; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v1.Sub(_vcInt32s2).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Both ends are variables, so the loop may be empty or run past the data.
+func Window(dst, a, b []float32, lo, hi int) {
+	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+		for i := lo; i < hi; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if hi > lo {
+			_ = dst[hi-1]
+			_ = a[hi-1]
+			_ = b[hi-1]
+			for _i := lo; _i < hi; {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:hi])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:hi])
+				_v1.Add(_v2).StorePart(dst[_i:hi])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Half(dst, a []int32) {
+	_vcInt32s4 := simd.BroadcastInt32s(7)
+	if _loopvecOverlap(dst, a) {
+		for i := 0; i < len(dst)/2; i++ {
+			dst[i] = a[i] ^ 7
+		}
+	} else {
+		if len(dst)/2 > 0 {
+			_ = dst[(len(dst)/2)-1]
+			_ = a[(len(dst)/2)-1]
+			for _i := 0; _i < len(dst)/2; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)/2])
+				_v1.Xor(_vcInt32s4).StorePart(dst[_i : len(dst)/2])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Counting down, from an expression and to a variable.
+func Down(dst, a []int32, n, lo int) {
+	if _loopvecOverlap(dst, a) {
+		for i := n - 1; i >= lo; i-- {
+			dst[i] += a[i]
+		}
+	} else {
+		if n > lo {
+			_ = dst[n-1]
+			_ = a[n-1]
+			for _i := lo; _i < n; {
+				_v1, _n := simd.LoadInt32sPart(dst[_i:n])
+				_v2, _ := simd.LoadInt32sPart(a[_i:n])
+				_v1.Add(_v2).StorePart(dst[_i:n])
+				_i += _n
+			}
+		}
+	}
+}
+
+func DownStrict(dst, a []int32) {
+	_vcInt32s6 := simd.BroadcastInt32s(5)
+	if _loopvecOverlap(dst, a) {
+		for i := len(dst) - 2; i > 0; i-- {
+			dst[i] = a[i] + 5
+		}
+	} else {
+		if len(dst)-1 > 1 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			for _i := 1; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v1.Add(_vcInt32s6).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// A copy that starts at an offset.
+func CopyFrom(dst, src []int32, from int) {
+	if _loopvecOverlap(dst, src) {
+		for i := from; i < len(dst); i++ {
+			dst[i] = src[i]
+		}
+	} else {
+		if len(dst) > from {
+			_ = src[len(dst)-1]
+			copy(dst[from:], src[from:])
+		}
+	}
+}
+
+// A reduction over the inside of a slice.
+func SumInner(a []int32) int32 {
+	var s int32
+	if len(a)-1 > 1 {
+		_ = a[(len(a)-1)-1]
+		{
+			_i := 1
+			if (len(a)-1)-1 >= 64 {
+				_a1 := simd.BroadcastInt32s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(a)-1; _i += _lanes {
+					_v1 := simd.LoadInt32s(a[_i:])
+					_a1 = _a1.Add(_v1)
+				}
+				var _buf1 [16]int32
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					s = s + _x
+				}
+			}
+			for i := _i; i < len(a)-1; i++ {
+				s += a[i]
+			}
+		}
+	}
+	return s
+}
+
+func _loopvecOverlap[T any](a, b []T) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
+	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	return aStart < bEnd && bStart < aEnd
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+var sizes = []int{0, 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 65, 100, 131}
+
+func fill(n int, v int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = v
+	}
+	return s
+}
+
+func ramp(n int, scale int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i+1) * scale
+	}
+	return s
+}
+
+func sum(s []int32) (t int64) {
+	for i, v := range s {
+		t += int64(v) * int64(i+1)
+	}
+	return t
+}
+
+// try reports whether f panicked instead of what it did.
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
+}
+
+func main() {
+	for _, n := range sizes {
+		a, b := ramp(n, 3), ramp(n, 5)
+
+		d1, d2, d3, d4 := fill(n, -1), fill(n, -1), fill(n, -1), fill(n, -1)
+		p1 := try(func() { test.StartOne(d1, a) })
+		test.Short(d2, a, b)
+		test.Inclusive(d3, a)
+		test.Half(d4, a)
+		fmt.Println(n, "A", p1, sum(d1), sum(d2), sum(d3), sum(d4))
+
+		d5, d6, d7 := fill(n, 100), fill(n, 100), fill(n, -1)
+		p5 := try(func() { test.Down(d5, a, n, 0) })
+		p6 := try(func() { test.Down(d6, a, n-1, 1) })
+		p7 := try(func() { test.DownStrict(d7, a) })
+		fmt.Println(n, "B", p5, p6, p7, sum(d5), sum(d6), sum(d7))
+
+		d8, d9 := fill(n, -1), fill(n, -1)
+		p8 := try(func() { test.CopyFrom(d8, a, 2) })
+		p9 := try(func() { test.CopyFrom(d9, a, 0) })
+		fmt.Println(n, "C", p8, p9, sum(d8), sum(d9), test.SumInner(a))
+
+		// A window: empty, inside, touching the end, and past it.
+		f, g, h := make([]float32, n), make([]float32, n), make([]float32, n)
+		for i := range f {
+			f[i], g[i] = float32(i), float32(2*i)
+		}
+		for _, w := range [][2]int{{0, 0}, {n, 0}, {1, n}, {n / 2, n}, {0, n + 1}, {n, n}} {
+			out := make([]float32, n)
+			p := try(func() { test.Window(out, f, g, w[0], w[1]) })
+			var t float32
+			for i, v := range out {
+				t += v * float32(i+1)
+			}
+			if p {
+				// The rewritten loop checks the lengths first and panics before it
+				// writes anything; the scalar loop has written what came before the
+				// bad index. Only the panic is the same.
+				t = 0
+			}
+			fmt.Println(n, "W", w, p, t)
+		}
+		_ = h
+	}
+}
+-- testmain/output --
+0 A false 0 0 0 0
+0 B false false false 0 0 0
+0 C false false 0 0 0
+0 W [0 0] false 0
+0 W [0 0] false 0
+0 W [1 0] false 0
+0 W [0 0] false 0
+0 W [0 1] true 0
+0 W [0 0] false 0
+1 A false -1 -1 -1 -1
+1 B false false false 103 100 -1
+1 C false false -1 3 0
+1 W [0 0] false 0
+1 W [1 0] false 0
+1 W [1 1] false 0
+1 W [0 1] false 0
+1 W [0 2] true 0
+1 W [1 1] false 0
+2 A false 23 6 0 2
+2 B false false false 315 300 -3
+2 C false false -3 15 0
+2 W [0 0] false 0
+2 W [2 0] false 0
+2 W [1 2] false 6
+2 W [1 2] false 6
+2 W [0 3] true 0
+2 W [2 2] false 0
+3 A false 77 37 9 -1
+3 B false false false 642 612 18
+3 C false false 24 42 6
+3 W [0 0] false 0
+3 W [3 0] false 0
+3 W [1 3] false 24
+3 W [1 3] false 24
+3 W [0 4] true 0
+3 W [3 3] false 0
+5 A false 323 235 75 -6
+5 B false false false 1665 1587 126
+5 C false false 147 165 27
+5 W [0 0] false 0
+5 W [5 0] false 0
+5 W [1 5] false 120
+5 W [2 5] false 114
+5 W [0 6] true 0
+5 W [5 5] false 0
+8 A false 1217 1112 384 66
+8 B false false false 4212 4017 543
+8 C false false 594 612 81
+8 W [0 0] false 0
+8 W [8 0] false 0
+8 W [1 8] false 504
+8 W [4 8] false 444
+8 W [0 9] true 0
+8 W [8 8] false 0
+9 A false 1703 1623 567 57
+9 B false false false 5355 5109 774
+9 C false false 837 855 105
+9 W [0 0] false 0
+9 W [9 0] false 0
+9 W [1 9] false 720
+9 W [4 9] false 660
+9 W [0 10] true 0
+9 W [9 9] false 0
+16 A false 8969 9904 3584 532
+16 B false false false 18088 17317 4295
+16 C false false 4470 4488 357
+16 W [0 0] false 0
+16 W [16 0] false 0
+16 W [1 16] false 4080
+16 W [8 16] false 3576
+16 W [0 17] true 0
+16 W [16 16] false 0
+17 A false 10703 11951 4335 515
+17 B false false false 20655 19785 5142
+17 C false false 5337 5355 405
+17 W [0 0] false 0
+17 W [17 0] false 0
+17 W [1 17] false 4896
+17 W [8 17] false 4392
+17 W [0 18] true 0
+17 W [17 17] false 0
+33 A false 75167 91487 33759 4103
+33 B false false false 93687 90417 36918
+33 C false false 37569 37587 1581
+33 W [0 0] false 0
+33 W [33 0] false 0
+33 W [1 33] false 35904
+33 W [16 33] false 31824
+33 W [0 34] true 0
+33 W [33 33] false 0
+64 A false 536633 682688 253952 32848
+64 B false false false 476320 464029 266039
+64 C false false 268302 268320 6045
+64 W [0 0] false 0
+64 W [64 0] false 0
+64 W [1 64] false 262080
+64 W [32 64] false 229344
+64 W [0 65] true 0
+64 W [64 64] false 0
+65 A false 561983 715455 266175 32783
+65 B false false false 495495 482817 278646
+65 C false false 280977 280995 6237
+65 W [0 0] false 0
+65 W [65 0] false 0
+65 W [1 65] false 274560
+65 W [32 65] false 241824
+65 W [0 66] true 0
+65 W [65 65] false 0
+100 A false 2030093 2626700 980000 124919
+100 B false false false 1520050 1490047 1009691
+100 C false false 1015032 1015050 14847
+100 W [0 0] false 0
+100 W [100 0] false 0
+100 W [1 100] false 999900
+100 W [50 100] false 874950
+100 W [0 101] true 0
+100 W [100 100] false 0
+131 A false 4547789 5926309 2213769 274719
+131 B false false false 3138498 3087012 2264850
+131 C false false 2273880 2273898 25542
+131 W [0 0] false 0
+131 W [131 0] false 0
+131 W [1 131] false 2.24796e+06
+131 W [65 131] false 1.9734e+06
+131 W [0 132] true 0
+131 W [131 131] false 0
+-- stderr.want --
+loopvec: rewrote 9 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+// The loop starts after the first element.
+func StartOne(dst, a []int32) {
+	for i := 1; i < len(dst); i++ {
+		dst[i] = a[i] * 2
+	}
+}
+
+// The limit stops one short of len(dst): the last element must not be written.
+func Short(dst, a, b []int32) {
+	for i := 0; i < len(dst)-1; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func Inclusive(dst, a []int32) {
+	for i := 0; i <= len(dst)-2; i++ {
+		dst[i] = a[i] - 1
+	}
+}
+
+// Both ends are variables, so the loop may be empty or run past the data.
+func Window(dst, a, b []float32, lo, hi int) {
+	for i := lo; i < hi; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func Half(dst, a []int32) {
+	for i := 0; i < len(dst)/2; i++ {
+		dst[i] = a[i] ^ 7
+	}
+}
+
+// Counting down, from an expression and to a variable.
+func Down(dst, a []int32, n, lo int) {
+	for i := n - 1; i >= lo; i-- {
+		dst[i] += a[i]
+	}
+}
+
+func DownStrict(dst, a []int32) {
+	for i := len(dst) - 2; i > 0; i-- {
+		dst[i] = a[i] + 5
+	}
+}
+
+// A copy that starts at an offset.
+func CopyFrom(dst, src []int32, from int) {
+	for i := from; i < len(dst); i++ {
+		dst[i] = src[i]
+	}
+}
+
+// A reduction over the inside of a slice.
+func SumInner(a []int32) int32 {
+	var s int32
+	for i := 1; i < len(a)-1; i++ {
+		s += a[i]
+	}
+	return s
+}

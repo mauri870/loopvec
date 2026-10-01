@@ -28,12 +28,14 @@ type Plan struct {
 	// Copy is set when the loop only copies one slice onto another. It is
 	// emitted as the copy builtin, which needs no simd at all.
 	Copy bool
-	// Bound is the iteration limit when it is not len of the stored slice: an
-	// int variable or constant, or len of another slice. Empty means every store
-	// is to the slice that limits the loop, and its length is the limit.
+	// Bound is the iteration limit when it is not len of the stored slice. Empty
+	// means every store is to the slice that limits the loop, and its length is
+	// the limit.
 	Bound string
-	// BoundConst is set when Bound is a positive integer constant.
-	BoundConst bool
+	// Start is where the loop starts, as source text; "0" is the usual case.
+	Start string
+	// NonEmpty is set when the loop is known to run at least once.
+	NonEmpty bool
 	// Checked lists every slice whose length must be verified against the
 	// limit before the loop runs: for each store in order, its destination and
 	// then each slice it reads, in the order the loads are emitted.
@@ -119,26 +121,15 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 	}
 
 	trip := l.Ind.Trip
-	switch trip.Kind {
-	case TripLen:
-		// The generated loop stops at the length of the stored slice, so when
-		// another slice limits the loop, or a second slice is stored, the limit
-		// must be spelled out or a longer slice would run past the data.
-		for _, stmt := range p.Stmts {
-			if stmt.Dst != nil && stmt.Dst.Obj != trip.Slice.Obj {
-				p.Bound = "len(" + trip.Slice.Name + ")"
-				break
-			}
+	p.Start, p.Limit, p.NonEmpty, p.TripRef = trip.Start, trip.Limit, trip.NonEmpty, trip.Slice
+	// The generated loop stops at the length of the stored slice, so unless the
+	// limit is exactly that, the limit is spelled out on every slice or a longer
+	// one would be read or written past it.
+	for _, stmt := range p.Stmts {
+		if stmt.Dst != nil && (trip.Slice == nil || stmt.Dst.Obj != trip.Slice.Obj) {
+			p.Bound = trip.Limit
+			break
 		}
-	case TripInt:
-		p.Bound = types.ExprString(trip.Limit)
-		p.BoundConst = trip.Const
-	}
-	if trip.Kind == TripLen {
-		p.TripRef = trip.Slice
-		p.Limit = "len(" + trip.Slice.Name + ")"
-	} else {
-		p.Limit = p.Bound
 	}
 
 	stored := map[types.Object]bool{}

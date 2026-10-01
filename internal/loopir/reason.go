@@ -15,18 +15,21 @@ const (
 	// for i := range s, for i, v := range s, or for i := range n: a key that
 	// is not a new identifier, or a value variable on an integer range.
 	ReasonUnsupportedRange Reason = "range clause is not i := range s, i, v := range s, or i := range n"
-	// ReasonUnsupportedStart covers a counting loop that does not start at 0,
-	// or at len(s)-1 when counting down.
-	ReasonUnsupportedStart Reason = "loop start is not 0 (or len(s)-1 when counting down)"
+	// ReasonUnsupportedStart covers a counting loop whose start is not a
+	// loop-invariant integer expression (a constant, an int variable, len of a
+	// slice, and sums and products of those), or is a negative constant.
+	ReasonUnsupportedStart Reason = "loop start is not a loop-invariant integer expression"
 	// ReasonUnsupportedCondition covers a loop condition that is not
-	// i < limit, or i >= limit when counting down.
-	ReasonUnsupportedCondition Reason = "loop condition is not i < limit (or i >= 0 when counting down)"
+	// i < limit or i <= limit, or i >= limit or i > limit when counting down.
+	ReasonUnsupportedCondition Reason = "loop condition is not i < limit, i <= limit, i >= limit, or i > limit"
 	// ReasonUnsupportedStep covers a step other than i++, or i-- when
 	// counting down.
 	ReasonUnsupportedStep Reason = "loop step is not i++ (or i-- when counting down)"
-	// ReasonUnsupportedBound covers a limit that is not len(slice), an int
-	// variable, or a positive integer constant (or 0 when counting down).
-	ReasonUnsupportedBound Reason = "loop limit is not len(slice), an int variable, or a positive integer constant"
+	// ReasonUnsupportedBound covers a limit that is not a loop-invariant integer
+	// expression, is a constant that is not positive, or is written so that
+	// adding one to it could overflow (a <= limit, or the start of a loop that
+	// counts down, that is not a constant or something minus a constant).
+	ReasonUnsupportedBound Reason = "loop limit is not a loop-invariant integer expression"
 	// ReasonUnsupportedDestination covers a destination that isn't a plain
 	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
 	// nested index (dst[i][j]).

@@ -319,7 +319,7 @@ func SumN(a []int64, n int) int64 {
 				_a1 := simd.BroadcastInt64s(0)
 				_lanes := _a1.Len()
 				for ; _i+_lanes <= n; _i += _lanes {
-					_v1 := simd.LoadInt64s(a[_i:n])
+					_v1 := simd.LoadInt64s(a[_i:])
 					_a1 = _a1.Add(_v1)
 				}
 				var _buf1 [8]int64

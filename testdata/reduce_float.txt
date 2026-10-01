@@ -235,21 +235,21 @@ func SumAndSquares(a []float64, n int) (float64, float64) {
 				_a2_3 := simd.BroadcastFloat64s(0)
 				_lanes := _a1_0.Len()
 				for ; _i+4*_lanes <= n; _i += 4 * _lanes {
-					_v1 := simd.LoadFloat64s(a[_i:n])
+					_v1 := simd.LoadFloat64s(a[_i:])
 					_a1_0 = _a1_0.Add(_v1)
 					_a2_0 = _v1.MulAdd(_v1, _a2_0)
-					_v2 := simd.LoadFloat64s(a[_i+_lanes : n])
+					_v2 := simd.LoadFloat64s(a[_i+_lanes:])
 					_a1_1 = _a1_1.Add(_v2)
 					_a2_1 = _v2.MulAdd(_v2, _a2_1)
-					_v3 := simd.LoadFloat64s(a[_i+2*_lanes : n])
+					_v3 := simd.LoadFloat64s(a[_i+2*_lanes:])
 					_a1_2 = _a1_2.Add(_v3)
 					_a2_2 = _v3.MulAdd(_v3, _a2_2)
-					_v4 := simd.LoadFloat64s(a[_i+3*_lanes : n])
+					_v4 := simd.LoadFloat64s(a[_i+3*_lanes:])
 					_a1_3 = _a1_3.Add(_v4)
 					_a2_3 = _v4.MulAdd(_v4, _a2_3)
 				}
 				for ; _i+_lanes <= n; _i += _lanes {
-					_v5 := simd.LoadFloat64s(a[_i:n])
+					_v5 := simd.LoadFloat64s(a[_i:])
 					_a1_0 = _a1_0.Add(_v5)
 					_a2_0 = _v5.MulAdd(_v5, _a2_0)
 				}

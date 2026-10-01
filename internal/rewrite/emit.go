@@ -62,16 +62,37 @@ type emitter struct {
 // runs, so copy moves exactly that many.
 func (e *emitter) copyCall() string {
 	store := e.plan.Stmts[0]
-	destination := store.Dst.Name
-	if e.plan.Bound != "" {
+	destination, source := store.Dst.Name, store.Root.(*loopir.Load).Ref.Name
+	switch {
+	case e.plan.Start != "0":
+		destination += "[" + e.plan.Start + ":" + e.plan.Bound + "]"
+		source += "[" + e.plan.Start + ":]"
+	case e.plan.Bound != "":
 		destination += "[:" + e.plan.Bound + "]"
 	}
-	return fmt.Sprintf("copy(%s, %s)", destination, store.Root.(*loopir.Load).Ref.Name)
+	return fmt.Sprintf("copy(%s, %s)", destination, source)
 }
 
 // limit is the loop's iteration limit.
 func (e *emitter) limit() string {
 	return e.plan.Limit
+}
+
+// count is the number of iterations, limit - start.
+func (e *emitter) count() string {
+	if e.plan.Start == "0" {
+		return e.plan.Limit
+	}
+	return operand(e.plan.Limit) + " - " + operand(e.plan.Start)
+}
+
+// operand parenthesizes an expression that has an operator at its top level, so
+// it can be an operand of another.
+func operand(expr string) string {
+	if strings.ContainsAny(expr, " +-*/") {
+		return "(" + expr + ")"
+	}
+	return expr
 }
 
 // operand slices ref from position offset, capped at the limit when it is not
@@ -91,7 +112,7 @@ func (e *emitter) operand(ref *loopir.Ref, offset string) string {
 // index.
 func (e *emitter) loop() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "for _i := 0; _i < %s; {\n", e.limit())
+	fmt.Fprintf(&b, "for _i := %s; _i < %s; {\n", e.plan.Start, e.limit())
 	e.statements(&b, false, 0, 1)
 	b.WriteString("\t_i += _n\n")
 	b.WriteString("}")
@@ -207,8 +228,8 @@ func (e *emitter) fullLoop() (string, error) {
 		}
 	}
 	copies := unroll(folds)
-	b.WriteString("_i := 0\n")
-	fmt.Fprintf(&b, "if %s >= %d {\n", e.limit(), minVectors*maxLanes(folds[0].Acc.Type()))
+	fmt.Fprintf(&b, "_i := %s\n", e.plan.Start)
+	fmt.Fprintf(&b, "if %s >= %d {\n", e.count(), minVectors*maxLanes(folds[0].Acc.Type()))
 	for n, fold := range folds {
 		for k := range copies {
 			fmt.Fprintf(&b, "%s := simd.Broadcast%s(%s)\n", accName(n+1, k, copies), e.plan.SimdType, identity(fold.Acc.Type(), fold.Op))
@@ -387,15 +408,15 @@ func (e *emitter) checked(loopText string) string {
 		if e.plan.Bound == "" && e.plan.TripRef != nil && ref.Obj == e.plan.TripRef.Obj {
 			continue
 		}
-		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", ref.Name, limit)
+		fmt.Fprintf(&checks, "_ = %s[%s-1]\n", ref.Name, operand(limit))
 	}
 	if checks.Len() == 0 {
 		return loopText
 	}
-	if e.plan.BoundConst {
+	if e.plan.NonEmpty {
 		return checks.String() + loopText
 	}
-	return "if " + limit + " > 0 {\n" + checks.String() + loopText + "\n}"
+	return "if " + limit + " > " + e.plan.Start + " {\n" + checks.String() + loopText + "\n}"
 }
 
 // invariants returns the loop-invariant operands of every store in evaluation
