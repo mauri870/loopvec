@@ -263,6 +263,9 @@ geomean                        1.303µ        373.4n       -71.33%
 
 Running `loopvec -methods -split` on [gonum](https://github.com/gonum/gonum)
 detects loops in multiple packages (floats, blas, lapack, stat, and others).
+With `-fp-reassoc`, gonum's own `BenchmarkMeanLargeWeighted` (a weighted
+`stat.Mean` over 100,000 elements) runs **3.2x faster** (35.7 µs to 11.2 µs), and
+the `stat` and `floats` tests pass on the rewritten code.
 
 ## Installation
 
