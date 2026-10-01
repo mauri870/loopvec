@@ -1,0 +1,50 @@
+# -fp-reassoc allows regrouping a float sum or product, not a float min or max:
+# the simd methods are the hardware instructions, which on amd64 return the second
+# operand for a NaN and do not order -0 below +0, where Go's min and max propagate
+# the NaN and order the zeros. The result would depend on the machine, so these
+# stay scalar with the flag on, like an elementwise float min.
+
+cp ops.go ops.go.orig
+loopvec -fp-reassoc -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -fp-reassoc -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Largest(a []float32) float32 {
+	m := a[0]
+	for i := range a {
+		m = max(m, a[i])
+	}
+	return m
+}
+
+func Smallest(a []float64) float64 {
+	m := a[0]
+	for i := range a {
+		m = min(a[i], m)
+	}
+	return m
+}
+
+func Difference(a []float32) float32 {
+	var s float32
+	for i := range a {
+		s -= a[i]
+	}
+	return s
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":5,"func":"Largest","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
+{"file":"$WORK/ops.go","line":13,"func":"Smallest","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
+{"file":"$WORK/ops.go","line":21,"func":"Difference","vectorized":false,"reason":"loop accumulates with an operator that cannot be regrouped","stage":"lower"}

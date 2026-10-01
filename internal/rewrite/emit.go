@@ -52,6 +52,9 @@ type emitter struct {
 	loads      map[*loopir.Load]string
 	temps      map[*loopir.Temp]string
 	broadcasts map[*loopir.Invariant]string
+	// loadCount and tempCount number the vectors loaded and the temporaries
+	// defined, across every copy of the loop body, so no two names collide.
+	loadCount, tempCount int
 }
 
 // copyCall renders a copy loop as the copy builtin. The length checks around it
@@ -71,13 +74,13 @@ func (e *emitter) limit() string {
 	return e.plan.Limit
 }
 
-// operand slices ref from the current position, capped at the limit when it is
-// not len(Dst).
-func (e *emitter) operand(ref *loopir.Ref) string {
+// operand slices ref from position offset, capped at the limit when it is not
+// len(Dst).
+func (e *emitter) operand(ref *loopir.Ref, offset string) string {
 	if e.plan.Bound != "" {
-		return ref.Name + "[_i:" + e.plan.Bound + "]"
+		return ref.Name + "[" + offset + ":" + e.plan.Bound + "]"
 	}
-	return ref.Name + "[_i:]"
+	return ref.Name + "[" + offset + ":]"
 }
 
 // loop generates the vector loop: for each statement in order, load each operand
@@ -89,7 +92,7 @@ func (e *emitter) operand(ref *loopir.Ref) string {
 func (e *emitter) loop() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "for _i := 0; _i < %s; {\n", e.limit())
-	e.statements(&b, false)
+	e.statements(&b, false, 0, 1)
 	b.WriteString("\t_i += _n\n")
 	b.WriteString("}")
 	return b.String()
@@ -99,8 +102,17 @@ func (e *emitter) loop() string {
 // loaded again until a store to it, since distinct slices are known not to
 // overlap. With full, loads and stores cover a whole vector and a fold goes into
 // its accumulator; otherwise they are partial and the first one defines _n.
-func (e *emitter) statements(b *strings.Builder, full bool) {
-	count, haveLanes := 0, false
+// Copy is which of copies unrolled bodies this is: it works on the elements
+// copy vectors past _i, and folds into its own accumulators.
+func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
+	offset := "_i"
+	if copy > 0 {
+		offset = fmt.Sprintf("_i+%d*_lanes", copy)
+		if copy == 1 {
+			offset = "_i+_lanes"
+		}
+	}
+	haveLanes := false
 	loaded := map[types.Object]string{}
 	accs := 0
 	for _, stmt := range e.plan.Stmts {
@@ -113,33 +125,35 @@ func (e *emitter) statements(b *strings.Builder, full bool) {
 				e.loads[load] = name
 				continue
 			}
-			count++
-			name := fmt.Sprintf("_v%d", count)
+			e.loadCount++
+			name := fmt.Sprintf("_v%d", e.loadCount)
 			loaded[load.Ref.Obj] = name
 			e.loads[load] = name
 			if full {
-				fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref))
+				fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref, offset))
 				continue
 			}
 			lanes := "_"
 			if !haveLanes {
 				lanes, haveLanes = "_n", true
 			}
-			fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref))
+			fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset))
 		}
 		switch {
 		case stmt.Temp != nil:
-			name := fmt.Sprintf("_t%d", len(e.temps)+1)
+			e.tempCount++
+			name := fmt.Sprintf("_t%d", e.tempCount)
 			e.temps[stmt.Temp] = name
 			fmt.Fprintf(b, "\t%s := %s\n", name, e.expr(stmt.Root))
 		case stmt.Acc != nil:
 			accs++
-			fmt.Fprintf(b, "\t_a%d = _a%[1]d.%s(%s)\n", accs, stmt.Op.Method(), e.expr(stmt.Root))
+			acc := accName(accs, copy, copies)
+			fmt.Fprintf(b, "\t%s = %s\n", acc, e.fold(stmt, acc))
 		case full:
-			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.operand(stmt.Dst))
+			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.operand(stmt.Dst, offset))
 			delete(loaded, stmt.Dst.Obj)
 		default:
-			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst))
+			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst, offset))
 			if !haveLanes {
 				// Nothing was loaded, so the store reports how many lanes it wrote.
 				text, haveLanes = "_n := "+text, true
@@ -148,6 +162,24 @@ func (e *emitter) statements(b *strings.Builder, full bool) {
 			delete(loaded, stmt.Dst.Obj)
 		}
 	}
+}
+
+// accName names the vector accumulator of the n'th fold (counting from 1) in
+// copy of copies unrolled bodies.
+func accName(n, copy, copies int) string {
+	if copies == 1 {
+		return fmt.Sprintf("_a%d", n)
+	}
+	return fmt.Sprintf("_a%d_%d", n, copy)
+}
+
+// fold is the expression that folds the statement's value into the accumulator
+// acc. A float sum of a product is one fused multiply-add.
+func (e *emitter) fold(stmt loopir.PlanStmt, acc string) string {
+	if mul, ok := stmt.Root.(*loopir.Binary); ok && stmt.Op == loopir.OpAdd && mul.Op == loopir.OpMul && e.isFloat() {
+		return fmt.Sprintf("%s.MulAdd(%s, %s)", e.expr(mul.X), e.expr(mul.Y), acc)
+	}
+	return fmt.Sprintf("%s.%s(%s)", acc, stmt.Op.Method(), e.expr(stmt.Root))
 }
 
 // minVectors is how many of the widest vectors a reduction needs before the
@@ -174,18 +206,32 @@ func (e *emitter) fullLoop() (string, error) {
 			folds = append(folds, stmt)
 		}
 	}
+	copies := unroll(folds)
 	b.WriteString("_i := 0\n")
 	fmt.Fprintf(&b, "if %s >= %d {\n", e.limit(), minVectors*maxLanes(folds[0].Acc.Type()))
 	for n, fold := range folds {
-		fmt.Fprintf(&b, "_a%d := simd.Broadcast%s(%s)\n", n+1, e.plan.SimdType, identity(fold.Acc.Type(), fold.Op))
+		for k := range copies {
+			fmt.Fprintf(&b, "%s := simd.Broadcast%s(%s)\n", accName(n+1, k, copies), e.plan.SimdType, identity(fold.Acc.Type(), fold.Op))
+		}
 	}
-	b.WriteString("_lanes := _a1.Len()\n")
+	fmt.Fprintf(&b, "_lanes := %s.Len()\n", accName(1, 0, copies))
+	if copies > 1 {
+		fmt.Fprintf(&b, "for ; _i+%d*_lanes <= %s; _i += %d*_lanes {\n", copies, e.limit(), copies)
+		for k := range copies {
+			e.statements(&b, true, k, copies)
+		}
+		b.WriteString("}\n")
+	}
 	fmt.Fprintf(&b, "for ; _i+_lanes <= %s; _i += _lanes {\n", e.limit())
-	e.statements(&b, true)
+	e.statements(&b, true, 0, copies)
 	b.WriteString("}\n")
 	for n, fold := range folds {
+		first := accName(n+1, 0, copies)
+		for k := 1; k < copies; k++ {
+			fmt.Fprintf(&b, "%s = %s.%s(%s)\n", first, first, fold.Op.Method(), accName(n+1, k, copies))
+		}
 		name := fold.Acc.Name()
-		fmt.Fprintf(&b, "var _buf%d [%d]%s\n_a%[1]d.Store(_buf%[1]d[:])\n", n+1, maxLanes(fold.Acc.Type()), fold.Acc.Type())
+		fmt.Fprintf(&b, "var _buf%d [%d]%s\n%s.Store(_buf%[1]d[:])\n", n+1, maxLanes(fold.Acc.Type()), fold.Acc.Type(), first)
 		fmt.Fprintf(&b, "for _, _x := range _buf%d[:_lanes] {\n%s = %s\n}\n", n+1, name, combine(fold.Op, name, "_x"))
 	}
 	b.WriteString("}\n")
@@ -213,6 +259,19 @@ func (e *emitter) fullLoop() (string, error) {
 	}
 	b.WriteString("}\n}")
 	return b.String(), nil
+}
+
+// unroll is how many bodies the main loop of a reduction runs per iteration, each
+// into its own accumulators. A float add takes several cycles and depends on the
+// previous one, so a single accumulator leaves the vector unit idle; the copies
+// overlap those latencies. Measured on a float dot product, two copies nearly
+// double the speed of one and four add a few percent more; an integer add takes
+// one cycle and copies did not help. The accumulators have to stay in registers.
+func unroll(folds []loopir.PlanStmt) int {
+	if t := folds[0].Acc.Type().Underlying().(*types.Basic); t.Info()&types.IsFloat == 0 {
+		return 1
+	}
+	return max(1, min(4, 8/len(folds)))
 }
 
 // identity is the value that leaves op unchanged, as source text for an element
@@ -262,7 +321,7 @@ func maxLanes(t types.Type) int {
 		return 64
 	case types.Int16, types.Uint16:
 		return 32
-	case types.Int32, types.Uint32:
+	case types.Int32, types.Uint32, types.Float32:
 		return 16
 	}
 	return 8

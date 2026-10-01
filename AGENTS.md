@@ -93,7 +93,9 @@ safety argument stays structural:
   loop-invariant. A fold into a local declared before the loop (`acc op= x`, `acc = acc op x`,
   `acc = min(acc, x)`) is a `Reduce`, and the accumulator may not appear anywhere
   else in the loop; the emitter runs it with full-width loads, since a partial
-  load zero-pads and zero is the identity only for some operators. `if` and
+  load zero-pads and zero is the identity only for some operators. A float sum or
+  product is a `Reduce` only with `-fp-reassoc` (`loopir.Options.FloatReassoc`),
+  since regrouping changes the rounding; float min and max never are. `if` and
   nested loops (2-D access, `aa[i][j]`) are rejected on body shape alone.
 
 There is no shape whitelist: lowering builds a value tree of any depth, and
@@ -178,7 +180,8 @@ Order that actually works, based on adding reverse-loop support (`s1112`):
 6. **Demonstrate it in `bench/`** if it's a general-purpose pattern (not
    `tsvc`-specific): add the function to `ops.go`, temporarily remove its
    `//go:build !goexperiment.simd` guard, run `make bench-regen` to
-   regenerate `ops_simd.go` (it re-adds the guard), add the matching
+   regenerate `ops_simd.go` (it re-adds the guard; the target passes
+   `-fp-reassoc`, so float reductions in `bench/` are rewritten), add the matching
    `Benchmark*` in `bench_test.go`. Manually diff scalar vs.
    `GOEXPERIMENT=simd` output once before trusting any benchmark number —
    benchmarks measure speed, not correctness.

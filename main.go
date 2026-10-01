@@ -35,6 +35,7 @@ var (
 	diffMode     = flag.Bool("d", false, "display unified diff instead of rewritten source")
 	jsonMode     = flag.Bool("json", false, "print one JSON line per candidate loop (file, line, func, vectorized, reason) instead of rewriting")
 	allowMethods = flag.Bool("methods", false, "rewrite loops inside methods (requires Go 1.28+ / gotip CL 839405 to avoid compiler crash)")
+	floatReassoc = flag.Bool("fp-reassoc", false, "rewrite floating-point sums and products by regrouping the additions, which can change the result in the last bits")
 )
 
 func main() {
@@ -145,7 +146,7 @@ func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) e
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		result, err := rewrite.File(fset, file, info, src, rewrite.Options{AllowMethods: allowMethods})
+		result, err := rewrite.File(fset, file, info, src, rewrite.Options{AllowMethods: allowMethods, FloatReassoc: *floatReassoc})
 		if err != nil {
 			return fmt.Errorf("rewrite %s: %w", path, err)
 		}
@@ -209,7 +210,7 @@ func processPkgJSON(fset *token.FileSet, pkg *packages.Package, allowMethods boo
 		if rewrite.HasBuildConstraint(file) {
 			continue
 		}
-		for _, c := range analysis.AnalyzeExplain(fset, file, info, allowMethods) {
+		for _, c := range analysis.AnalyzeExplain(fset, file, info, analysis.Options{AllowMethods: allowMethods, FloatReassoc: *floatReassoc}) {
 			line := jsonCandidate{
 				File:       c.File,
 				Line:       c.Line,

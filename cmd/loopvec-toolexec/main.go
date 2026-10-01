@@ -17,6 +17,7 @@
 //	LOOPVEC_TOOLEXEC_LOG_PKGS  comma-separated import paths; restrict the log to these packages
 //	LOOPVEC_TOOLEXEC_DEBUG     also log why each package was left as it was
 //	LOOPVEC_TOOLEXEC_CRYPTO    rewrite cryptographic packages, which are otherwise left alone
+//	LOOPVEC_TOOLEXEC_FP_REASSOC  regroup floating-point sums and products (the -fp-reassoc flag)
 //	LOOPVEC_TOOLEXEC_NO_TARGET_CHECK  do not read the go command's line to detect a test of a simd dependency
 package main
 
@@ -89,6 +90,9 @@ func printVersion(tool, name string) int {
 		return 0
 	}
 	hash := selfHash()
+	if os.Getenv(floatReassocEnv) != "" {
+		hash += "-fpreassoc"
+	}
 	fields := strings.Fields(line)
 	if last := len(fields) - 1; last >= 0 && strings.HasPrefix(fields[last], "buildID=") {
 		// Development toolchains end the line with buildID=...; the go command

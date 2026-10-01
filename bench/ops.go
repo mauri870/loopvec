@@ -156,3 +156,35 @@ func MinUint16s(a []uint16) uint16 {
 	}
 	return m
 }
+
+func SumFloat32s(a []float32) float32 {
+	var sum float32
+	for i := range a {
+		sum += a[i]
+	}
+	return sum
+}
+
+func DotFloat32s(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}
+
+func ProductFloat32s(a []float32) float32 {
+	prod := float32(1)
+	for i := range a {
+		prod *= a[i]
+	}
+	return prod
+}
+
+func DotFloat64s(a, b []float64) float64 {
+	var sum float64
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}

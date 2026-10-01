@@ -23,7 +23,7 @@ type Candidate struct {
 // not just the ones that got vectorized — with a reason when one didn't.
 // A loop with no indexed-assignment body at all isn't a candidate and isn't
 // reported; see hasIndexedAssignment.
-func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, allowMethods bool) []Candidate {
+func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, opts Options) []Candidate {
 	var out []Candidate
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -48,13 +48,13 @@ func AnalyzeExplain(fset *token.FileSet, file *ast.File, info *types.Info, allow
 			pos := fset.Position(n.Pos())
 			c := Candidate{File: pos.Filename, Line: pos.Line, Func: fn.Name.Name}
 
-			if isMethod && !allowMethods {
+			if isMethod && !opts.AllowMethods {
 				c.Reason = loopir.ReasonMethodSkipped
 				out = append(out, c)
 				return true
 			}
 
-			plan, reason := analyzeLoop(n.(ast.Stmt), info, results)
+			plan, reason := analyzeLoop(n.(ast.Stmt), info, results, opts.Plan())
 			c.Vectorized = plan != nil
 			c.Reason = reason
 			out = append(out, c)

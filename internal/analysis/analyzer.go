@@ -8,6 +8,20 @@ import (
 	"github.com/mauri870/loopvec/internal/loopir"
 )
 
+// Options controls what Analyze and AnalyzeExplain accept.
+type Options struct {
+	// AllowMethods enables loops inside methods; see Analyze.
+	AllowMethods bool
+	// FloatReassoc allows regrouping a floating-point sum or product; see
+	// loopir.Options.
+	FloatReassoc bool
+}
+
+// Plan returns the planning options o implies.
+func (o Options) Plan() loopir.Options {
+	return loopir.Options{FloatReassoc: o.FloatReassoc}
+}
+
 // Analyze walks a file's AST and returns a plan for every vectorizable loop.
 //
 // Only loops inside function bodies are considered. A loop in a package-level
@@ -20,17 +34,17 @@ import (
 // in simd-tagged files (https://github.com/golang/go/issues/80657).
 // Pass allowMethods=true only when using a toolchain that has the fix
 // (Go 1.28+ / gotip with CL 839405).
-func Analyze(file *ast.File, info *types.Info, allowMethods bool) []*loopir.Plan {
+func Analyze(file *ast.File, info *types.Info, opts Options) []*loopir.Plan {
 	var plans []*loopir.Plan
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil || (fn.Recv != nil && !allowMethods) {
+		if !ok || fn.Body == nil || (fn.Recv != nil && !opts.AllowMethods) {
 			continue
 		}
 		results := loopir.NamedResults(fn, info)
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			if stmt, ok := n.(ast.Stmt); ok {
-				if plan, _ := analyzeLoop(stmt, info, results); plan != nil {
+				if plan, _ := analyzeLoop(stmt, info, results, opts.Plan()); plan != nil {
 					plans = append(plans, plan)
 				}
 			}
@@ -42,7 +56,7 @@ func Analyze(file *ast.File, info *types.Info, allowMethods bool) []*loopir.Plan
 
 // analyzeLoop lowers stmt, which must be a for or range statement, and plans
 // it. It returns the reason when the loop is not vectorizable.
-func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool) (*loopir.Plan, loopir.Reason) {
+func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool, plan loopir.Options) (*loopir.Plan, loopir.Reason) {
 	switch stmt.(type) {
 	case *ast.RangeStmt, *ast.ForStmt:
 	default:
@@ -52,5 +66,5 @@ func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool)
 	if reason != "" {
 		return nil, reason
 	}
-	return loopir.NewPlan(loop)
+	return loopir.NewPlan(loop, plan)
 }

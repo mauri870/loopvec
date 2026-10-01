@@ -453,6 +453,182 @@ func MinUint16s(a []uint16) uint16 {
 	return m
 }
 
+func SumFloat32s(a []float32) float32 {
+	var sum float32
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1_0 := simd.BroadcastFloat32s(0)
+			_a1_1 := simd.BroadcastFloat32s(0)
+			_a1_2 := simd.BroadcastFloat32s(0)
+			_a1_3 := simd.BroadcastFloat32s(0)
+			_lanes := _a1_0.Len()
+			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+				_v1 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Add(_v1)
+				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
+				_a1_1 = _a1_1.Add(_v2)
+				_v3 := simd.LoadFloat32s(a[_i+2*_lanes:])
+				_a1_2 = _a1_2.Add(_v3)
+				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
+				_a1_3 = _a1_3.Add(_v4)
+			}
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v5 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Add(_v5)
+			}
+			_a1_0 = _a1_0.Add(_a1_1)
+			_a1_0 = _a1_0.Add(_a1_2)
+			_a1_0 = _a1_0.Add(_a1_3)
+			var _buf1 [16]float32
+			_a1_0.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				sum = sum + _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			sum += a[i]
+		}
+	}
+	return sum
+}
+
+func DotFloat32s(a, b []float32) float32 {
+	var sum float32
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 64 {
+				_a1_0 := simd.BroadcastFloat32s(0)
+				_a1_1 := simd.BroadcastFloat32s(0)
+				_a1_2 := simd.BroadcastFloat32s(0)
+				_a1_3 := simd.BroadcastFloat32s(0)
+				_lanes := _a1_0.Len()
+				for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+					_v1 := simd.LoadFloat32s(a[_i:])
+					_v2 := simd.LoadFloat32s(b[_i:])
+					_a1_0 = _v1.MulAdd(_v2, _a1_0)
+					_v3 := simd.LoadFloat32s(a[_i+_lanes:])
+					_v4 := simd.LoadFloat32s(b[_i+_lanes:])
+					_a1_1 = _v3.MulAdd(_v4, _a1_1)
+					_v5 := simd.LoadFloat32s(a[_i+2*_lanes:])
+					_v6 := simd.LoadFloat32s(b[_i+2*_lanes:])
+					_a1_2 = _v5.MulAdd(_v6, _a1_2)
+					_v7 := simd.LoadFloat32s(a[_i+3*_lanes:])
+					_v8 := simd.LoadFloat32s(b[_i+3*_lanes:])
+					_a1_3 = _v7.MulAdd(_v8, _a1_3)
+				}
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v9 := simd.LoadFloat32s(a[_i:])
+					_v10 := simd.LoadFloat32s(b[_i:])
+					_a1_0 = _v9.MulAdd(_v10, _a1_0)
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
+				var _buf1 [16]float32
+				_a1_0.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					sum = sum + _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				sum += a[i] * b[i]
+			}
+		}
+	}
+	return sum
+}
+
+func ProductFloat32s(a []float32) float32 {
+	prod := float32(1)
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1_0 := simd.BroadcastFloat32s(1)
+			_a1_1 := simd.BroadcastFloat32s(1)
+			_a1_2 := simd.BroadcastFloat32s(1)
+			_a1_3 := simd.BroadcastFloat32s(1)
+			_lanes := _a1_0.Len()
+			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+				_v1 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Mul(_v1)
+				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
+				_a1_1 = _a1_1.Mul(_v2)
+				_v3 := simd.LoadFloat32s(a[_i+2*_lanes:])
+				_a1_2 = _a1_2.Mul(_v3)
+				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
+				_a1_3 = _a1_3.Mul(_v4)
+			}
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v5 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Mul(_v5)
+			}
+			_a1_0 = _a1_0.Mul(_a1_1)
+			_a1_0 = _a1_0.Mul(_a1_2)
+			_a1_0 = _a1_0.Mul(_a1_3)
+			var _buf1 [16]float32
+			_a1_0.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				prod = prod * _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			prod *= a[i]
+		}
+	}
+	return prod
+}
+
+func DotFloat64s(a, b []float64) float64 {
+	var sum float64
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 32 {
+				_a1_0 := simd.BroadcastFloat64s(0)
+				_a1_1 := simd.BroadcastFloat64s(0)
+				_a1_2 := simd.BroadcastFloat64s(0)
+				_a1_3 := simd.BroadcastFloat64s(0)
+				_lanes := _a1_0.Len()
+				for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+					_v1 := simd.LoadFloat64s(a[_i:])
+					_v2 := simd.LoadFloat64s(b[_i:])
+					_a1_0 = _v1.MulAdd(_v2, _a1_0)
+					_v3 := simd.LoadFloat64s(a[_i+_lanes:])
+					_v4 := simd.LoadFloat64s(b[_i+_lanes:])
+					_a1_1 = _v3.MulAdd(_v4, _a1_1)
+					_v5 := simd.LoadFloat64s(a[_i+2*_lanes:])
+					_v6 := simd.LoadFloat64s(b[_i+2*_lanes:])
+					_a1_2 = _v5.MulAdd(_v6, _a1_2)
+					_v7 := simd.LoadFloat64s(a[_i+3*_lanes:])
+					_v8 := simd.LoadFloat64s(b[_i+3*_lanes:])
+					_a1_3 = _v7.MulAdd(_v8, _a1_3)
+				}
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v9 := simd.LoadFloat64s(a[_i:])
+					_v10 := simd.LoadFloat64s(b[_i:])
+					_a1_0 = _v9.MulAdd(_v10, _a1_0)
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
+				var _buf1 [8]float64
+				_a1_0.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					sum = sum + _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				sum += a[i] * b[i]
+			}
+		}
+	}
+	return sum
+}
+
 func _loopvecOverlap[T any](a, b []T) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false

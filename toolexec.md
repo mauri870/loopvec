@@ -49,6 +49,10 @@ for each rewritten package and for each rewrite that was rejected.
 `LOOPVEC_TOOLEXEC_LOG_PKGS` restricts the log to a comma-separated list of import
 paths, and `LOOPVEC_TOOLEXEC_DEBUG=1` also records why a package was skipped.
 
+Set `LOOPVEC_TOOLEXEC_FP_REASSOC=1` for the `-fp-reassoc` behavior: floating-point
+sums and products are regrouped, so a program's results can change in the last
+bits. It is part of the wrapper's build identity, so toggling it rebuilds.
+
 This mode rewrites code you have not reviewed. It applies the same
 transformation as `-split` without the chance to benchmark it, and loops over
 short slices can get slower. Treat it as an experiment and compare with the

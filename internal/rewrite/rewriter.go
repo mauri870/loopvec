@@ -30,6 +30,9 @@ type Options struct {
 	// AllowMethods enables rewriting of loops inside methods; see
 	// analysis.Analyze for the caveat.
 	AllowMethods bool
+	// FloatReassoc allows regrouping a floating-point sum or product, which can
+	// change the result in the last bits; see loopir.Options.
+	FloatReassoc bool
 	// Compiler is set when the source is rewritten inside the build itself
 	// (-toolexec). The go command has already selected the file for the current
 	// build, so its build constraints are not consulted and no
@@ -44,7 +47,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	if !opts.Compiler && HasBuildConstraint(file) {
 		return Result{Src: src}, nil
 	}
-	plans := analysis.Analyze(file, info, opts.AllowMethods)
+	plans := analysis.Analyze(file, info, analysis.Options{AllowMethods: opts.AllowMethods, FloatReassoc: opts.FloatReassoc})
 	if len(plans) == 0 {
 		return Result{Src: src}, nil
 	}

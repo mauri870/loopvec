@@ -2,6 +2,7 @@ package bench
 
 import (
 	"math"
+	"math/big"
 	"math/rand/v2"
 	"testing"
 )
@@ -598,5 +599,65 @@ func FuzzReduceInt32s(f *testing.F) {
 		if got := MinUint16s(u); got != wantMin {
 			t.Fatalf("MinUint16s(n=%d) = %d, want %d", n, got, wantMin)
 		}
+	})
+}
+
+// A sum of n floats regrouped in any order is within n*u*sum|term| of the exact
+// sum, where u is the unit roundoff, the standard bound for recursive summation.
+// Both the scalar and the regrouped loop satisfy it, so that is what is checked:
+// the two differ from each other, legitimately.
+func sumBound(n int, terms []float64, unit float64) float64 {
+	var abs float64
+	for _, t := range terms {
+		abs += math.Abs(t)
+	}
+	return 1.01*float64(n)*unit*abs + 1e-300
+}
+
+func FuzzReduceFloats(f *testing.F) {
+	f.Add(0, uint64(1))
+	f.Add(1, uint64(2))
+	f.Add(15, uint64(3))
+	f.Add(64, uint64(4))
+	f.Add(65, uint64(5))
+	f.Add(100, uint64(6)) // several vectors, the unrolled loop and a tail
+	f.Add(299, uint64(7))
+	f.Fuzz(func(t *testing.T, nRaw int, seed uint64) {
+		n := clampLen(nRaw)
+		r := rand.New(rand.NewPCG(seed, seed>>32|1))
+		a, b := make([]float32, n), make([]float32, n)
+		a64, b64 := make([]float64, n), make([]float64, n)
+		near := make([]float32, n) // near 1, so a product neither overflows nor underflows
+		for i := range n {
+			a[i], b[i] = (r.Float32()-0.5)*1e4, (r.Float32()-0.5)*1e4
+			a64[i], b64[i] = (r.Float64()-0.5)*1e8, (r.Float64()-0.5)*1e8
+			near[i] = 0.9 + 0.2*r.Float32()
+		}
+
+		sumTerms, dotTerms, dot64Terms := make([]float64, n), make([]float64, n), make([]float64, n)
+		var wantSum, wantDot float64
+		wantProd := 1.0
+		big64 := new(big.Float).SetPrec(300)
+		for i := range n {
+			sumTerms[i] = float64(a[i])
+			dotTerms[i] = float64(a[i]) * float64(b[i]) // exact in float64
+			wantSum += sumTerms[i]
+			wantDot += dotTerms[i]
+			wantProd *= float64(near[i])
+			big64.Add(big64, new(big.Float).SetPrec(300).Mul(big.NewFloat(a64[i]), big.NewFloat(b64[i])))
+			dot64Terms[i] = a64[i] * b64[i]
+		}
+		wantDot64, _ := big64.Float64()
+
+		const u32, u64 = 1.0 / (1 << 24), 1.0 / (1 << 53)
+		check := func(name string, got, want, bound float64) {
+			if !(math.Abs(got-want) <= bound) {
+				t.Fatalf("%s(n=%d) = %v, want %v within %v", name, n, got, want, bound)
+			}
+		}
+		check("SumFloat32s", float64(SumFloat32s(a)), wantSum, sumBound(n, sumTerms, u32))
+		check("DotFloat32s", float64(DotFloat32s(a, b)), wantDot, sumBound(n, dotTerms, u32))
+		check("DotFloat64s", DotFloat64s(a64, b64), wantDot64, sumBound(n, dot64Terms, u64))
+		check("ProductFloat32s", float64(ProductFloat32s(near)), wantProd, 1.01*float64(n)*u32*math.Abs(wantProd)+1e-300)
 	})
 }

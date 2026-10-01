@@ -1,4 +1,4 @@
-# loopvec TSVC coverage: vectorized 12, gaps 80, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 17, gaps 75, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 s1111	vectorize	no	loop limit is not len(slice), an int variable, or a positive integer constant
@@ -56,9 +56,9 @@ s291	vectorize	no	operand is not a same-index slice, range value, or plain scala
 s293	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s2101	vectorize	no	destination is not a simple, same-index slice element
 s2102	vectorize	no	destination is not a simple, same-index slice element
-s311	vectorize	no	float reduction would combine the elements in a different order
-s312	vectorize	no	float reduction would combine the elements in a different order
-s313	vectorize	no	float reduction would combine the elements in a different order
+s311	vectorize	yes
+s312	vectorize	yes
+s313	vectorize	yes
 s314	vectorize	no	loop body is not a sequence of indexed assignments
 s315	vectorize	no	loop body is not a sequence of indexed assignments
 s316	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
@@ -89,6 +89,6 @@ vpvtv	vectorize	yes
 vpvts	vectorize	yes
 vpvpv	vectorize	yes
 vtvtv	vectorize	yes
-vsumr	vectorize	no	float reduction would combine the elements in a different order
-vdotr	vectorize	no	float reduction would combine the elements in a different order
+vsumr	vectorize	yes
+vdotr	vectorize	yes
 vbor	vectorize	no	loop body is not a sequence of indexed assignments

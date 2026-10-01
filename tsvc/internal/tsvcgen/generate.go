@@ -42,8 +42,9 @@ var checksumFuncs = map[string][2]string{
 
 // exactConsts maps an exact=<value> directive to its Exactness constant.
 var exactConsts = map[string]string{
-	"bits":  "ExactBits",
-	"fused": "ExactFused",
+	"bits":    "ExactBits",
+	"fused":   "ExactFused",
+	"reassoc": "ExactReassoc",
 }
 
 // expectConsts maps an expect=<value> directive to its Expectation constant.

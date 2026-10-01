@@ -51,10 +51,10 @@ const (
 	// ReasonUnsupportedReduction covers a fold into a local with an operator
 	// that cannot be regrouped, such as -=, /=, &^=, or a shift.
 	ReasonUnsupportedReduction Reason = "loop accumulates with an operator that cannot be regrouped"
-	// ReasonFloatReduction covers a floating-point accumulator: folding into
+	// ReasonFloatReduction covers a floating-point sum or product: folding into
 	// several vector lanes and combining them regroups the operations, and
-	// float addition is not associative.
-	ReasonFloatReduction Reason = "float reduction would combine the elements in a different order"
+	// float addition is not associative. It is rewritten with -fp-reassoc.
+	ReasonFloatReduction Reason = "float reduction would combine the elements in a different order (-fp-reassoc allows it)"
 	// ReasonMixedTypes covers a body whose assignments write slices of
 	// different element types: one vector type is used for the whole loop.
 	ReasonMixedTypes Reason = "assignments write slices of different element types"

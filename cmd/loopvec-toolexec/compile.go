@@ -71,6 +71,11 @@ func parseCompileArgs(args []string) compileArgs {
 // cryptoEnv, when set, lets the wrapper rewrite cryptographic packages.
 const cryptoEnv = "LOOPVEC_TOOLEXEC_CRYPTO"
 
+// floatReassocEnv, when set, lets the wrapper regroup floating-point sums and
+// products (loopvec's -fp-reassoc). It changes the compiled code, so it is part
+// of the build identity the wrapper reports.
+const floatReassocEnv = "LOOPVEC_TOOLEXEC_FP_REASSOC"
+
 // isCrypto reports whether path is a cryptographic package: the standard
 // library's crypto tree and golang.org/x/crypto, including their vendored
 // copies. Constant-time code is written so that its running time does not
@@ -153,7 +158,7 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 
 	total := 0
 	for i, s := range sources {
-		res, err := rewrite.File(fset, files[i], info, s.src, rewrite.Options{Compiler: true})
+		res, err := rewrite.File(fset, files[i], info, s.src, rewrite.Options{Compiler: true, FloatReassoc: os.Getenv(floatReassocEnv) != ""})
 		if err != nil || res.Rewrites == 0 {
 			continue
 		}

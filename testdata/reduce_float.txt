@@ -1,0 +1,487 @@
+# With -fp-reassoc, a loop that sums or multiplies floats is rewritten like an
+# integer reduction, but the regrouped additions can round differently from the
+# scalar loop, so it is opt-in. A float product feeding a sum is one multiply-add.
+# The main loop folds four vectors per iteration into four accumulators so that
+# the dependent adds overlap. The inputs here add exactly in any order, so the
+# two builds print the same bits; the fuzz tests in bench/ check rounding.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+# Without the flag nothing is rewritten.
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -fp-reassoc -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Sum(a []float32) float32 {
+	var s float32
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+
+// A product feeding a sum is one multiply-add.
+func Dot(a, b []float64) float64 {
+	var s float64
+	for i, v := range a {
+		s = s + v*b[i]
+	}
+	return s
+}
+
+func Product(a []float32) float32 {
+	p := float32(1)
+	for i := range a {
+		p *= a[i]
+	}
+	return p
+}
+
+// Two folds in one loop, and an int limit.
+func SumAndSquares(a []float64, n int) (float64, float64) {
+	var s, q float64
+	for i := 0; i < n; i++ {
+		s += a[i]
+		q += a[i] * a[i]
+	}
+	return s, q
+}
+
+// Two folds, a temporary, and a range value variable: the shape of a weighted
+// skewness.
+func Moments(x, w []float64, mean, std float64) (s, sumWeights float64) {
+	for i, v := range x {
+		z := (v - mean) / std
+		s += w[i] * z * z * z
+		sumWeights += w[i]
+	}
+	return s, sumWeights
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import "simd"
+
+func Sum(a []float32) float32 {
+	var s float32
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1_0 := simd.BroadcastFloat32s(0)
+			_a1_1 := simd.BroadcastFloat32s(0)
+			_a1_2 := simd.BroadcastFloat32s(0)
+			_a1_3 := simd.BroadcastFloat32s(0)
+			_lanes := _a1_0.Len()
+			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+				_v1 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Add(_v1)
+				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
+				_a1_1 = _a1_1.Add(_v2)
+				_v3 := simd.LoadFloat32s(a[_i+2*_lanes:])
+				_a1_2 = _a1_2.Add(_v3)
+				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
+				_a1_3 = _a1_3.Add(_v4)
+			}
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v5 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Add(_v5)
+			}
+			_a1_0 = _a1_0.Add(_a1_1)
+			_a1_0 = _a1_0.Add(_a1_2)
+			_a1_0 = _a1_0.Add(_a1_3)
+			var _buf1 [16]float32
+			_a1_0.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				s = s + _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			s += a[i]
+		}
+	}
+	return s
+}
+
+// A product feeding a sum is one multiply-add.
+func Dot(a, b []float64) float64 {
+	var s float64
+	if len(a) > 0 {
+		_ = b[len(a)-1]
+		{
+			_i := 0
+			if len(a) >= 32 {
+				_a1_0 := simd.BroadcastFloat64s(0)
+				_a1_1 := simd.BroadcastFloat64s(0)
+				_a1_2 := simd.BroadcastFloat64s(0)
+				_a1_3 := simd.BroadcastFloat64s(0)
+				_lanes := _a1_0.Len()
+				for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+					_v1 := simd.LoadFloat64s(a[_i:])
+					_v2 := simd.LoadFloat64s(b[_i:])
+					_a1_0 = _v1.MulAdd(_v2, _a1_0)
+					_v3 := simd.LoadFloat64s(a[_i+_lanes:])
+					_v4 := simd.LoadFloat64s(b[_i+_lanes:])
+					_a1_1 = _v3.MulAdd(_v4, _a1_1)
+					_v5 := simd.LoadFloat64s(a[_i+2*_lanes:])
+					_v6 := simd.LoadFloat64s(b[_i+2*_lanes:])
+					_a1_2 = _v5.MulAdd(_v6, _a1_2)
+					_v7 := simd.LoadFloat64s(a[_i+3*_lanes:])
+					_v8 := simd.LoadFloat64s(b[_i+3*_lanes:])
+					_a1_3 = _v7.MulAdd(_v8, _a1_3)
+				}
+				for ; _i+_lanes <= len(a); _i += _lanes {
+					_v9 := simd.LoadFloat64s(a[_i:])
+					_v10 := simd.LoadFloat64s(b[_i:])
+					_a1_0 = _v9.MulAdd(_v10, _a1_0)
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
+				var _buf1 [8]float64
+				_a1_0.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					s = s + _x
+				}
+			}
+			for i := _i; i < len(a); i++ {
+				v := a[i]
+				s = s + v*b[i]
+			}
+		}
+	}
+	return s
+}
+
+func Product(a []float32) float32 {
+	p := float32(1)
+	{
+		_i := 0
+		if len(a) >= 64 {
+			_a1_0 := simd.BroadcastFloat32s(1)
+			_a1_1 := simd.BroadcastFloat32s(1)
+			_a1_2 := simd.BroadcastFloat32s(1)
+			_a1_3 := simd.BroadcastFloat32s(1)
+			_lanes := _a1_0.Len()
+			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+				_v1 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Mul(_v1)
+				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
+				_a1_1 = _a1_1.Mul(_v2)
+				_v3 := simd.LoadFloat32s(a[_i+2*_lanes:])
+				_a1_2 = _a1_2.Mul(_v3)
+				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
+				_a1_3 = _a1_3.Mul(_v4)
+			}
+			for ; _i+_lanes <= len(a); _i += _lanes {
+				_v5 := simd.LoadFloat32s(a[_i:])
+				_a1_0 = _a1_0.Mul(_v5)
+			}
+			_a1_0 = _a1_0.Mul(_a1_1)
+			_a1_0 = _a1_0.Mul(_a1_2)
+			_a1_0 = _a1_0.Mul(_a1_3)
+			var _buf1 [16]float32
+			_a1_0.Store(_buf1[:])
+			for _, _x := range _buf1[:_lanes] {
+				p = p * _x
+			}
+		}
+		for i := _i; i < len(a); i++ {
+			p *= a[i]
+		}
+	}
+	return p
+}
+
+// Two folds in one loop, and an int limit.
+func SumAndSquares(a []float64, n int) (float64, float64) {
+	var s, q float64
+	if n > 0 {
+		_ = a[n-1]
+		{
+			_i := 0
+			if n >= 32 {
+				_a1_0 := simd.BroadcastFloat64s(0)
+				_a1_1 := simd.BroadcastFloat64s(0)
+				_a1_2 := simd.BroadcastFloat64s(0)
+				_a1_3 := simd.BroadcastFloat64s(0)
+				_a2_0 := simd.BroadcastFloat64s(0)
+				_a2_1 := simd.BroadcastFloat64s(0)
+				_a2_2 := simd.BroadcastFloat64s(0)
+				_a2_3 := simd.BroadcastFloat64s(0)
+				_lanes := _a1_0.Len()
+				for ; _i+4*_lanes <= n; _i += 4 * _lanes {
+					_v1 := simd.LoadFloat64s(a[_i:n])
+					_a1_0 = _a1_0.Add(_v1)
+					_a2_0 = _v1.MulAdd(_v1, _a2_0)
+					_v2 := simd.LoadFloat64s(a[_i+_lanes : n])
+					_a1_1 = _a1_1.Add(_v2)
+					_a2_1 = _v2.MulAdd(_v2, _a2_1)
+					_v3 := simd.LoadFloat64s(a[_i+2*_lanes : n])
+					_a1_2 = _a1_2.Add(_v3)
+					_a2_2 = _v3.MulAdd(_v3, _a2_2)
+					_v4 := simd.LoadFloat64s(a[_i+3*_lanes : n])
+					_a1_3 = _a1_3.Add(_v4)
+					_a2_3 = _v4.MulAdd(_v4, _a2_3)
+				}
+				for ; _i+_lanes <= n; _i += _lanes {
+					_v5 := simd.LoadFloat64s(a[_i:n])
+					_a1_0 = _a1_0.Add(_v5)
+					_a2_0 = _v5.MulAdd(_v5, _a2_0)
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
+				var _buf1 [8]float64
+				_a1_0.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					s = s + _x
+				}
+				_a2_0 = _a2_0.Add(_a2_1)
+				_a2_0 = _a2_0.Add(_a2_2)
+				_a2_0 = _a2_0.Add(_a2_3)
+				var _buf2 [8]float64
+				_a2_0.Store(_buf2[:])
+				for _, _x := range _buf2[:_lanes] {
+					q = q + _x
+				}
+			}
+			for i := _i; i < n; i++ {
+				s += a[i]
+				q += a[i] * a[i]
+			}
+		}
+	}
+	return s, q
+}
+
+// Two folds, a temporary, and a range value variable: the shape of a weighted
+// skewness.
+func Moments(x, w []float64, mean, std float64) (s, sumWeights float64) {
+	_vcFloat64s4_1 := simd.BroadcastFloat64s(mean)
+	_vcFloat64s4_2 := simd.BroadcastFloat64s(std)
+	if len(x) > 0 {
+		_ = w[len(x)-1]
+		{
+			_i := 0
+			if len(x) >= 32 {
+				_a1_0 := simd.BroadcastFloat64s(0)
+				_a1_1 := simd.BroadcastFloat64s(0)
+				_a1_2 := simd.BroadcastFloat64s(0)
+				_a1_3 := simd.BroadcastFloat64s(0)
+				_a2_0 := simd.BroadcastFloat64s(0)
+				_a2_1 := simd.BroadcastFloat64s(0)
+				_a2_2 := simd.BroadcastFloat64s(0)
+				_a2_3 := simd.BroadcastFloat64s(0)
+				_lanes := _a1_0.Len()
+				for ; _i+4*_lanes <= len(x); _i += 4 * _lanes {
+					_v1 := simd.LoadFloat64s(x[_i:])
+					_t1 := _v1.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
+					_v2 := simd.LoadFloat64s(w[_i:])
+					_a1_0 = _v2.Mul(_t1).Mul(_t1).MulAdd(_t1, _a1_0)
+					_a2_0 = _a2_0.Add(_v2)
+					_v3 := simd.LoadFloat64s(x[_i+_lanes:])
+					_t2 := _v3.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
+					_v4 := simd.LoadFloat64s(w[_i+_lanes:])
+					_a1_1 = _v4.Mul(_t2).Mul(_t2).MulAdd(_t2, _a1_1)
+					_a2_1 = _a2_1.Add(_v4)
+					_v5 := simd.LoadFloat64s(x[_i+2*_lanes:])
+					_t3 := _v5.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
+					_v6 := simd.LoadFloat64s(w[_i+2*_lanes:])
+					_a1_2 = _v6.Mul(_t3).Mul(_t3).MulAdd(_t3, _a1_2)
+					_a2_2 = _a2_2.Add(_v6)
+					_v7 := simd.LoadFloat64s(x[_i+3*_lanes:])
+					_t4 := _v7.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
+					_v8 := simd.LoadFloat64s(w[_i+3*_lanes:])
+					_a1_3 = _v8.Mul(_t4).Mul(_t4).MulAdd(_t4, _a1_3)
+					_a2_3 = _a2_3.Add(_v8)
+				}
+				for ; _i+_lanes <= len(x); _i += _lanes {
+					_v9 := simd.LoadFloat64s(x[_i:])
+					_t5 := _v9.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
+					_v10 := simd.LoadFloat64s(w[_i:])
+					_a1_0 = _v10.Mul(_t5).Mul(_t5).MulAdd(_t5, _a1_0)
+					_a2_0 = _a2_0.Add(_v10)
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
+				var _buf1 [8]float64
+				_a1_0.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					s = s + _x
+				}
+				_a2_0 = _a2_0.Add(_a2_1)
+				_a2_0 = _a2_0.Add(_a2_2)
+				_a2_0 = _a2_0.Add(_a2_3)
+				var _buf2 [8]float64
+				_a2_0.Store(_buf2[:])
+				for _, _x := range _buf2[:_lanes] {
+					sumWeights = sumWeights + _x
+				}
+			}
+			for i := _i; i < len(x); i++ {
+				v := x[i]
+				z := (v - mean) / std
+				s += w[i] * z * z * z
+				sumWeights += w[i]
+			}
+		}
+	}
+	return s, sumWeights
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"example.com/test"
+)
+
+// The sizes cover empty, shorter than a vector, one vector, the unrolled loop
+// and its tail.
+var sizes = []int{0, 1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 127, 128, 129, 200, 256, 257, 1000}
+
+func main() {
+	// Small integers and powers of two add and multiply exactly in any order, so
+	// the regrouped loop gives the same bits as the scalar one.
+	for _, n := range sizes {
+		a32 := make([]float32, n)
+		p32 := make([]float32, n)
+		a64 := make([]float64, n)
+		b64 := make([]float64, n)
+		for i := range n {
+			a32[i] = float32(i%97 - 40)
+			p32[i] = [3]float32{1, 2, 0.5}[i%3]
+			a64[i], b64[i] = float64(i%61-30), float64(i%13)
+		}
+		s, q := test.SumAndSquares(a64, n)
+		m, w := test.Moments(a64, b64, 3, 1)
+		fmt.Println(n, test.Sum(a32), test.Dot(a64, b64), test.Product(p32), s, q, m, w)
+	}
+
+	// A NaN or an infinity in any position gives the same answer in any order.
+	for _, n := range []int{5, 70, 300} {
+		a := make([]float32, n)
+		for i := range a {
+			a[i] = 1
+		}
+		a[n/2] = float32(math.NaN())
+		fmt.Println(n, test.Sum(a))
+		a[n/2] = float32(math.Inf(1))
+		fmt.Println(n, test.Sum(a))
+		a[n-1] = float32(math.Inf(-1))
+		fmt.Println(n, test.Sum(a))
+	}
+}
+-- testmain/output --
+0 0 0 1 0 0 0 0
+1 -40 0 1 -30 900 0 0
+2 -79 -29 2 -59 1741 -32768 1
+7 -259 -539 1 -189 5131 -498764 21
+8 -292 -700 2 -212 5660 -621796 28
+9 -324 -876 1 -234 6144 -746796 36
+15 -495 -1706 1 -345 8215 -1.228001e+06 79
+16 -520 -1736 1 -360 8440 -1.239665e+06 81
+17 -544 -1778 2 -374 8636 -1.254404e+06 84
+31 -775 -2376 1 -465 9455 -1.370238e+06 166
+32 -784 -2371 2 -464 9456 -1.370278e+06 171
+33 -792 -2359 1 -462 9460 -1.370284e+06 177
+63 -567 -240 1 -59 20651 -1.211073e+06 367
+64 -544 -548 1 -87 21435 -1.538774e+06 378
+65 -520 -872 2 -114 22164 -1.862774e+06 390
+100 659 -2410 1 -429 28569 -2.64373e+06 582
+127 11 -980 1 -140 41750 -2.951543e+06 747
+128 1 -1230 2 -165 42375 -3.171063e+06 757
+129 -8 -1494 1 -189 42951 -3.387576e+06 768
+200 1327 -1868 2 -374 65366 -4.443152e+06 1180
+256 963 -1431 1 -294 82986 -5.301483e+06 1518
+257 985 -1593 2 -312 83310 -5.384832e+06 1527
+1000 6995 -2400 1 -444 311924 -1.7963814e+07 5994
+5 NaN
+5 +Inf
+5 NaN
+70 NaN
+70 +Inf
+70 NaN
+300 NaN
+300 +Inf
+300 NaN
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Sum(a []float32) float32 {
+	var s float32
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+
+// A product feeding a sum is one multiply-add.
+func Dot(a, b []float64) float64 {
+	var s float64
+	for i, v := range a {
+		s = s + v*b[i]
+	}
+	return s
+}
+
+func Product(a []float32) float32 {
+	p := float32(1)
+	for i := range a {
+		p *= a[i]
+	}
+	return p
+}
+
+// Two folds in one loop, and an int limit.
+func SumAndSquares(a []float64, n int) (float64, float64) {
+	var s, q float64
+	for i := 0; i < n; i++ {
+		s += a[i]
+		q += a[i] * a[i]
+	}
+	return s, q
+}
+
+// Two folds, a temporary, and a range value variable: the shape of a weighted
+// skewness.
+func Moments(x, w []float64, mean, std float64) (s, sumWeights float64) {
+	for i, v := range x {
+		z := (v - mean) / std
+		s += w[i] * z * z * z
+		sumWeights += w[i]
+	}
+	return s, sumWeights
+}

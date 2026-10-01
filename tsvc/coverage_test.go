@@ -47,7 +47,9 @@ func TestCoverage(t *testing.T) {
 		t.Fatalf("building loopvec: %v\n%s", err, out)
 	}
 
-	cmd := exec.Command(binary, "-json", ".")
+	// Float reductions are rewritten only with -fp-reassoc; the kernels that
+	// carry exact=reassoc are expected to vectorize with it.
+	cmd := exec.Command(binary, "-fp-reassoc", "-json", ".")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

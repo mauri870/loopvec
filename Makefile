@@ -24,6 +24,7 @@ fuzz-slow:
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzChainInt32s -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzWideInt32s -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzReduceInt32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzReduceFloats -fuzztime=60s
 
 fix:
 	go fix ./...
@@ -56,18 +57,18 @@ bench:
 	benchstat /tmp/bench_scalar.txt /tmp/bench_simd.txt
 
 bench-regen: build
-	go run . -split ./bench/
+	go run . -fp-reassoc -split ./bench/
 
 generate:
 	go generate ./...
 
 tsvc-test: generate build
 	go test -count=1 ./tsvc/...
-	GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -run TestGolden ./tsvc/
+	LOOPVEC_TOOLEXEC_FP_REASSOC=1 GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -run TestGolden ./tsvc/
 
 tsvc-test-qemu-arm64: generate build
 	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test -exec=qemu-aarch64-static ./tsvc/ -run TestGolden
-	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -exec=qemu-aarch64-static -run TestGolden ./tsvc/
+	LOOPVEC_TOOLEXEC_FP_REASSOC=1 GOARCH=arm64 GOOS=linux CGO_ENABLED=0 GOEXPERIMENT=simd go test -toolexec="$(CURDIR)/bin/loopvec-toolexec" -exec=qemu-aarch64-static -run TestGolden ./tsvc/
 
 tsvc-update: generate
 	go test ./tsvc/ -run TestGolden -update
@@ -79,7 +80,7 @@ tsvc-coverage-update: generate
 
 tsvc-bench: generate build
 	go test -run '^$$' -bench . -benchtime=100ms -count=10 ./tsvc/ > /tmp/tsvc_bench_scalar.txt
-	GOEXPERIMENT=simd go test -run '^$$' -bench . -benchtime=100ms -count=10 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
+	LOOPVEC_TOOLEXEC_FP_REASSOC=1 GOEXPERIMENT=simd go test -run '^$$' -bench . -benchtime=100ms -count=10 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
 	benchstat /tmp/tsvc_bench_scalar.txt /tmp/tsvc_bench_simd.txt
 
 test-update: generate

@@ -86,8 +86,8 @@ func Plain(a []int) int {
 	return s
 }
 -- stdout.want --
-{"file":"$WORK/ops.go","line":5,"func":"FloatSum","vectorized":false,"reason":"float reduction would combine the elements in a different order","stage":"plan"}
-{"file":"$WORK/ops.go","line":13,"func":"FloatMax","vectorized":false,"reason":"float reduction would combine the elements in a different order","stage":"plan"}
+{"file":"$WORK/ops.go","line":5,"func":"FloatSum","vectorized":false,"reason":"float reduction would combine the elements in a different order (-fp-reassoc allows it)","stage":"plan"}
+{"file":"$WORK/ops.go","line":13,"func":"FloatMax","vectorized":false,"reason":"float min and max differ from Go's on some architectures (NaN and signed zero)","stage":"plan"}
 {"file":"$WORK/ops.go","line":21,"func":"Prefix","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
 {"file":"$WORK/ops.go","line":29,"func":"Subtract","vectorized":false,"reason":"loop accumulates with an operator that cannot be regrouped","stage":"lower"}
 {"file":"$WORK/ops.go","line":37,"func":"TwoFolds","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}

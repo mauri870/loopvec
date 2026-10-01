@@ -54,9 +54,18 @@ type PlanStmt struct {
 	Root Value
 }
 
+// Options selects behavior that changes results or depends on the toolchain.
+type Options struct {
+	// FloatReassoc allows a floating-point sum or product to be regrouped: the
+	// vector loop adds in several lanes and accumulators and combines them at
+	// the end, so the result can differ from the scalar loop in the last bits,
+	// as a Go compiler is never allowed to do on its own.
+	FloatReassoc bool
+}
+
 // NewPlan checks that simd implements every operation in l for its element
 // type and derives the rest of the plan.
-func NewPlan(l *Loop) (*Plan, Reason) {
+func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 	var elem types.Type
 	for _, stmt := range l.Body {
 		if store, ok := stmt.(Store); ok {
@@ -87,7 +96,12 @@ func NewPlan(l *Loop) (*Plan, Reason) {
 				return nil, ReasonMixedTypes
 			}
 			if isFloat(elem) {
-				return nil, ReasonFloatReduction
+				switch {
+				case stmt.Op == OpMin || stmt.Op == OpMax:
+					return nil, ReasonFloatMinMax
+				case !opts.FloatReassoc:
+					return nil, ReasonFloatReduction
+				}
 			}
 			if !supports(elem, stmt.Op) {
 				return nil, ReasonUnsupportedOp

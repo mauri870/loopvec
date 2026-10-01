@@ -347,19 +347,19 @@ var Kernels = []Kernel{
 		Run: func(x *Arrays) { s2102(x.AA) },
 	},
 	{
-		Name: "s311", Category: CategoryReductions, Reps: 2, Exact: ExactFused, Expect: ExpectVectorize,
+		Name: "s311", Category: CategoryReductions, Reps: 2, Exact: ExactReassoc, Expect: ExpectVectorize,
 		Bytes: 4 * Len1D,
 		Setup: setupS293, Checksum: sumR, Hash: hashR,
 		Run: func(x *Arrays) { x.R = s311(x.A) },
 	},
 	{
-		Name: "s312", Category: CategoryReductions, Reps: 2, Exact: ExactFused, Expect: ExpectVectorize,
+		Name: "s312", Category: CategoryReductions, Reps: 2, Exact: ExactReassoc, Expect: ExpectVectorize,
 		Bytes: 4 * Len1D,
 		Setup: setupS312, Checksum: sumR, Hash: hashR,
 		Run: func(x *Arrays) { x.R = s312(x.A) },
 	},
 	{
-		Name: "s313", Category: CategoryReductions, Reps: 2, Exact: ExactFused, Expect: ExpectVectorize,
+		Name: "s313", Category: CategoryReductions, Reps: 2, Exact: ExactReassoc, Expect: ExpectVectorize,
 		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS313, Checksum: sumR, Hash: hashR,
 		Run: func(x *Arrays) { x.R = s313(x.A, x.B) },
@@ -545,13 +545,13 @@ var Kernels = []Kernel{
 		Run: func(x *Arrays) { vtvtv(x.A, x.B, x.C) },
 	},
 	{
-		Name: "vsumr", Category: CategoryControl, Reps: 2, Exact: ExactFused, Expect: ExpectVectorize,
+		Name: "vsumr", Category: CategoryControl, Reps: 2, Exact: ExactReassoc, Expect: ExpectVectorize,
 		Bytes: 4 * Len1D,
 		Setup: setupS293, Checksum: sumR, Hash: hashR,
 		Run: func(x *Arrays) { x.R = vsumr(x.A) },
 	},
 	{
-		Name: "vdotr", Category: CategoryControl, Reps: 2, Exact: ExactFused, Expect: ExpectVectorize,
+		Name: "vdotr", Category: CategoryControl, Reps: 2, Exact: ExactReassoc, Expect: ExpectVectorize,
 		Bytes: 4*Len1D + 4*Len1D,
 		Setup: setupS313, Checksum: sumR, Hash: hashR,
 		Run: func(x *Arrays) { x.R = vdotr(x.A, x.B) },

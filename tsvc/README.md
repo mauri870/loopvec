@@ -27,7 +27,9 @@ Each kernel's comment notes where it differs from upstream. Two differences appl
 widely: a kernel with no `initialise_arrays` branch (`setupBaseline`) runs on the
 values TSVC_2's `init` sets, where upstream runs it on the previous kernel's
 leftovers; and a kernel that returns a value, such as a reduction, is checked by that
-value.
+value. Exactness is `bits` (hash and sum identical), `fused` (the relative error a
+fused multiply-add introduces), or `reassoc` (the error of regrouping a sum, bounded
+by `n*2^-24`, for the kernels that vectorize only with `-fp-reassoc`).
 
 | Kernel | Section | What it tests | Exactness | Expect | Vectorized |
 | --- | --- | --- | --- | --- | --- |
@@ -88,9 +90,9 @@ value.
 | s293 | loop peeling | a(i)=a(0) with actual dependence cycle, loop is vectorizable | bits | vectorize | no |
 | s2101 | diagonals | main diagonal calculation; jump in data access | fused | vectorize | no |
 | s2102 | diagonals | identity matrix, best results vectorize both inner and outer loops | bits | vectorize | no |
-| s311 | reductions | sum reduction | fused | vectorize | no |
-| s312 | reductions | product reduction | fused | vectorize | no |
-| s313 | reductions | dot product | fused | vectorize | no |
+| s311 | reductions | sum reduction | reassoc | vectorize | yes |
+| s312 | reductions | product reduction | reassoc | vectorize | yes |
+| s313 | reductions | dot product | reassoc | vectorize | yes |
 | s314 | reductions | if to max reduction | bits | vectorize | no |
 | s315 | reductions | if to max with index reductio 1 dimension | bits | vectorize | no |
 | s316 | reductions | if to min reduction | bits | vectorize | no |
@@ -121,8 +123,8 @@ value.
 | vpvts | control loops | vector plus vector times scalar | fused | vectorize | yes |
 | vpvpv | control loops | vector plus vector plus vector | bits | vectorize | yes |
 | vtvtv | control loops | vector times vector times vector | bits | vectorize | yes |
-| vsumr | control loops | vector sum reduction | fused | vectorize | no |
-| vdotr | control loops | vector dot product reduction | fused | vectorize | no |
+| vsumr | control loops | vector sum reduction | reassoc | vectorize | yes |
+| vdotr | control loops | vector dot product reduction | reassoc | vectorize | yes |
 | vbor | control loops | basic operations rates, isolate arithmetic from memory traffic; all combinations of three, 59 flops for 6 loads and 1 store. | fused | vectorize | no |
 
 ### Not ported
@@ -158,7 +160,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 12, gaps 80, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 17, gaps 75, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

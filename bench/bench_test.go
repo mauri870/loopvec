@@ -275,3 +275,49 @@ func BenchmarkDotInt32s(b *testing.B) {
 		})
 	}
 }
+
+var (
+	sinkFloat32 float32
+	sinkFloat64 float64
+)
+
+func BenchmarkSumFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]float32, n)
+			setBytes(b, n, 4, 1)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkFloat32 = SumFloat32s(a)
+			}
+		})
+	}
+}
+
+func BenchmarkDotFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]float32, n)
+			y := make([]float32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkFloat32 = DotFloat32s(x, y)
+			}
+		})
+	}
+}
+
+func BenchmarkDotFloat64s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]float64, n)
+			y := make([]float64, n)
+			setBytes(b, n, 8, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkFloat64 = DotFloat64s(x, y)
+			}
+		})
+	}
+}

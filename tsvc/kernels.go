@@ -672,7 +672,7 @@ func s2102(aa [][]float32) {
 // keep it alive; the port returns the sum and checks it, like the other
 // reductions.
 //
-//tsvc:kernel category=reductions reps=2 setup=s293 checksum=r exact=fused expect=vectorize
+//tsvc:kernel category=reductions reps=2 setup=s293 checksum=r exact=reassoc expect=vectorize
 func s311(a []float32) float32 {
 	var sum float32
 	sum = 0
@@ -685,7 +685,7 @@ func s311(a []float32) float32 {
 // s312: reductions, product reduction.
 // Returns the value TSVC_2 passes to dummy, which the checksum reads.
 //
-//tsvc:kernel category=reductions reps=2 setup=s312 checksum=r exact=fused expect=vectorize
+//tsvc:kernel category=reductions reps=2 setup=s312 checksum=r exact=reassoc expect=vectorize
 func s312(a []float32) float32 {
 	var prod float32
 	prod = 1
@@ -698,7 +698,7 @@ func s312(a []float32) float32 {
 // s313: reductions, dot product.
 // Returns the value TSVC_2 passes to dummy, which the checksum reads.
 //
-//tsvc:kernel category=reductions reps=2 setup=s313 checksum=r exact=fused expect=vectorize
+//tsvc:kernel category=reductions reps=2 setup=s313 checksum=r exact=reassoc expect=vectorize
 func s313(a, b []float32) float32 {
 	var dot float32
 	dot = 0
@@ -1087,7 +1087,7 @@ func vtvtv(a, b, c []float32) {
 // vsumr: control loops, vector sum reduction.
 // Returns the value TSVC_2 passes to dummy, which the checksum reads.
 //
-//tsvc:kernel category=control reps=2 setup=s293 checksum=r exact=fused expect=vectorize
+//tsvc:kernel category=control reps=2 setup=s293 checksum=r exact=reassoc expect=vectorize
 func vsumr(a []float32) float32 {
 	var sum float32
 	sum = 0
@@ -1100,7 +1100,7 @@ func vsumr(a []float32) float32 {
 // vdotr: control loops, vector dot product reduction.
 // Returns the value TSVC_2 passes to dummy, which the checksum reads.
 //
-//tsvc:kernel category=control reps=2 setup=s313 checksum=r exact=fused expect=vectorize
+//tsvc:kernel category=control reps=2 setup=s313 checksum=r exact=reassoc expect=vectorize
 func vdotr(a, b []float32) float32 {
 	var dot float32
 	dot = 0
