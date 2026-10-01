@@ -321,3 +321,161 @@ func BenchmarkDotFloat64s(b *testing.B) {
 		})
 	}
 }
+
+var sinkUint16 uint16
+
+func BenchmarkAbsFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			a := make([]float32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				AbsFloat32s(dst, a)
+			}
+		})
+	}
+}
+
+func BenchmarkSqrtFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			a := make([]float32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				SqrtFloat32s(dst, a)
+			}
+		})
+	}
+}
+
+func BenchmarkClampInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			a := make([]int32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ClampInt32s(dst, a, -100, 100)
+			}
+		})
+	}
+}
+
+func BenchmarkShrInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			a := make([]int32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ShrInt32s(dst, a, 3)
+			}
+		})
+	}
+}
+
+func BenchmarkShlUint32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]uint32, n)
+			a := make([]uint32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ShlUint32s(dst, a, 3)
+			}
+		})
+	}
+}
+
+func BenchmarkDiffInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			a := make([]int32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				DiffInt32s(dst, a)
+			}
+		})
+	}
+}
+
+func BenchmarkSmoothInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			a := make([]int32, n)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				SmoothInt32s(dst, a)
+			}
+		})
+	}
+}
+
+func BenchmarkShiftInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]int32, n)
+			a := make([]int32, n+3)
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ShiftInt32s(dst, a, 3)
+			}
+		})
+	}
+}
+
+// AccumRowInt32s adds one row of a two-dimensional slice into work.
+func BenchmarkAccumRowInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			work := make([]int32, n)
+			a := make([]int32, 2*n)
+			setBytes(b, n, 4, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				AccumRowInt32s(work, a, 1, n)
+			}
+		})
+	}
+}
+
+func BenchmarkMinUint16s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]uint16, n)
+			setBytes(b, n, 2, 1)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkUint16 = MinUint16s(a)
+			}
+		})
+	}
+}
+
+func BenchmarkProductFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]float32, n)
+			for i := range a {
+				a[i] = 1
+			}
+			setBytes(b, n, 4, 1)
+			b.ResetTimer()
+			for b.Loop() {
+				sinkFloat32 = ProductFloat32s(a)
+			}
+		})
+	}
+}
