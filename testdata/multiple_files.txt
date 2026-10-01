@@ -88,10 +88,7 @@ func _loopvecOverlap[T any](a, b []T) bool {
 
 package test
 
-import (
-	"simd"
-	"unsafe"
-)
+import "simd"
 
 func MulInt32s(dst, a, b []int32) {
 	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
@@ -129,17 +126,6 @@ func SubInt32s(dst, a, b []int32) {
 			}
 		}
 	}
-}
-
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return false
-	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
-	return aStart < bEnd && bStart < aEnd
 }
 -- stderr.want --
 loopvec: rewrote 1 loop(s) in $WORK/a.go

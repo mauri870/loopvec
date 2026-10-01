@@ -157,11 +157,13 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 	}
 
 	total := 0
+	helperDefined := false
 	for i, s := range sources {
-		res, err := rewrite.File(fset, files[i], info, s.src, rewrite.Options{Compiler: true, FloatReassoc: os.Getenv(floatReassocEnv) != ""})
+		res, err := rewrite.File(fset, files[i], info, s.src, rewrite.Options{Compiler: true, FloatReassoc: os.Getenv(floatReassocEnv) != "", HelperDefined: helperDefined})
 		if err != nil || res.Rewrites == 0 {
 			continue
 		}
+		helperDefined = helperDefined || res.DefinesHelper
 		abs, err := filepath.Abs(s.path)
 		if err != nil {
 			continue

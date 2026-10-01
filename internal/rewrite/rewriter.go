@@ -23,6 +23,9 @@ import (
 type Result struct {
 	Src      []byte
 	Rewrites int
+	// DefinesHelper is set when Src defines _loopvecOverlap. A package may define
+	// it only once, so the caller passes this on to the files after this one.
+	DefinesHelper bool
 }
 
 // Options controls how File rewrites a source file.
@@ -33,6 +36,9 @@ type Options struct {
 	// FloatReassoc allows regrouping a floating-point sum or product, which can
 	// change the result in the last bits; see loopir.Options.
 	FloatReassoc bool
+	// HelperDefined says an earlier file of the same package already defines
+	// _loopvecOverlap, so this file uses it and does not define it again.
+	HelperDefined bool
 	// Compiler is set when the source is rewritten inside the build itself
 	// (-toolexec). The go command has already selected the file for the current
 	// build, so its build constraints are not consulted and no
@@ -146,7 +152,8 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 		}
 	}
 
-	if needsOverlapHelper {
+	definesHelper := needsOverlapHelper && !opts.HelperDefined
+	if definesHelper {
 		result, err = ensureImport(result, "unsafe")
 		if err != nil {
 			return Result{}, err
@@ -170,7 +177,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	// "cannot use _ as value or type".
 	formatted = fixBlankParams(fset, formatted)
 
-	return Result{Src: formatted, Rewrites: len(replacements)}, nil
+	return Result{Src: formatted, Rewrites: len(replacements), DefinesHelper: definesHelper}, nil
 }
 
 // HasBuildConstraint reports whether file carries a //go:build or // +build

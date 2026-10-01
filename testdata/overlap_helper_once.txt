@@ -1,0 +1,54 @@
+# _loopvecOverlap is defined once per package: a second rewritten file uses the
+# first one's, so the package compiles. The simd build runs both files.
+
+loopvec -split .
+! stdout .
+grep -count=1 'func _loopvecOverlap' a_simd.go
+! grep 'func _loopvecOverlap' b_simd.go
+! grep '"unsafe"' b_simd.go
+grep '_loopvecOverlap\(dst, a\)' b_simd.go
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- a.go --
+package test
+
+func AddInt32s(dst, a []int32, k int32) {
+	for i := range dst {
+		dst[i] = a[i] + k
+	}
+}
+-- b.go --
+package test
+
+func MulInt32s(dst, a []int32, k int32) {
+	for i := range dst {
+		dst[i] = a[i] * k
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func main() {
+	a := []int32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19}
+	dst := make([]int32, len(a))
+	test.AddInt32s(dst, a, 10)
+	fmt.Println(dst)
+	test.MulInt32s(dst, a, 3)
+	fmt.Println(dst)
+}
+-- testmain/output --
+[11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29]
+[3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57]

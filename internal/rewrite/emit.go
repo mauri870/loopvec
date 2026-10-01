@@ -238,6 +238,10 @@ func (e *emitter) fullLoop() (string, error) {
 
 	loop := e.plan.Loop
 	index := loop.Ind.Var.Name()
+	if index == "_" {
+		// for _, v := range x has no index to continue from.
+		index = "_k"
+	}
 	fmt.Fprintf(&b, "for %[1]s := _i; %[1]s < %[2]s; %[1]s++ {\n", index, e.limit())
 	if loop.ValueVar != nil {
 		fmt.Fprintf(&b, "%s := %s[%s]\n", loop.ValueVar.Name(), loop.ValueRef.Name, index)

@@ -134,6 +134,7 @@ func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) e
 		return fmt.Errorf("no type info available")
 	}
 
+	helperDefined := false
 	for _, file := range pkg.Syntax {
 		tf := fset.File(file.Pos())
 		if tf == nil {
@@ -146,10 +147,11 @@ func processPkg(fset *token.FileSet, pkg *packages.Package, allowMethods bool) e
 			return fmt.Errorf("read %s: %w", path, err)
 		}
 
-		result, err := rewrite.File(fset, file, info, src, rewrite.Options{AllowMethods: allowMethods, FloatReassoc: *floatReassoc})
+		result, err := rewrite.File(fset, file, info, src, rewrite.Options{AllowMethods: allowMethods, FloatReassoc: *floatReassoc, HelperDefined: helperDefined})
 		if err != nil {
 			return fmt.Errorf("rewrite %s: %w", path, err)
 		}
+		helperDefined = helperDefined || result.DefinesHelper
 		if result.Rewrites == 0 {
 			continue
 		}
