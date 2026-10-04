@@ -184,30 +184,48 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 		off string
 	}
 	loaded := map[key]string{}
+	emitLoad := func(load *loopir.Load) {
+		if name, ok := loaded[key{load.Ref.Obj, load.Off}]; ok {
+			e.loads[load] = name
+			return
+		}
+		e.loadCount++
+		name := fmt.Sprintf("_v%d", e.loadCount)
+		loaded[key{load.Ref.Obj, load.Off}] = name
+		e.loads[load] = name
+		if full {
+			fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
+			return
+		}
+		lanes := "_"
+		if !haveLanes {
+			lanes, haveLanes = "_n", true
+		}
+		fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
+	}
+	// A slice stored in the loop and read ahead of the index (a[i+1]) is read
+	// before any store of the body: the scalar loop reads the value from before
+	// the loop, because the iteration that writes it has not run yet, and a
+	// store earlier in the body would already have changed it in the vector.
+	stored := map[types.Object]bool{}
+	for _, stmt := range e.plan.Stmts {
+		if stmt.Dst != nil {
+			stored[stmt.Dst.Obj] = true
+		}
+	}
+	for _, stmt := range e.plan.Stmts {
+		for _, leaf := range loopir.Leaves(stmt.Root) {
+			if load, ok := leaf.(*loopir.Load); ok && stored[load.Ref.Obj] && load.Off != "" {
+				emitLoad(load)
+			}
+		}
+	}
 	accs := 0
 	for _, stmt := range e.plan.Stmts {
 		for _, leaf := range loopir.Leaves(stmt.Root) {
-			load, ok := leaf.(*loopir.Load)
-			if !ok {
-				continue
+			if load, ok := leaf.(*loopir.Load); ok {
+				emitLoad(load)
 			}
-			if name, ok := loaded[key{load.Ref.Obj, load.Off}]; ok {
-				e.loads[load] = name
-				continue
-			}
-			e.loadCount++
-			name := fmt.Sprintf("_v%d", e.loadCount)
-			loaded[key{load.Ref.Obj, load.Off}] = name
-			e.loads[load] = name
-			if full {
-				fmt.Fprintf(b, "\t%s := simd.Load%s(%s)\n", name, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
-				continue
-			}
-			lanes := "_"
-			if !haveLanes {
-				lanes, haveLanes = "_n", true
-			}
-			fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
 		}
 		switch {
 		case stmt.Temp != nil:

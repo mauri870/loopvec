@@ -75,14 +75,19 @@ func AddValues(dst, a, b Values) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
 	return aStart < bEnd && bStart < aEnd
 }
 -- testmain/main.go --

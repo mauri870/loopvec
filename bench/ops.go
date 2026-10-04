@@ -230,3 +230,17 @@ func AccumRowInt32s(work, a []int32, row, lda int) {
 		work[j] += a[row*lda+j]
 	}
 }
+
+func ShiftAddInt32s(a, b []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = a[i+1] + b[i]
+	}
+}
+
+func ReadAfterStoreInt32s(a, b, d []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = b[i] + d[i]
+		b[i] = a[i] * 2
+		a[i] = b[i] + a[i+1]*d[i]
+	}
+}

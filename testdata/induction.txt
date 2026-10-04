@@ -103,7 +103,7 @@ import (
 // The loop starts after the first element.
 func StartOne(dst, a []int32) {
 	_vcInt32s0 := simd.BroadcastInt32s(2)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 1, len(dst), 1, len(dst)) {
 		for i := 1; i < len(dst); i++ {
 			dst[i] = a[i] * 2
 		}
@@ -121,7 +121,7 @@ func StartOne(dst, a []int32) {
 
 // The limit stops one short of len(dst): the last element must not be written.
 func Short(dst, a, b []int32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1) || _loopvecOverlap(dst, b, 0, len(dst)-1, 0, len(dst)-1) {
 		for i := 0; i < len(dst)-1; i++ {
 			dst[i] = a[i] + b[i]
 		}
@@ -142,7 +142,7 @@ func Short(dst, a, b []int32) {
 
 func Inclusive(dst, a []int32) {
 	_vcInt32s2 := simd.BroadcastInt32s(1)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1) {
 		for i := 0; i <= len(dst)-2; i++ {
 			dst[i] = a[i] - 1
 		}
@@ -161,7 +161,7 @@ func Inclusive(dst, a []int32) {
 
 // Both ends are variables, so the loop may be empty or run past the data.
 func Window(dst, a, b []float32, lo, hi int) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, lo, hi, lo, hi) || _loopvecOverlap(dst, b, lo, hi, lo, hi) {
 		for i := lo; i < hi; i++ {
 			dst[i] = a[i] + b[i]
 		}
@@ -182,7 +182,7 @@ func Window(dst, a, b []float32, lo, hi int) {
 
 func Half(dst, a []int32) {
 	_vcInt32s4 := simd.BroadcastInt32s(7)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst)/2, 0, len(dst)/2) {
 		for i := 0; i < len(dst)/2; i++ {
 			dst[i] = a[i] ^ 7
 		}
@@ -201,7 +201,7 @@ func Half(dst, a []int32) {
 
 // Counting down, from an expression and to a variable.
 func Down(dst, a []int32, n, lo int) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, lo, n, lo, n) {
 		for i := n - 1; i >= lo; i-- {
 			dst[i] += a[i]
 		}
@@ -221,7 +221,7 @@ func Down(dst, a []int32, n, lo int) {
 
 func DownStrict(dst, a []int32) {
 	_vcInt32s6 := simd.BroadcastInt32s(5)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 1, len(dst)-1, 1, len(dst)-1) {
 		for i := len(dst) - 2; i > 0; i-- {
 			dst[i] = a[i] + 5
 		}
@@ -240,7 +240,7 @@ func DownStrict(dst, a []int32) {
 
 // A copy that starts at an offset.
 func CopyFrom(dst, src []int32, from int) {
-	if _loopvecOverlap(dst, src) {
+	if _loopvecOverlap(dst, src, from, len(dst), from, len(dst)) {
 		for i := from; i < len(dst); i++ {
 			dst[i] = src[i]
 		}
@@ -280,14 +280,19 @@ func SumInner(a []int32) int32 {
 	return s
 }
 
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
 	return aStart < bEnd && bStart < aEnd
 }
 -- testmain/main.go --

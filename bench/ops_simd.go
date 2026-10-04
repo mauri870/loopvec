@@ -306,7 +306,7 @@ func ShlUint32s(dst, a []uint32, n uint) {
 
 func NormalizeFloat32s(auth, delta []float32, norm float32) {
 	_vcFloat32s18_1 := simd.BroadcastFloat32s(norm)
-	if _loopvecOverlap(auth, delta) {
+	if _loopvecOverlap(auth, delta, 0, len(auth), 0, len(auth)) {
 		for i := range auth {
 			auth[i] /= norm
 			delta[i] -= auth[i]
@@ -328,7 +328,7 @@ func NormalizeFloat32s(auth, delta []float32, norm float32) {
 }
 
 func ChainInt32s(a, b, c, e []int32) {
-	if _loopvecOverlap(b, c) || _loopvecOverlap(b, a) || _loopvecOverlap(b, e) || _loopvecOverlap(c, a) || _loopvecOverlap(a, e) {
+	if _loopvecOverlap(b, c, 0, len(a), 0, len(a)) || _loopvecOverlap(b, a, 0, len(a), 0, len(a)) || _loopvecOverlap(b, e, 0, len(a), 0, len(a)) || _loopvecOverlap(c, a, 0, len(a), 0, len(a)) || _loopvecOverlap(a, e, 0, len(a), 0, len(a)) {
 		for i := range a {
 			x := b[i] * c[i]
 			a[i] = x + e[i]
@@ -630,7 +630,7 @@ func DotFloat64s(a, b []float64) float64 {
 }
 
 func AddWindowFloat32s(dst, a, b []float32, lo, hi int) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, lo, hi, lo, hi) || _loopvecOverlap(dst, b, lo, hi, lo, hi) {
 		for i := lo; i < hi; i++ {
 			dst[i] = a[i] + b[i]
 		}
@@ -651,7 +651,7 @@ func AddWindowFloat32s(dst, a, b []float32, lo, hi int) {
 
 func ScaleInnerFloat32s(dst, a []float32, k float32) {
 	_vcFloat32s29 := simd.BroadcastFloat32s(k)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 1, len(dst)-1, 1, len(dst)-1) {
 		for i := 1; i < len(dst)-1; i++ {
 			dst[i] = a[i] * k
 		}
@@ -669,7 +669,7 @@ func ScaleInnerFloat32s(dst, a []float32, k float32) {
 }
 
 func IncDownFloat32s(dst, a []float32, hi, lo int) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, lo, hi, lo, hi) {
 		for i := hi - 1; i >= lo; i-- {
 			dst[i] += a[i]
 		}
@@ -688,7 +688,7 @@ func IncDownFloat32s(dst, a []float32, hi, lo int) {
 }
 
 func DiffInt32s(dst, a []int32) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1+1) {
 		for i := 0; i < len(dst)-1; i++ {
 			dst[i] = a[i+1] - a[i]
 		}
@@ -708,7 +708,7 @@ func DiffInt32s(dst, a []int32) {
 }
 
 func SmoothInt32s(dst, a []int32) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 1, len(dst)-1, 0, len(dst)-1+1) {
 		for i := 1; i < len(dst)-1; i++ {
 			dst[i] = a[i-1] + a[i] + a[i+1]
 		}
@@ -765,13 +765,67 @@ func AccumRowInt32s(work, a []int32, row, lda int) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
+func ShiftAddInt32s(a, b []int32) {
+	if _loopvecOverlap(a, b, 0, len(a)-1+1, 0, len(a)-1) {
+		for i := 0; i < len(a)-1; i++ {
+			a[i] = a[i+1] + b[i]
+		}
+	} else {
+		if len(a)-1 > 0 {
+			_ = a[(len(a)-1)-1]
+			_ = a[len(a)-1]
+			_ = b[(len(a)-1)-1]
+			for _i := 0; _i < len(a)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v1.Add(_v2).StorePart(a[_i : len(a)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ReadAfterStoreInt32s(a, b, d []int32) {
+	_vcInt32s36_1 := simd.BroadcastInt32s(2)
+	if _loopvecOverlap(a, b, 0, len(a)-1+1, 0, len(a)-1) || _loopvecOverlap(a, d, 0, len(a)-1+1, 0, len(a)-1) || _loopvecOverlap(b, d, 0, len(a)-1, 0, len(a)-1) {
+		for i := 0; i < len(a)-1; i++ {
+			a[i] = b[i] + d[i]
+			b[i] = a[i] * 2
+			a[i] = b[i] + a[i+1]*d[i]
+		}
+	} else {
+		if len(a)-1 > 0 {
+			_ = a[(len(a)-1)-1]
+			_ = b[(len(a)-1)-1]
+			_ = d[(len(a)-1)-1]
+			_ = a[len(a)-1]
+			for _i := 0; _i < len(a)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v3, _ := simd.LoadInt32sPart(d[_i : len(a)-1])
+				_v2.Add(_v3).StorePart(a[_i : len(a)-1])
+				_v4, _ := simd.LoadInt32sPart(a[_i : len(a)-1])
+				_v4.Mul(_vcInt32s36_1).StorePart(b[_i : len(a)-1])
+				_v5, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v1.Mul(_v3).Add(_v5).StorePart(a[_i : len(a)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
 	return aStart < bEnd && bStart < aEnd
 }

@@ -81,9 +81,12 @@ safety argument stays structural:
   vector would write past it.
 - A store is `ident[i]` where `i` is *exactly* the loop variable (`index`). A load
   may also be `ident[i+e]`, `ident[e+i]` or `ident[i-e]` for a loop-invariant integer
-  `e` (`indexAt`, `Load.Off`), but only from a slice that is not stored in the loop
-  (`ReasonOffsetOfStored`): reading a stored slice at an offset is a carried
-  dependence, which needs the dependence test of M5 slice 3. The length check is
+  `e` (`indexAt`, `Load.Off`). A slice that is also stored may be read only at a
+  constant positive offset in a forward loop: iteration i then reads what a later
+  iteration writes, so the scalar loop sees the old value and the emitter loads it
+  before any store of the chunk (`statements` hoists those loads). A negative
+  offset is a recurrence (`ReasonCarriedDependence`); a variable distance or a
+  loop that counts down is `ReasonOffsetOfStored`. The length check is
   against the last index read (`lastIndex`), and offset loads are not capped at the
   limit. Every other store and load is `ident[i]` (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
   whether they're actually dependent. That is what guarantees no two
@@ -97,7 +100,8 @@ safety argument stays structural:
 - The loop body must be a sequence of assignments. The emitted loop runs each
   statement over the whole vector before the next, which is the scalar order
   because every access is at the loop index, and every pair of distinct slices
-  with one stored gets a runtime overlap check. A range value variable is
+  with one stored gets a runtime overlap check (over the elements the loop touches
+  when it covers only part of the slices). A range value variable is
   rejected once an earlier statement stored to its slice, since the vector
   loop would reload the new value. A temporary (`x := ...`, or `x = ...` on a
   local declared before the loop) is a vector held between statements; it must

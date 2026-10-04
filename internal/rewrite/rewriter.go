@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"go/types"
 	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -208,22 +209,68 @@ func wrapWithOverlapCheck(plan *loopir.Plan, origText, simdText string) string {
 		if i > 0 {
 			cond.WriteString(" || ")
 		}
-		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", pair[0].Name, pair[1].Name)
+		if plan.Bound == "" && plan.Start == "0" {
+			// The loop runs over whole slices, so comparing whole slices covers
+			// every element it touches.
+			fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", pair[0].Name, pair[1].Name)
+			continue
+		}
+		aLo, aHi := window(plan, pair[0])
+		bLo, bHi := window(plan, pair[1])
+		fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s, %s, %s, %s, %s)", pair[0].Name, pair[1].Name, aLo, aHi, bLo, bHi)
 	}
 	return "if " + cond.String() + " {\n" + origText + "\n} else {\n" + simdText + "\n}"
+}
+
+// window is the range of indexes of ref the loop touches, as source text: from
+// the first iteration plus the lowest offset it is accessed at to the limit plus
+// the highest. A loop over part of a slice then does not conflict with another
+// slice that overlaps only the rest of it.
+func window(plan *loopir.Plan, ref *loopir.Ref) (lo, hi string) {
+	lowest, highest := 0, 0
+	var variable []string
+	for _, access := range plan.Checked {
+		if access.Ref.Obj != ref.Obj || access.Off == "" {
+			continue
+		}
+		if v, err := strconv.Atoi(access.Off); err == nil {
+			lowest, highest = min(lowest, v), max(highest, v)
+		} else {
+			variable = append(variable, access.Off)
+		}
+	}
+	if len(variable) == 0 {
+		return addOffset(plan.Start, offsetText(lowest)), addOffset(plan.Limit, offsetText(highest))
+	}
+	lowArgs := strings.Join(append([]string{strconv.Itoa(lowest)}, variable...), ", ")
+	highArgs := strings.Join(append([]string{strconv.Itoa(highest)}, variable...), ", ")
+	return addOffset(plan.Start, "min("+lowArgs+")"), addOffset(plan.Limit, "max("+highArgs+")")
+}
+
+// offsetText is v as an offset for addOffset, "" for zero.
+func offsetText(v int) string {
+	if v == 0 {
+		return ""
+	}
+	return strconv.Itoa(v)
 }
 
 // overlapHelperSrc is _loopvecOverlap's source, appended once per rewritten
 // file that needs it.
 const overlapHelperSrc = `
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
 	return aStart < bEnd && bStart < aEnd
 }
 `

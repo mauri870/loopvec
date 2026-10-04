@@ -27,6 +27,7 @@ fuzz-slow:
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzReduceFloats -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzRangeFloat32s -fuzztime=60s
 	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzOffsetInt32s -fuzztime=60s
+	GOEXPERIMENT=simd go test ./bench/ -run '^$$' -fuzz=FuzzStoredOffsetInt32s -fuzztime=60s
 
 fix:
 	go fix ./...

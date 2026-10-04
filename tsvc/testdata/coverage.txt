@@ -1,4 +1,4 @@
-# loopvec TSVC coverage: vectorized 20, gaps 72, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 22, gaps 70, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop step is not i++ (or i-- when counting down)
 s1111	vectorize	no	destination is not a simple, same-index slice element
@@ -28,14 +28,14 @@ s173	vectorize	no	destination is not a simple, same-index slice element
 s174	vectorize	no	destination is not a simple, same-index slice element
 s175	vectorize	no	loop step is not i++ (or i-- when counting down)
 s176	vectorize	no	operand is not a same-index slice, range value, or plain scalar
-s211	vectorize	no	a slice is read at an offset and written in the same loop
-s1221	vectorize	no	a slice is read at an offset and written in the same loop
-s222	vectorize	no	a slice is read at an offset and written in the same loop
+s211	vectorize	no	an iteration reads an element an earlier iteration wrote
+s1221	vectorize	no	an iteration reads an element an earlier iteration wrote
+s222	vectorize	no	an iteration reads an element an earlier iteration wrote
 s231	vectorize	no	destination is not a simple, same-index slice element
 s2233	vectorize	no	destination is not a simple, same-index slice element
 s235	vectorize	no	destination is not a simple, same-index slice element
-s241	vectorize	no	a slice is read at an offset and written in the same loop
-s243	vectorize	no	a slice is read at an offset and written in the same loop
+s241	vectorize	yes
+s243	vectorize	yes
 s2244	vectorize	no	destination is not a simple, same-index slice element
 s251	vectorize	yes
 s1251	vectorize	yes

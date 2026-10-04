@@ -82,7 +82,7 @@ import (
 
 // Reads one element ahead of the store: nothing the loop writes is read.
 func Diff(dst, a []float64) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1+1) {
 		for i := 0; i < len(dst)-1; i++ {
 			dst[i] = a[i+1] - a[i]
 		}
@@ -103,7 +103,7 @@ func Diff(dst, a []float64) {
 
 // Reads on both sides, and the same slice at three offsets.
 func Smooth(dst, a []int32) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 1, len(dst)-1, 0, len(dst)-1+1) {
 		for i := 1; i < len(dst)-1; i++ {
 			dst[i] = a[i-1] + a[i] + a[i+1]
 		}
@@ -158,7 +158,7 @@ func CopyShift(dst, src []int32) {
 }
 
 func CopyBehind(dst, src []int32) {
-	if _loopvecOverlap(dst, src) {
+	if _loopvecOverlap(dst, src, 2, len(dst), 0, len(dst)) {
 		for i := 2; i < len(dst); i++ {
 			dst[i] = src[i-2]
 		}
@@ -200,14 +200,19 @@ func SumPairs(a []int32) int32 {
 	return s
 }
 
-func _loopvecOverlap[T any](a, b []T) bool {
-	if len(a) == 0 || len(b) == 0 {
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
-	aStart := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
-	aEnd := aStart + uintptr(len(a))*unsafe.Sizeof(a[0])
-	bStart := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	bEnd := bStart + uintptr(len(b))*unsafe.Sizeof(b[0])
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
 	return aStart < bEnd && bStart < aEnd
 }
 -- testmain/main.go --

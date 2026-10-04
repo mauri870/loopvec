@@ -479,3 +479,32 @@ func BenchmarkProductFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkShiftAddInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]int32, n)
+			src := make([]int32, n)
+			setBytes(b, n, 4, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				ShiftAddInt32s(a, src)
+			}
+		})
+	}
+}
+
+func BenchmarkReadAfterStoreInt32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			a := make([]int32, n)
+			src := make([]int32, n)
+			d := make([]int32, n)
+			setBytes(b, n, 4, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				ReadAfterStoreInt32s(a, src, d)
+			}
+		})
+	}
+}

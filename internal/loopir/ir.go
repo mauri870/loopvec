@@ -166,8 +166,10 @@ type Temp struct {
 type Value interface{ isValue() }
 
 // Load reads Ref[i+Off]. Off is source text for an integer expression that is the
-// same on every iteration, "" for zero. A slice read at an offset is never also a
-// store destination in the loop, so no iteration reads what another writes.
+// same on every iteration, "" for zero. A slice that is also stored in the loop is
+// read only at a constant positive offset: iteration i then reads the element a
+// later iteration writes, and the vector loop, which loads the chunk before any
+// store of the body, sees the same old value.
 // FromRange is set when the source is the range value variable, which holds the
 // element as it was when the iteration began: a store to the same slice earlier in
 // the body does not change it.

@@ -827,3 +827,62 @@ func FuzzOffsetInt32s(f *testing.F) {
 		})
 	})
 }
+
+func FuzzStoredOffsetInt32s(f *testing.F) {
+	f.Add(0, 0, 0, uint64(1))
+	f.Add(1, 0, 0, uint64(2))
+	f.Add(9, 0, 0, uint64(3))
+	f.Add(9, 1, 0, uint64(4))  // a and b overlap by one
+	f.Add(9, -1, 3, uint64(5)) // a and b overlap one way, a and d another
+	f.Add(37, 0, 0, uint64(6))
+	f.Add(37, 2, 2, uint64(7)) // b and d the same, ahead of a
+	f.Fuzz(func(t *testing.T, nRaw, offBRaw, offDRaw int, seed uint64) {
+		n := clampLen(nRaw)
+		offB := clampOverlap(offBRaw, n)
+		offD := clampOverlap(offDRaw, n)
+		starts, backingLen := layout(n, offB, offD)
+		aStart, bStart, dStart := starts[0], starts[1], starts[2]
+
+		backing := randUint64Backing(seed, backingLen)
+		src := make([]int32, backingLen)
+		for i, v := range backing {
+			src[i] = int32(v)
+		}
+
+		views := func(buf []int32) (a, b, d []int32) {
+			return buf[aStart : aStart+n], buf[bStart : bStart+n], buf[dStart : dStart+n]
+		}
+		check := func(name string, ref, got func(a, b, d []int32)) {
+			want := append([]int32(nil), src...)
+			have := append([]int32(nil), src...)
+			a, b, d := views(want)
+			wantPanic := panics(func() { ref(a, b, d) })
+			a, b, d = views(have)
+			gotPanic := panics(func() { got(a, b, d) })
+			if wantPanic != gotPanic {
+				t.Fatalf("%s(n=%d offB=%d offD=%d): panic = %v, want %v", name, n, offB, offD, gotPanic, wantPanic)
+			}
+			if wantPanic {
+				return
+			}
+			for i := range want {
+				if have[i] != want[i] {
+					t.Fatalf("%s(n=%d offB=%d offD=%d) differs at %d: got %d want %d", name, n, offB, offD, i, have[i], want[i])
+				}
+			}
+		}
+
+		check("ShiftAdd", func(a, b, _ []int32) {
+			for i := 0; i < len(a)-1; i++ {
+				a[i] = a[i+1] + b[i]
+			}
+		}, func(a, b, _ []int32) { ShiftAddInt32s(a, b) })
+		check("ReadAfterStore", func(a, b, d []int32) {
+			for i := 0; i < len(a)-1; i++ {
+				a[i] = b[i] + d[i]
+				b[i] = a[i] * 2
+				a[i] = b[i] + a[i+1]*d[i]
+			}
+		}, ReadAfterStoreInt32s)
+	})
+}

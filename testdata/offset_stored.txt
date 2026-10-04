@@ -1,0 +1,516 @@
+# A slice may be stored and read at an offset in the same forward loop when the
+# offset is a positive constant: iteration i reads the element iteration i+d writes
+# later, so it reads the value from before the loop, and the vector loop loads that
+# before any store of the chunk, even when the body stores the slice first.
+# A shift of a slice onto itself is the copy builtin. A loop over part of the
+# slices checks only the part it touches for overlap, so views that overlap only
+# outside it still take the vector loop, and views that overlap inside it take the
+# original loop.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// Reads the element ahead of the one it writes, from the slice it writes.
+func ShiftAdd(a, b []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = a[i+1] + b[i]
+	}
+}
+
+// Moves the elements after k down by one: a copy.
+func ShiftLeft(a []int32, k int) {
+	for i := k; i < len(a)-1; i++ {
+		a[i] = a[i+1]
+	}
+}
+
+// The read of a[i+1] follows stores to a, but still sees the old value.
+func ReadAfterStore(a, b, d []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = b[i] + d[i]
+		b[i] = a[i] * 2
+		a[i] = b[i] + a[i+1]*d[i]
+	}
+}
+
+// Both offset reads come before the store to a.
+func Pair(a, x, y []int32) {
+	for i := 0; i < len(a)-2; i++ {
+		x[i] = a[i+2]
+		a[i] = y[i] + a[i+1]
+	}
+}
+
+// Only the first half of the slices is touched.
+func AddHalf(b, xx, a []int32) {
+	for i := 0; i < len(b)/2; i++ {
+		b[i] = xx[i] + a[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// Reads the element ahead of the one it writes, from the slice it writes.
+func ShiftAdd(a, b []int32) {
+	if _loopvecOverlap(a, b, 0, len(a)-1+1, 0, len(a)-1) {
+		for i := 0; i < len(a)-1; i++ {
+			a[i] = a[i+1] + b[i]
+		}
+	} else {
+		if len(a)-1 > 0 {
+			_ = a[(len(a)-1)-1]
+			_ = a[len(a)-1]
+			_ = b[(len(a)-1)-1]
+			for _i := 0; _i < len(a)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v1.Add(_v2).StorePart(a[_i : len(a)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Moves the elements after k down by one: a copy.
+func ShiftLeft(a []int32, k int) {
+	if len(a)-1 > k {
+		_ = a[(len(a)-1)-1]
+		_ = a[len(a)-1]
+		copy(a[k:len(a)-1], a[k+1:])
+	}
+}
+
+// The read of a[i+1] follows stores to a, but still sees the old value.
+func ReadAfterStore(a, b, d []int32) {
+	_vcInt32s2_1 := simd.BroadcastInt32s(2)
+	if _loopvecOverlap(a, b, 0, len(a)-1+1, 0, len(a)-1) || _loopvecOverlap(a, d, 0, len(a)-1+1, 0, len(a)-1) || _loopvecOverlap(b, d, 0, len(a)-1, 0, len(a)-1) {
+		for i := 0; i < len(a)-1; i++ {
+			a[i] = b[i] + d[i]
+			b[i] = a[i] * 2
+			a[i] = b[i] + a[i+1]*d[i]
+		}
+	} else {
+		if len(a)-1 > 0 {
+			_ = a[(len(a)-1)-1]
+			_ = b[(len(a)-1)-1]
+			_ = d[(len(a)-1)-1]
+			_ = a[len(a)-1]
+			for _i := 0; _i < len(a)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v3, _ := simd.LoadInt32sPart(d[_i : len(a)-1])
+				_v2.Add(_v3).StorePart(a[_i : len(a)-1])
+				_v4, _ := simd.LoadInt32sPart(a[_i : len(a)-1])
+				_v4.Mul(_vcInt32s2_1).StorePart(b[_i : len(a)-1])
+				_v5, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
+				_v1.Mul(_v3).Add(_v5).StorePart(a[_i : len(a)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Both offset reads come before the store to a.
+func Pair(a, x, y []int32) {
+	if _loopvecOverlap(x, a, 0, len(a)-2, 0, len(a)-2+2) || _loopvecOverlap(x, y, 0, len(a)-2, 0, len(a)-2) || _loopvecOverlap(a, y, 0, len(a)-2+2, 0, len(a)-2) {
+		for i := 0; i < len(a)-2; i++ {
+			x[i] = a[i+2]
+			a[i] = y[i] + a[i+1]
+		}
+	} else {
+		if len(a)-2 > 0 {
+			_ = x[(len(a)-2)-1]
+			_ = a[(len(a)-2)+1]
+			_ = a[(len(a)-2)-1]
+			_ = y[(len(a)-2)-1]
+			_ = a[len(a)-2]
+			for _i := 0; _i < len(a)-2; {
+				_v1, _n := simd.LoadInt32sPart(a[_i+2:])
+				_v2, _ := simd.LoadInt32sPart(a[_i+1:])
+				_v1.StorePart(x[_i : len(a)-2])
+				_v3, _ := simd.LoadInt32sPart(y[_i : len(a)-2])
+				_v3.Add(_v2).StorePart(a[_i : len(a)-2])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Only the first half of the slices is touched.
+func AddHalf(b, xx, a []int32) {
+	if _loopvecOverlap(b, xx, 0, len(b)/2, 0, len(b)/2) || _loopvecOverlap(b, a, 0, len(b)/2, 0, len(b)/2) {
+		for i := 0; i < len(b)/2; i++ {
+			b[i] = xx[i] + a[i]
+		}
+	} else {
+		if len(b)/2 > 0 {
+			_ = b[(len(b)/2)-1]
+			_ = xx[(len(b)/2)-1]
+			_ = a[(len(b)/2)-1]
+			for _i := 0; _i < len(b)/2; {
+				_v1, _n := simd.LoadInt32sPart(xx[_i : len(b)/2])
+				_v2, _ := simd.LoadInt32sPart(a[_i : len(b)/2])
+				_v1.Add(_v2).StorePart(b[_i : len(b)/2])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+// Reads the element ahead of the one it writes, from the slice it writes.
+func ShiftAdd(a, b []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = a[i+1] + b[i]
+	}
+}
+
+// Moves the elements after k down by one: a copy.
+func ShiftLeft(a []int32, k int) {
+	for i := k; i < len(a)-1; i++ {
+		a[i] = a[i+1]
+	}
+}
+
+// The read of a[i+1] follows stores to a, but still sees the old value.
+func ReadAfterStore(a, b, d []int32) {
+	for i := 0; i < len(a)-1; i++ {
+		a[i] = b[i] + d[i]
+		b[i] = a[i] * 2
+		a[i] = b[i] + a[i+1]*d[i]
+	}
+}
+
+// Both offset reads come before the store to a.
+func Pair(a, x, y []int32) {
+	for i := 0; i < len(a)-2; i++ {
+		x[i] = a[i+2]
+		a[i] = y[i] + a[i+1]
+	}
+}
+
+// Only the first half of the slices is touched.
+func AddHalf(b, xx, a []int32) {
+	for i := 0; i < len(b)/2; i++ {
+		b[i] = xx[i] + a[i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+var sizes = []int{0, 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 65, 100, 131}
+
+func ramp(n int, scale int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i*i+1) * scale
+	}
+	return s
+}
+
+func sum(s []int32) (t int64) {
+	for i, v := range s {
+		t += int64(v) * int64(i+1)
+	}
+	return t
+}
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
+}
+
+// out is what a loop left in a slice, or 0 when it panicked: the rewritten loops
+// check the lengths first and write nothing, where the scalar loop has written what
+// came before the bad index. Only the panic is the same.
+func out(panicked bool, s []int32) int64 {
+	if panicked {
+		return 0
+	}
+	return sum(s)
+}
+
+func main() {
+	for _, n := range sizes {
+		a, b := ramp(n, 3), ramp(n, 5)
+		p := try(func() { test.ShiftAdd(a, b) })
+		fmt.Println(n, "ShiftAdd", p, out(p, a))
+
+		for _, k := range []int{0, 1, 3, n / 2, n} {
+			a = ramp(n, 3)
+			p = try(func() { test.ShiftLeft(a, k) })
+			fmt.Println(n, "ShiftLeft", k, p, out(p, a))
+		}
+
+		a, x, y := ramp(n, 3), ramp(n, 7), ramp(n, 11)
+		p = try(func() { test.Pair(a, x, y) })
+		fmt.Println(n, "Pair", p, out(p, a), out(p, x))
+
+		a, b, d := ramp(n, 3), ramp(n, 5), ramp(n, 7)
+		p = try(func() { test.ReadAfterStore(a, b, d) })
+		fmt.Println(n, "ReadAfterStore", p, out(p, a), out(p, b))
+
+		// Short operands must panic.
+		a, b = ramp(n, 3), ramp(n, 5)
+		p = try(func() { test.ShiftAdd(a, b[:max(n-2, 0)]) })
+		fmt.Println(n, "Short", p, out(p, a))
+
+		// Views of one slice: the halves do not overlap in what the loop touches,
+		// one view behind and one ahead overlap inside it.
+		for _, view := range []int{0, 1, 2, 3} {
+			buf := ramp(n+4, 1)
+			c := ramp(n, 9)
+			half := n / 2
+			var p bool
+			switch view {
+			case 0:
+				p = try(func() { test.AddHalf(buf[:n], buf[half:n], c) })
+			case 1:
+				p = try(func() { test.AddHalf(buf[1:n+1], buf[:n], c) })
+			case 2:
+				p = try(func() { test.AddHalf(buf[:n], buf[1:n+1], c) })
+			case 3:
+				p = try(func() { test.AddHalf(buf[:n], buf[:n], c) })
+			}
+			fmt.Println(n, "View", view, p, out(p, buf))
+		}
+	}
+}
+-- testmain/output --
+0 ShiftAdd false 0
+0 ShiftLeft 0 false 0
+0 ShiftLeft 1 false 0
+0 ShiftLeft 3 false 0
+0 ShiftLeft 0 false 0
+0 ShiftLeft 0 false 0
+0 Pair false 0 0
+0 ReadAfterStore false 0 0
+0 Short false 0
+0 View 0 false 60
+0 View 1 false 60
+0 View 2 false 60
+0 View 3 false 60
+1 ShiftAdd false 3
+1 ShiftLeft 0 false 3
+1 ShiftLeft 1 false 3
+1 ShiftLeft 3 false 3
+1 ShiftLeft 0 false 3
+1 ShiftLeft 1 false 3
+1 Pair false 3 7
+1 ReadAfterStore false 3 5
+1 Short false 3
+1 View 0 false 145
+1 View 1 false 145
+1 View 2 false 145
+1 View 3 false 145
+2 ShiftAdd false 23
+2 ShiftLeft 0 false 18
+2 ShiftLeft 1 false 15
+2 ShiftLeft 3 false 15
+2 ShiftLeft 1 false 15
+2 ShiftLeft 2 false 15
+2 Pair false 15 35
+2 ReadAfterStore false 78 44
+2 Short true 0
+2 View 0 false 311
+2 View 1 false 317
+2 View 2 false 311
+2 View 3 false 310
+3 ShiftAdd false 106
+3 ShiftLeft 0 false 81
+3 ShiftLeft 1 false 78
+3 ShiftLeft 3 false 60
+3 ShiftLeft 1 false 78
+3 ShiftLeft 3 false 60
+3 Pair false 74 148
+3 ReadAfterStore false 627 195
+3 Short true 0
+3 View 0 false 570
+3 View 1 false 576
+3 View 2 false 570
+3 View 3 false 569
+5 ShiftAdd false 885
+5 ShiftLeft 0 false 585
+5 ShiftLeft 1 false 582
+5 ShiftLeft 3 false 519
+5 ShiftLeft 2 false 564
+5 ShiftLeft 5 false 435
+5 Pair false 721 1103
+5 ReadAfterStore false 19587 1865
+5 Short true 0
+5 View 0 false 1610
+5 View 1 false 1630
+5 View 2 false 1597
+5 View 3 false 1590
+8 ShiftAdd false 6436
+8 ShiftLeft 0 false 3636
+8 ShiftLeft 1 false 3633
+8 ShiftLeft 3 false 3570
+8 ShiftLeft 4 false 3486
+8 ShiftLeft 8 false 2880
+8 Pair false 6674 6608
+8 ReadAfterStore false 472104 15440
+8 Short true 0
+8 View 0 false 5800
+8 View 1 false 6007
+8 View 2 false 5530
+8 View 3 false 5480
+9 ShiftAdd false 10551
+9 ShiftLeft 0 false 5751
+9 ShiftLeft 1 false 5748
+9 ShiftLeft 3 false 5685
+9 ShiftLeft 4 false 5601
+9 ShiftLeft 9 false 4635
+9 Pair false 11551 10255
+9 ReadAfterStore false 1028259 25965
+9 Short true 0
+9 View 0 false 7685
+9 View 1 false 7892
+9 View 2 false 7415
+9 View 3 false 7365
+16 ShiftAdd false 115208
+16 ShiftLeft 0 false 54408
+16 ShiftLeft 1 false 54405
+16 ShiftLeft 3 false 54342
+16 ShiftLeft 8 false 53292
+16 ShiftLeft 16 false 47328
+16 Pair false 154358 85792
+16 ReadAfterStore false 41956944 309920
+16 Short true 0
+16 View 0 false 52412
+16 View 1 false 63254
+16 View 2 false 47792
+16 View 3 false 47420
+17 ShiftAdd false 147883
+17 ShiftLeft 0 false 69003
+17 ShiftLeft 1 false 69000
+17 ShiftLeft 3 false 68937
+17 ShiftLeft 8 false 67887
+17 ShiftLeft 17 false 60435
+17 Pair false 201275 107255
+17 ReadAfterStore false 61561539 400469
+17 Short true 0
+17 View 0 false 60833
+17 View 1 false 71675
+17 View 2 false 56213
+17 View 3 false 55841
+33 ShiftAdd false 2224211
+33 ShiftLeft 0 false 939411
+33 ShiftLeft 1 false 939408
+33 ShiftLeft 3 false 939345
+33 ShiftLeft 16 false 930843
+33 ShiftLeft 33 false 872355
+33 Pair false 3421299 1255783
+33 ReadAfterStore false 3838628739 6336165
+33 Short true 0
+33 View 0 false 680785
+33 View 1 false 1154677
+33 View 2 false 605305
+33 View 3 false 602449
+64 ShiftAdd false 32449056
+64 ShiftLeft 0 false 12961056
+64 ShiftLeft 1 false 12961053
+64 ShiftLeft 3 false 12960990
+64 ShiftLeft 32 false 12894000
+64 ShiftLeft 64 false 12455040
+64 Pair false 53146446 15416800
+64 ReadAfterStore false 221066746176 94812800
+64 Short true 0
+64 View 0 false 8845820
+64 View 1 false 26398212
+64 View 2 false 7629132
+64 View 3 false 7606780
+65 ShiftAdd false 34542755
+65 ShiftLeft 0 false 13784355
+65 ShiftLeft 1 false 13784352
+65 ShiftLeft 3 false 13784289
+65 ShiftLeft 32 false 13717299
+65 ShiftLeft 65 false 13253955
+65 Pair false 56633571 16359623
+65 ReadAfterStore false 242933161731 100971845
+65 Short true 0
+65 View 0 false 9164945
+65 View 1 false 26717337
+65 View 2 false 7948257
+65 View 3 false 7925905
+100 ShiftAdd false 195741450
+100 ShiftLeft 0 false 76462950
+100 ShiftLeft 1 false 76462947
+100 ShiftLeft 3 false 76462884
+100 ShiftLeft 50 false 76209225
+100 ShiftLeft 100 false 74507700
+100 Pair false 328357296 86054668
+100 ReadAfterStore false 3316066534740 577437800
+100 Short true 0
+100 View 0 false 50295185
+100 View 1 false 222225705
+100 View 2 false 43027260
+100 View 3 false 42942685
+131 ShiftAdd false 579386538
+131 ShiftLeft 0 false 224183313
+131 ShiftLeft 1 false 224183310
+131 ShiftLeft 3 false 224183247
+131 ShiftLeft 65 false 223627758
+131 ShiftLeft 131 false 219764028
+131 Pair false 981731338 245960852
+131 ReadAfterStore false 2526252226931 1716045635
+131 Short true 0
+131 View 0 false 143354330
+131 View 1 false 794845456
+131 View 2 false 122579290
+131 View 3 false 122394105

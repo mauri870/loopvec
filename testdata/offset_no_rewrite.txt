@@ -1,10 +1,11 @@
-# A slice read at an offset must not be written in the same loop. A recurrence
-# (a[i] = a[i-1] + b[i]) carries a value from one iteration to the next, and a
-# store to a slice that another statement reads at an offset changes what the
-# vector loop would read. Offsets that are not the same on every iteration, a
-# stride, and a store at an offset are left alone too. StoredAhead is safe, since
-# it only reads elements ahead of the one it writes, but telling it from a
-# recurrence needs a dependence test, which loopvec does not have yet.
+# A slice that is stored and also read at an offset is vectorized only when no
+# iteration reads what an earlier one wrote: a forward loop that reads at a constant
+# positive offset (see offset_stored.txt). A recurrence (a[i] = a[i-1] + b[i])
+# carries a value from one iteration to the next, so it is rejected with its own
+# reason. A distance that is not a constant and a loop that counts down have no
+# order loopvec can check.
+# Offsets that are not the same on every iteration, a stride, and a store at an
+# offset are left alone too.
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -29,15 +30,14 @@ func Recurrence(a, b []int32) {
 	}
 }
 
-func StoredElsewhere(a, b, c []int32) {
-	for i := 0; i < len(a)-1; i++ {
-		a[i] = b[i]
-		c[i] = a[i+1]
+func StoredDistanceUnknown(a, b []int32, k int) {
+	for i := 0; i < len(a)-k; i++ {
+		a[i] = a[i+k] + b[i]
 	}
 }
 
-func StoredAhead(a, b []int32) {
-	for i := 0; i < len(a)-1; i++ {
+func StoredCountingDown(a, b []int32) {
+	for i := len(a) - 2; i >= 0; i-- {
 		a[i] = a[i+1] + b[i]
 	}
 }
@@ -73,11 +73,11 @@ func OffsetFromIndex(dst, a []int32) {
 	}
 }
 -- stdout.want --
-{"file":"$WORK/ops.go","line":4,"func":"Recurrence","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
-{"file":"$WORK/ops.go","line":10,"func":"StoredElsewhere","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
-{"file":"$WORK/ops.go","line":17,"func":"StoredAhead","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
-{"file":"$WORK/ops.go","line":23,"func":"Strided","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
-{"file":"$WORK/ops.go","line":29,"func":"OffsetFromSlice","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
-{"file":"$WORK/ops.go","line":35,"func":"OffsetAssigned","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
-{"file":"$WORK/ops.go","line":42,"func":"StoreAtOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
-{"file":"$WORK/ops.go","line":48,"func":"OffsetFromIndex","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":4,"func":"Recurrence","vectorized":false,"reason":"an iteration reads an element an earlier iteration wrote","stage":"lower"}
+{"file":"$WORK/ops.go","line":10,"func":"StoredDistanceUnknown","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":16,"func":"StoredCountingDown","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":22,"func":"Strided","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":28,"func":"OffsetFromSlice","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":34,"func":"OffsetAssigned","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":41,"func":"StoreAtOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":47,"func":"OffsetFromIndex","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}

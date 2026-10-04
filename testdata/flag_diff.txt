@@ -6,7 +6,7 @@ loopvec -d .
 cmpenv stderr stderr.want
 stdout -count=1 '^--- \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
 stdout -count=1 '^\+\+\+ \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
-stdout -count=1 '^@@ -1,7 \+1,38 @@$'
+stdout -count=1 '^@@ -1,7 \+1,43 @@$'
 stdout -count=1 '^\+//go:build goexperiment.simd$'
 stdout -count=1 '^\+import \($'
 stdout -count=1 '^-	for i := range dst \{$'

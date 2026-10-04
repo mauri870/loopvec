@@ -440,8 +440,9 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 			switch v := stmt.Val.(type) {
 			case *Load:
 				// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
-				// slice onto itself does nothing.
-				if v.Ref.Obj == stmt.Dst.Obj {
+				// slice onto itself does nothing; at an offset it shifts the elements,
+				// which copy does correctly where the ranges overlap.
+				if v.Ref.Obj == stmt.Dst.Obj && v.Off == "" {
 					return nil, ReasonUnsupportedOperand
 				}
 			case *Invariant:
@@ -477,9 +478,15 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		}
 	}
 
-	// A slice read at an offset must not be written in the loop: the element
-	// iteration i reads is one a store in another iteration writes, and the vector
-	// loop would not keep their order.
+	// A slice that is both stored and read at an offset is a dependence between
+	// iterations: iteration i reads the element iteration i+d writes. The vector
+	// loop runs a whole chunk of iterations statement by statement, so it keeps the
+	// scalar result only when the read is of a later iteration's element (d > 0, in a
+	// forward loop): that iteration has not run yet, so the scalar loop reads the
+	// value from before the loop, and the emitted loop loads it before any store of
+	// the chunk. A read of an earlier iteration's element (d < 0) is a recurrence,
+	// and a distance that is not a constant, or a loop that counts down, has no
+	// order loopvec can check.
 	stored := map[types.Object]bool{}
 	for _, stmt := range body {
 		if store, ok := stmt.(Store); ok {
@@ -488,8 +495,16 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	}
 	for _, stmt := range body {
 		for _, leaf := range Leaves(stmtValue(stmt)) {
-			if load, ok := leaf.(*Load); ok && load.Off != "" && stored[load.Ref.Obj] {
+			load, ok := leaf.(*Load)
+			if !ok || load.Off == "" || !stored[load.Ref.Obj] {
+				continue
+			}
+			distance, err := strconv.ParseInt(load.Off, 10, 64)
+			switch {
+			case err != nil || step != 1:
 				return nil, ReasonOffsetOfStored
+			case distance < 0:
+				return nil, ReasonCarriedDependence
 			}
 		}
 	}
