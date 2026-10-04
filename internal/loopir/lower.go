@@ -1,12 +1,14 @@
 package loopir
 
 import (
+	"fmt"
 	"go/ast"
 	"go/constant"
 	"go/token"
 	"go/types"
 	"math"
 	"strconv"
+	"strings"
 )
 
 // Lower canonicalizes a for or range statement into a Loop. When the loop is
@@ -58,6 +60,17 @@ type lowerer struct {
 	// valueVar is nil when the loop has no value variable.
 	valueVar types.Object
 	valueRef *Ref
+	// fields gives each slice reached through a selector one object per source
+	// text, so two mentions of x.f are the same slice.
+	fields map[fieldKey]*types.Var
+	// names records which slice each hoisted name stands for, so that a.b_c and
+	// a_b.c do not share one.
+	names map[string]fieldKey
+}
+
+type fieldKey struct {
+	base types.Object
+	path string
 }
 
 func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
@@ -82,13 +95,12 @@ func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 
 	// A slice identifier ranges over its elements; anything else must be an
 	// integer limit (for i := range n).
-	if ident, ok := s.X.(*ast.Ident); ok && l.isSlice(ident) {
-		ref := l.ref(ident)
+	if ref, ok := l.sliceRef(s.X); ok {
 		if valueIdent != nil {
 			l.valueVar = l.info.Defs[valueIdent]
 			l.valueRef = ref
 		}
-		return l.body(s, s.Body, Trip{Start: "0", Limit: "len(" + ref.Name + ")", Slice: ref}, 1)
+		return l.body(s, s.Body, Trip{Start: "0", Limit: "len(" + ref.Text() + ")", Slice: ref}, 1)
 	}
 	if s.Value != nil {
 		return nil, ReasonUnsupportedRange
@@ -234,11 +246,14 @@ func (l *lowerer) lenOf(call *ast.CallExpr) (*Ref, bool) {
 	if _, builtin := l.info.Uses[fn].(*types.Builtin); !builtin || fn.Name != "len" {
 		return nil, false
 	}
-	arg, ok := call.Args[0].(*ast.Ident)
-	if !ok || !l.isSlice(arg) || l.assigned[l.info.Uses[arg]] {
+	ref, ok := l.sliceRef(call.Args[0])
+	if !ok {
 		return nil, false
 	}
-	return l.ref(arg), true
+	if arg, isIdent := call.Args[0].(*ast.Ident); isIdent && l.assigned[l.info.Uses[arg]] {
+		return nil, false
+	}
+	return ref, true
 }
 
 // bound is a loop-invariant integer expression: its source text, and its value
@@ -1114,12 +1129,12 @@ func (l *lowerer) indexAt(expr ast.Expr) (ref *Ref, off string, ok bool) {
 	if !isIndex {
 		return nil, "", false
 	}
-	base, isIdent := index.X.(*ast.Ident)
-	if !isIdent || !l.isSlice(base) {
+	ref, isSlice := l.sliceRef(index.X)
+	if !isSlice {
 		return nil, "", false
 	}
 	if l.isIndex(index.Index) {
-		return l.ref(base), "", true
+		return ref, "", true
 	}
 	sum, isBinary := ast.Unparen(index.Index).(*ast.BinaryExpr)
 	if !isBinary {
@@ -1150,13 +1165,13 @@ func (l *lowerer) indexAt(expr ast.Expr) (ref *Ref, off string, ok bool) {
 		if v != 0 {
 			off = strconv.FormatInt(v, 10)
 		}
-		return l.ref(base), off, true
+		return ref, off, true
 	}
 	off = types.ExprString(offset)
 	if negate {
 		off = "-(" + off + ")"
 	}
-	return l.ref(base), off, true
+	return ref, off, true
 }
 
 // isIndex reports whether e is the loop index.
@@ -1229,6 +1244,75 @@ func (l *lowerer) isSlice(ident *ast.Ident) bool {
 }
 
 // ref returns the Ref for a slice identifier.
+// sliceRef matches a slice variable, or a chain of field selections ending in one
+// (x.f, x.f.g) whose root is a variable the body does not assign. The body holds only
+// element stores and local assignments, with no call, so nothing in it changes the
+// slice header a field holds and the field is the same slice on every iteration.
+func (l *lowerer) sliceRef(expr ast.Expr) (*Ref, bool) {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		if !l.isSlice(e) {
+			return nil, false
+		}
+		return l.ref(e), true
+	case *ast.SelectorExpr:
+		return l.fieldRef(e)
+	}
+	return nil, false
+}
+
+func (l *lowerer) fieldRef(sel *ast.SelectorExpr) (*Ref, bool) {
+	tv, ok := l.info.Types[sel]
+	if !ok {
+		return nil, false
+	}
+	slice, ok := tv.Type.Underlying().(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	var root ast.Expr = sel
+	for {
+		step, isSel := root.(*ast.SelectorExpr)
+		if !isSel {
+			break
+		}
+		if selection := l.info.Selections[step]; selection == nil || selection.Kind() != types.FieldVal {
+			return nil, false
+		}
+		root = step.X
+	}
+	base, ok := root.(*ast.Ident)
+	if !ok {
+		return nil, false
+	}
+	obj, ok := l.info.Uses[base].(*types.Var)
+	if !ok || obj == l.iv || obj == l.valueVar || l.assigned[obj] {
+		return nil, false
+	}
+	path := types.ExprString(sel)
+	if l.fields == nil {
+		l.fields = map[fieldKey]*types.Var{}
+	}
+	key := fieldKey{obj, path}
+	v := l.fields[key]
+	if v == nil {
+		v = types.NewVar(token.NoPos, nil, path, tv.Type)
+		l.fields[key] = v
+	}
+	if l.names == nil {
+		l.names = map[string]fieldKey{}
+	}
+	name := "_s" + strings.ReplaceAll(path, ".", "_")
+	for n := 2; ; n++ {
+		if have, taken := l.names[name]; !taken || have == key {
+			break
+		}
+		name = fmt.Sprintf("_s%d_%s", n, strings.ReplaceAll(path, ".", "_"))
+	}
+	l.names[name] = key
+	return &Ref{Name: name, Src: path, Obj: v, Elem: slice.Elem()}, true
+}
+
 func (l *lowerer) ref(ident *ast.Ident) *Ref {
 	obj := l.info.Uses[ident]
 	if obj == nil {

@@ -71,11 +71,17 @@ type Plan struct {
 	// then each slice it reads, in the order the loads are emitted. A slice read
 	// at several offsets is listed once for each.
 	Checked []Access
+	// Hoists lists the slices the loop reaches through a selector (x.f), in order: the
+	// emitted code assigns each Name from Src once before the loop.
+	Hoists []Hoist
 	// Overlaps lists the pairs of distinct slices that need a runtime overlap
 	// check: every pair where at least one is stored, since two slice variables
 	// may share memory at an offset.
 	Overlaps [][2]*Ref
 }
+
+// Hoist declares Name as a copy of the slice expression Src.
+type Hoist struct{ Name, Src string }
 
 // Access is a slice and the offset from the loop index it is read at, "" for none.
 type Access struct {
@@ -206,6 +212,11 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 	}
 	if len(refs) > maxSlices {
 		return nil, ReasonTooManySlices
+	}
+	for _, ref := range refs {
+		if ref.Src != "" {
+			p.Hoists = append(p.Hoists, Hoist{Name: ref.Name, Src: ref.Src})
+		}
 	}
 	for i, first := range refs {
 		for _, second := range refs[i+1:] {

@@ -1,0 +1,81 @@
+# A field is a slice the loop can rely on only when the body cannot change it. These
+# stay scalar: the root variable is assigned in the loop, the field is an array, a
+# pointer to a slice, a map, or the result of a call, and a field of a slice element.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+type Vec struct {
+	Values []float32
+	Bits   [8]float32
+	Ptr    *[]float32
+	Table  map[int]float32
+	Items  []struct{ X float32 }
+}
+
+func (v *Vec) Get() []float32 { return v.Values }
+
+func RootAssigned(v, w *Vec) {
+	for i := range v.Values {
+		v.Values[i] = w.Values[i]
+		v = w
+	}
+}
+
+func ArrayField(v *Vec) {
+	for i := range v.Bits {
+		v.Bits[i] *= 2
+	}
+}
+
+func PointerToSlice(v *Vec) {
+	for i := range *v.Ptr {
+		(*v.Ptr)[i] *= 2
+	}
+}
+
+func MapField(v *Vec, n int) {
+	for i := 0; i < n; i++ {
+		v.Table[i] *= 2
+	}
+}
+
+func CallResult(v *Vec) {
+	for i := range v.Get() {
+		v.Get()[i] *= 2
+	}
+}
+
+func ElementField(v *Vec) {
+	for i := range v.Items {
+		v.Items[i].X *= 2
+	}
+}
+
+func FieldReassigned(v *Vec, w []float32) {
+	for i := range v.Values {
+		v.Values[i] = w[i]
+		v.Values = w
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":14,"func":"RootAssigned","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":21,"func":"ArrayField","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":27,"func":"PointerToSlice","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":33,"func":"MapField","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":39,"func":"CallResult","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":51,"func":"FieldReassigned","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}

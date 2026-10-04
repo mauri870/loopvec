@@ -1,0 +1,412 @@
+# A slice reached through a field (x.f, x.f.g) is vectorized when the loop only stores
+# elements and assigns locals, with no call: nothing in the body can change the slice
+# header the field holds, so the emitted code copies it into a local once, inside a
+# check that the loop runs at all, and the original loop runs on the overlap fallback.
+# A nil pointer with no iterations must not panic, as the scalar loop does not.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+type Vec struct {
+	Values []float32
+	Other  []float32
+	Inner  struct{ Data []float32 }
+}
+
+type Ints struct{ N []int32 }
+
+func Scale(v *Vec, a float32) {
+	for i := range v.Values {
+		v.Values[i] *= a
+	}
+}
+
+func Add(dst, a *Vec) {
+	for i := range dst.Values {
+		dst.Values[i] += a.Values[i]
+	}
+}
+
+func Nested(v *Vec, n int) {
+	for i := 0; i < n; i++ {
+		v.Inner.Data[i] = v.Other[i] * 2
+	}
+}
+
+func Copy(dst, src *Vec) {
+	for i := range dst.Values {
+		dst.Values[i] = src.Values[i]
+	}
+}
+
+func SumAll(v Ints) int32 {
+	var s int32
+	for i := 0; i < len(v.N); i++ {
+		s += v.N[i]
+	}
+	return s
+}
+
+func Mixed(dst *Vec, src []float32) {
+	for i := range dst.Values {
+		dst.Values[i] = src[i] + 1
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+type Vec struct {
+	Values []float32
+	Other  []float32
+	Inner  struct{ Data []float32 }
+}
+
+type Ints struct{ N []int32 }
+
+func Scale(v *Vec, a float32) {
+	_vcFloat32s0 := simd.BroadcastFloat32s(a)
+	if len(v.Values) > 0 {
+		_sv_Values := v.Values
+		for _i := 0; _i < len(v.Values); {
+			_v1, _n := simd.LoadFloat32sPart(_sv_Values[_i:])
+			_v1.Mul(_vcFloat32s0).StorePart(_sv_Values[_i:])
+			_i += _n
+		}
+	}
+}
+
+func Add(dst, a *Vec) {
+	if len(dst.Values) > 0 {
+		_sdst_Values, _sa_Values := dst.Values, a.Values
+		if _loopvecOverlap(_sdst_Values, _sa_Values) {
+			for i := range dst.Values {
+				dst.Values[i] += a.Values[i]
+			}
+		} else {
+			if len(dst.Values) > 0 {
+				_ = _sa_Values[len(dst.Values)-1]
+				for _i := 0; _i < len(dst.Values); {
+					_v1, _n := simd.LoadFloat32sPart(_sdst_Values[_i:])
+					_v2, _ := simd.LoadFloat32sPart(_sa_Values[_i:])
+					_v1.Add(_v2).StorePart(_sdst_Values[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+func Nested(v *Vec, n int) {
+	_vcFloat32s2 := simd.BroadcastFloat32s(2)
+	if n > 0 {
+		_sv_Inner_Data, _sv_Other := v.Inner.Data, v.Other
+		if _loopvecOverlap(_sv_Inner_Data, _sv_Other, 0, n, 0, n) {
+			for i := 0; i < n; i++ {
+				v.Inner.Data[i] = v.Other[i] * 2
+			}
+		} else {
+			if n > 0 {
+				_ = _sv_Inner_Data[n-1]
+				_ = _sv_Other[n-1]
+				for _i := 0; _i < n; {
+					_v1, _n := simd.LoadFloat32sPart(_sv_Other[_i:n])
+					_v1.Mul(_vcFloat32s2).StorePart(_sv_Inner_Data[_i:n])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+func Copy(dst, src *Vec) {
+	if len(dst.Values) > 0 {
+		_sdst_Values, _ssrc_Values := dst.Values, src.Values
+		if _loopvecOverlap(_sdst_Values, _ssrc_Values) {
+			for i := range dst.Values {
+				dst.Values[i] = src.Values[i]
+			}
+		} else {
+			if len(dst.Values) > 0 {
+				_ = _ssrc_Values[len(dst.Values)-1]
+				copy(_sdst_Values, _ssrc_Values)
+			}
+		}
+	}
+}
+
+func SumAll(v Ints) int32 {
+	var s int32
+	if len(v.N) > 0 {
+		_sv_N := v.N
+		{
+			_i := 0
+			if len(v.N) >= 64 {
+				_a1 := simd.BroadcastInt32s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(v.N); _i += _lanes {
+					_v1 := simd.LoadInt32s(_sv_N[_i:])
+					_a1 = _a1.Add(_v1)
+				}
+				var _buf1 [16]int32
+				_a1.Store(_buf1[:])
+				for _, _x := range _buf1[:_lanes] {
+					s = s + _x
+				}
+			}
+			for i := _i; i < len(v.N); i++ {
+				s += v.N[i]
+			}
+		}
+	}
+	return s
+}
+
+func Mixed(dst *Vec, src []float32) {
+	_vcFloat32s5 := simd.BroadcastFloat32s(1)
+	if len(dst.Values) > 0 {
+		_sdst_Values := dst.Values
+		if _loopvecOverlap(_sdst_Values, src) {
+			for i := range dst.Values {
+				dst.Values[i] = src[i] + 1
+			}
+		} else {
+			if len(dst.Values) > 0 {
+				_ = src[len(dst.Values)-1]
+				for _i := 0; _i < len(dst.Values); {
+					_v1, _n := simd.LoadFloat32sPart(src[_i:])
+					_v1.Add(_vcFloat32s5).StorePart(_sdst_Values[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+type Vec struct {
+	Values []float32
+	Other  []float32
+	Inner  struct{ Data []float32 }
+}
+
+type Ints struct{ N []int32 }
+
+func Scale(v *Vec, a float32) {
+	for i := range v.Values {
+		v.Values[i] *= a
+	}
+}
+
+func Add(dst, a *Vec) {
+	for i := range dst.Values {
+		dst.Values[i] += a.Values[i]
+	}
+}
+
+func Nested(v *Vec, n int) {
+	for i := 0; i < n; i++ {
+		v.Inner.Data[i] = v.Other[i] * 2
+	}
+}
+
+func Copy(dst, src *Vec) {
+	for i := range dst.Values {
+		dst.Values[i] = src.Values[i]
+	}
+}
+
+func SumAll(v Ints) int32 {
+	var s int32
+	for i := 0; i < len(v.N); i++ {
+		s += v.N[i]
+	}
+	return s
+}
+
+func Mixed(dst *Vec, src []float32) {
+	for i := range dst.Values {
+		dst.Values[i] = src[i] + 1
+	}
+}
+-- stderr.want --
+loopvec: rewrote 6 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return
+}
+
+func ramp(n int, scale float32) []float32 {
+	s := make([]float32, n)
+	for i := range s {
+		s[i] = float32(i+1) * scale
+	}
+	return s
+}
+
+func sum(s []float32) (t float64) {
+	for i, v := range s {
+		t += float64(v) * float64(i+1)
+	}
+	return
+}
+
+func vec(n int, scale float32) *test.Vec {
+	v := &test.Vec{Values: ramp(n, scale), Other: ramp(n, 2*scale)}
+	v.Inner.Data = make([]float32, n)
+	return v
+}
+
+func main() {
+	for _, n := range []int{0, 1, 5, 16, 17, 100} {
+		v := vec(n, 1)
+		test.Scale(v, 3)
+		fmt.Println(n, "Scale", sum(v.Values))
+
+		d, a := vec(n, 1), vec(n, 5)
+		test.Add(d, a)
+		fmt.Println(n, "Add", sum(d.Values))
+
+		// The same struct twice is an exact alias.
+		test.Add(d, d)
+		fmt.Println(n, "AddSelf", sum(d.Values))
+
+		// Two structs over one backing array, offset by one: the original loop runs.
+		buf := ramp(n+2, 1)
+		x, y := &test.Vec{Values: buf[:n]}, &test.Vec{Values: buf[1 : n+1]}
+		test.Add(y, x)
+		fmt.Println(n, "AddOverlap", sum(buf))
+
+		w := vec(n, 1)
+		test.Nested(w, n)
+		fmt.Println(n, "Nested", sum(w.Inner.Data))
+
+		c, s := vec(n, 1), vec(n, 7)
+		test.Copy(c, s)
+		fmt.Println(n, "Copy", sum(c.Values))
+
+		ints := make([]int32, n)
+		for i := range ints {
+			ints[i] = int32(i*i + 1)
+		}
+		fmt.Println(n, "SumAll", test.SumAll(test.Ints{N: ints}))
+
+		m := vec(n, 1)
+		test.Mixed(m, ramp(n, 4))
+		fmt.Println(n, "Mixed", sum(m.Values))
+	}
+
+	// No iterations: a nil pointer is never read.
+	fmt.Println("nil", try(func() { test.Nested(nil, 0) }), try(func() { test.Add(&test.Vec{}, nil) }), try(func() { test.Copy(&test.Vec{}, nil) }))
+	// Iterations: it is, and it panics as the scalar loop does.
+	fmt.Println("nilReads", try(func() { test.Add(vec(3, 1), nil) }), try(func() { test.Nested(nil, 3) }))
+	// A short operand panics.
+	fmt.Println("short", try(func() { test.Add(vec(8, 1), vec(7, 1)) }), try(func() { test.Mixed(vec(8, 1), ramp(7, 1)) }))
+}
+-- testmain/output --
+0 Scale 0
+0 Add 0
+0 AddSelf 0
+0 AddOverlap 5
+0 Nested 0
+0 Copy 0
+0 SumAll 0
+0 Mixed 0
+1 Scale 3
+1 Add 6
+1 AddSelf 12
+1 AddOverlap 16
+1 Nested 4
+1 Copy 7
+1 SumAll 1
+1 Mixed 5
+5 Scale 165
+5 Add 330
+5 AddSelf 660
+5 AddOverlap 315
+5 Nested 220
+5 Copy 385
+5 SumAll 35
+5 Mixed 235
+16 Scale 4488
+16 Add 8976
+16 AddSelf 17952
+16 AddOverlap 12921
+16 Nested 5984
+16 Copy 10472
+16 SumAll 1256
+16 Mixed 6120
+17 Scale 5355
+17 Add 10710
+17 AddSelf 21420
+17 AddOverlap 16036
+17 Nested 7140
+17 Copy 12495
+17 SumAll 1513
+17 Mixed 7293
+100 Scale 1.01505e+06
+100 Add 2.0301e+06
+100 AddSelf 4.0602e+06
+100 AddOverlap 1.345108e+07
+100 Nested 1.3534e+06
+100 Copy 2.36845e+06
+100 SumAll 328450
+100 Mixed 1.35845e+06
+nil false false false
+nilReads true true
+short true true

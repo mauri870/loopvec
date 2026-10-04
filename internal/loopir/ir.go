@@ -109,11 +109,24 @@ func (op Op) Commutative() bool {
 	return false
 }
 
-// Ref names a slice variable.
+// Ref names a slice: a variable, or a chain of field selections such as x.f.
 type Ref struct {
+	// Name is how the emitted vector code refers to the slice.
 	Name string
+	// Src is the source text of the slice expression when it is not a plain variable
+	// (x.f); the emitted code copies it into Name before the loop, which is the same
+	// slice on every iteration. Empty for a variable.
+	Src  string
 	Obj  types.Object
 	Elem types.Type
+}
+
+// Text is the slice as the source writes it.
+func (r *Ref) Text() string {
+	if r.Src != "" {
+		return r.Src
+	}
+	return r.Name
 }
 
 // Trip is the range of iterations of a loop, written as the forward loop runs

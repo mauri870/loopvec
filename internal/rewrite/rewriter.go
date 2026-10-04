@@ -97,6 +97,9 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 			repl = wrapWithOverlapCheck(plan, string(src[origStart:origEnd]), repl)
 			needsOverlapHelper = true
 		}
+		if len(plan.Hoists) > 0 {
+			repl = hoistSlices(plan, repl)
+		}
 
 		replacements = append(replacements, replacement{
 			start: stmtNode.Pos(),
@@ -195,6 +198,23 @@ func HasBuildConstraint(file *ast.File) bool {
 		}
 	}
 	return false
+}
+
+// hoistSlices wraps text, which refers to the slices a loop reaches through a selector
+// by their Names, in a block that first assigns each from its source expression. The
+// loop would not have read the fields at all if it ran no iterations (x may be a nil
+// pointer), so the block is entered only when it runs at least one.
+func hoistSlices(plan *loopir.Plan, text string) string {
+	names := make([]string, len(plan.Hoists))
+	srcs := make([]string, len(plan.Hoists))
+	for i, h := range plan.Hoists {
+		names[i], srcs[i] = h.Name, h.Src
+	}
+	assign := strings.Join(names, ", ") + " := " + strings.Join(srcs, ", ")
+	if plan.NonEmpty {
+		return "{\n" + assign + "\n" + text + "\n}"
+	}
+	return "if " + plan.Limit + " > " + plan.Start + " {\n" + assign + "\n" + text + "\n}"
 }
 
 // wrapWithOverlapCheck guards simdText behind a runtime check that no stored

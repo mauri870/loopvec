@@ -79,6 +79,13 @@ safety argument stays structural:
   the forward `Start <= i < Limit`; a limit that is not exactly `len` of the stored
   slice makes every operand slice carry an explicit cap (`Plan.Bound`), or the last
   vector would write past it.
+- A slice operand is a variable or a chain of field selections ending in a slice
+  (`x.f`, `x.f.g`) whose root variable the body does not assign (`sliceRef`). The body has
+  no call and stores only elements, so nothing in it changes the header a field holds. The
+  emitter copies each field slice into a local (`Plan.Hoists`) once, inside a check that
+  the loop runs at least once (`x` may be a nil pointer the scalar loop never reads), and
+  the overlap check and the vector loop use the locals; the fallback is the original loop.
+  Arrays, pointers to slices, maps, and the result of a call stay rejected.
 - A store is `ident[i]` where `i` is *exactly* the loop variable (`index`). A load
   may also be `ident[i+e]`, `ident[e+i]` or `ident[i-e]` for a loop-invariant integer
   `e` (`indexAt`, `Load.Off`). A slice that is also stored may be read only at a

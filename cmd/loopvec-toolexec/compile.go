@@ -315,9 +315,10 @@ func parseSources(args []string, c compileArgs) ([]*source, *token.FileSet, []*a
 // check type-checks files as package c.pkg, importing from cfg's export data.
 func check(fset *token.FileSet, files []*ast.File, c compileArgs, cfg *importcfg) (*types.Info, []error) {
 	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
+		Types:      make(map[ast.Expr]types.TypeAndValue),
+		Defs:       make(map[*ast.Ident]types.Object),
+		Uses:       make(map[*ast.Ident]types.Object),
+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
 	}
 	var errs []error
 	goarch := os.Getenv("GOARCH")
