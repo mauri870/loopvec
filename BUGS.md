@@ -7,6 +7,7 @@ gotip, "1.27.1" is the release toolchain loopvec is tested against.
 | Issue | Status | Affects | loopvec's answer |
 |---|---|---|---|
 | [#80657](https://github.com/golang/go/issues/80657) simd in a method: internal compiler error | fixed on tip (CL 839405), still crashes on 1.27.1 | `-methods` | methods are skipped unless `-methods` is passed |
+| [#80835](https://github.com/golang/go/issues/80835) legacy SSE encodings in functions using simd cause AVX-SSE transition penalties | open, fix pending (CLs 825145, 825146, in tip) | speed of any scalar float code that runs after a rewritten loop, in the same function or another | none; the portable `simd` package has no `ClearAVXUpperBits` |
 | [#81844](https://github.com/golang/go/issues/81844) blank identifier parameters rejected | fixed on tip (CL 841145) | every rewrite of a function with a `_` parameter | the generated file renames them `_p0`, `_p1`, ... |
 | [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is open | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
 | [#81846](https://github.com/golang/go/issues/81846) `Float32s.Neg` rebuilds its sign constant every iteration | open | speed of negation loops | none; the loop is correct, only slower than it should be |
@@ -21,6 +22,28 @@ A function with a receiver that contains simd code failed to compile with
 by default; `-methods` turns it on. The fix is on tip. On 1.27.1 the crash is still there,
 and `flag_methods_ice.txt` pins it, so that test starts failing when the pinned toolchain
 gets the fix. Reported by someone else; the fix is [CL 839405](https://go.dev/cl/839405).
+
+## #80835: legacy SSE after vector code
+
+The compiler emits legacy (non-VEX) SSE encodings for scalar float code and never a
+`VZEROUPPER`, so scalar code that runs while the upper halves of the vector registers are
+dirty pays a penalty. The issue reports it for legacy instructions inside functions that use
+the intrinsics, and the pending CLs use VEX encodings in functions where AVX is present.
+loopvec meets a broader case that those CLs do not obviously cover: a rewritten loop leaves
+the state dirty, and the scalar float code that follows, in the same function or in a
+function that calls it, has no AVX in it to key on.
+
+Measured on an AMD Ryzen 9 9950X3D with a vector loop followed by a scalar min/max scan,
+pinned to one core with `GODEBUG=asyncpreemptoff=1`: the pair costs 1.5x (go1.27.1) to 2.4x
+(tip, which already has the two VEX CLs) what its parts cost, at 256 and 512 bits, and
+exactly the sum of the parts once `archsimd.ClearAVXUpperBits()` runs between them. The
+vector loop itself was 7.6x faster than the scalar one, so a function that is mostly the
+vector loop still wins and one that is mostly scalar float code around it can lose. Only
+`simd/archsimd` (amd64) has `ClearAVXUpperBits`, not the portable `simd`, so loopvec has no
+portable way to clear the state. When comparing a function before and after a rewrite,
+benchmark the whole function, not the loop. This is separate from #81847: it reproduces with
+async preemption off. One machine and no performance counters, so the size of the effect on
+Intel, where the penalty works differently, is unknown.
 
 ## #81844: blank identifier parameters
 
