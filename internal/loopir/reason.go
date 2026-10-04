@@ -42,6 +42,20 @@ const (
 	// iteration writes (a[i] = a[i-1] + x): iteration i reads what iteration i-1
 	// wrote, so the iterations cannot run as a vector.
 	ReasonCarriedDependence Reason = "an iteration reads an element an earlier iteration wrote"
+	// ReasonUnsupportedIf covers an if that is not a select: a condition that is
+	// not a comparison of loop values (joined by && and ||), an init statement, or
+	// a branch that is not one assignment to an element of the same slice.
+	ReasonUnsupportedIf Reason = "if is not a select between assignments to one element"
+	// ReasonConditionalStore covers an if without an else whose condition does not
+	// read the element it stores. The vector loop would write the unchanged lanes
+	// back, which the scalar loop never touches; when the condition reads the
+	// element anyway the loop already depends on it, so the write-back changes
+	// nothing a correct program can observe.
+	ReasonConditionalStore Reason = "a store under a condition may write elements the scalar loop leaves alone"
+	// ReasonConditionalLoad covers a slice read only under a condition: the vector
+	// loop reads it for every element, so a short slice would panic where the
+	// scalar loop did not.
+	ReasonConditionalLoad Reason = "a slice is read only under a condition"
 	// ReasonUnsupportedBody covers a loop body that isn't a sequence of
 	// assignments: an if, a nested loop, or any other statement.
 	ReasonUnsupportedBody Reason = "loop body is not a sequence of indexed assignments"

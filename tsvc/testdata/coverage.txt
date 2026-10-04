@@ -14,7 +14,7 @@ s119	vectorize	no	destination is not a simple, same-index slice element
 s1119	vectorize	no	destination is not a simple, same-index slice element
 s121	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s122	vectorize	no	loop step is not i++ (or i-- when counting down)
-s124	vectorize	no	loop body is not a sequence of indexed assignments
+s124	vectorize	no	if is not a select between assignments to one element
 s125	vectorize	no	loop body is not a sequence of indexed assignments
 s127	vectorize	no	loop body is not a sequence of indexed assignments
 s128	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -44,13 +44,13 @@ s252	vectorize	no	operand is not a same-index slice, range value, or plain scala
 s254	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s255	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s257	vectorize	no	destination is not a simple, same-index slice element
-s271	vectorize	no	loop body is not a sequence of indexed assignments
-s273	vectorize	no	loop body is not a sequence of indexed assignments
+s271	vectorize	no	a store under a condition may write elements the scalar loop leaves alone
+s273	vectorize	no	a store under a condition may write elements the scalar loop leaves alone
 s2275	vectorize	no	destination is not a simple, same-index slice element
-s276	vectorize	no	loop body is not a sequence of indexed assignments
-s1279	vectorize	no	loop body is not a sequence of indexed assignments
-s2711	vectorize	no	loop body is not a sequence of indexed assignments
-s2712	vectorize	no	loop body is not a sequence of indexed assignments
+s276	vectorize	no	operand is not a same-index slice, range value, or plain scalar
+s1279	vectorize	no	if is not a select between assignments to one element
+s2711	vectorize	no	a store under a condition may write elements the scalar loop leaves alone
+s2712	vectorize	no	a slice is read only under a condition
 s1281	vectorize	yes
 s291	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s293	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -59,13 +59,13 @@ s2102	vectorize	no	destination is not a simple, same-index slice element
 s311	vectorize	yes
 s312	vectorize	yes
 s313	vectorize	yes
-s314	vectorize	no	loop body is not a sequence of indexed assignments
-s315	vectorize	no	loop body is not a sequence of indexed assignments
-s316	vectorize	no	loop body is not a sequence of indexed assignments
+s314	vectorize	no	if is not a select between assignments to one element
+s315	vectorize	no	if is not a select between assignments to one element
+s316	vectorize	no	if is not a select between assignments to one element
 s317	vectorize	no	not recognized
 s319	vectorize	no	loop body is not a sequence of indexed assignments
-s3111	vectorize	no	loop body is not a sequence of indexed assignments
-s3113	vectorize	no	loop body is not a sequence of indexed assignments
+s3111	vectorize	no	if is not a select between assignments to one element
+s3113	vectorize	no	if is not a select between assignments to one element
 s331	vectorize	no	not recognized
 s351	vectorize	no	loop step is not i++ (or i-- when counting down)
 s1351	vectorize	no	range clause is not i := range s, i, v := range s, or i := range n
@@ -76,13 +76,13 @@ s422	vectorize	yes
 s423	vectorize	no	destination is not a simple, same-index slice element
 s424	vectorize	no	destination is not a simple, same-index slice element
 s431	vectorize	no	a slice is read at an offset and written in the same loop
-s441	vectorize	no	loop body is not a sequence of indexed assignments
-s443	vectorize	no	loop body is not a sequence of indexed assignments
+s441	vectorize	no	a slice is read only under a condition
+s443	vectorize	no	a slice is read only under a condition
 s452	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s453	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s4117	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 va	vectorize	yes
-vif	vectorize	no	loop body is not a sequence of indexed assignments
+vif	vectorize	no	a store under a condition may write elements the scalar loop leaves alone
 vpv	vectorize	yes
 vtv	vectorize	yes
 vpvtv	vectorize	yes

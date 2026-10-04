@@ -27,11 +27,19 @@ func generateReplacement(plan *loopir.Plan, fset *token.FileSet, idx int) (strin
 	e := &emitter{plan: plan, fset: fset, loads: map[*loopir.Load]string{}, temps: map[*loopir.Temp]string{}, broadcasts: broadcastNames(plan, idx)}
 
 	var pre strings.Builder
+	declared := map[string]string{}
 	for _, inv := range invariants(plan) {
 		var text bytes.Buffer
 		if err := format.Node(&text, fset, inv.Expr); err != nil {
 			return "", "", err
 		}
+		// The same expression twice (the lower bound of a clamp, say) is
+		// broadcast once.
+		if name, ok := declared[text.String()]; ok {
+			e.broadcasts[inv] = name
+			continue
+		}
+		declared[text.String()] = e.broadcasts[inv]
 		if pre.Len() > 0 {
 			pre.WriteByte('\n')
 		}
@@ -443,6 +451,12 @@ func (e *emitter) expr(v loopir.Value) string {
 		return e.temps[v.Temp]
 	case *loopir.Shift:
 		return fmt.Sprintf("%s.%s(uint64(%s))", e.expr(v.X), v.Op.Method(), types.ExprString(v.Count))
+	case *loopir.Compare:
+		return fmt.Sprintf("%s.%s(%s)", e.expr(v.X), v.Op.Method(), e.expr(v.Y))
+	case *loopir.Logic:
+		return fmt.Sprintf("%s.%s(%s)", e.expr(v.X), v.Op.Method(), e.expr(v.Y))
+	case *loopir.Select:
+		return fmt.Sprintf("%s.IfElse(%s, %s)", e.expr(v.Then), e.expr(v.Cond), e.expr(v.Else))
 	case *loopir.Unary:
 		return e.expr(v.X) + "." + v.Op.Method() + "()"
 	case *loopir.Binary:

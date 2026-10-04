@@ -1,0 +1,722 @@
+# An if/else whose branches each store the same element becomes one lane-wise
+# select: compare, then IfElse. That covers the common activation functions.
+# Both branches are computed for every lane, and the results must still match the
+# scalar loop for NaN, infinities and signed zeros, which compare the way Go does.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func ReLU(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		}
+	}
+}
+
+func LeakyReLU(dst, x []float32, alpha float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = x[i]
+		} else {
+			dst[i] = alpha * x[i]
+		}
+	}
+}
+
+func LeakyReLUInPlace(x []float64, alpha float64) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] *= alpha
+		}
+	}
+}
+
+func ReLU6(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		} else if x[i] > 6 {
+			x[i] = 6
+		}
+	}
+}
+
+func HardTanh(x []float32, lo, hi float32) {
+	for i := range x {
+		if x[i] < lo {
+			x[i] = lo
+		} else if x[i] > hi {
+			x[i] = hi
+		}
+	}
+}
+
+func Sign(dst, x []float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = 1
+		} else if x[i] < 0 {
+			dst[i] = -1
+		} else {
+			dst[i] = 0
+		}
+	}
+}
+
+func Step(dst, x []float32, threshold float32) {
+	for i := range dst {
+		if x[i] >= threshold {
+			dst[i] = 1
+		} else {
+			dst[i] = 0
+		}
+	}
+}
+
+func Abs(x []float64) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = -x[i]
+		}
+	}
+}
+
+func ClampInt(x []int32, lo, hi int32) {
+	for i := range x {
+		if x[i] < lo {
+			x[i] = lo
+		} else if x[i] > hi {
+			x[i] = hi
+		}
+	}
+}
+
+func Deadband(x []float32, lo, hi float32) {
+	for i := range x {
+		if x[i] > lo && x[i] < hi {
+			x[i] = 0
+		}
+	}
+}
+
+func Replace(x []int32, bad, good int32) {
+	for i := range x {
+		if x[i] == bad {
+			x[i] = good
+		}
+	}
+}
+
+func NaNToZero(x []float32) {
+	for i := range x {
+		if x[i] != x[i] {
+			x[i] = 0
+		}
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func ReLU(x []float32) {
+	_vcAFloat32s0 := simd.BroadcastFloat32s(0)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcAFloat32s0.IfElse(_v1.Less(_vcAFloat32s0), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func LeakyReLU(dst, x []float32, alpha float32) {
+	_vcAFloat32s1 := simd.BroadcastFloat32s(0)
+	_vcBFloat32s1 := simd.BroadcastFloat32s(alpha)
+	if _loopvecOverlap(dst, x) {
+		for i := range dst {
+			if x[i] > 0 {
+				dst[i] = x[i]
+			} else {
+				dst[i] = alpha * x[i]
+			}
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_v1.IfElse(_v1.Greater(_vcAFloat32s1), _v1.Mul(_vcBFloat32s1)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func LeakyReLUInPlace(x []float64, alpha float64) {
+	_vcAFloat64s2 := simd.BroadcastFloat64s(0)
+	_vcBFloat64s2 := simd.BroadcastFloat64s(alpha)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat64sPart(x[_i:])
+		_v1.Mul(_vcBFloat64s2).IfElse(_v1.Less(_vcAFloat64s2), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func ReLU6(x []float32) {
+	_vcFloat32s3_1 := simd.BroadcastFloat32s(0)
+	_vcFloat32s3_3 := simd.BroadcastFloat32s(6)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcFloat32s3_1.IfElse(_v1.Less(_vcFloat32s3_1), _vcFloat32s3_3.IfElse(_v1.Greater(_vcFloat32s3_3), _v1)).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func HardTanh(x []float32, lo, hi float32) {
+	_vcFloat32s4_1 := simd.BroadcastFloat32s(lo)
+	_vcFloat32s4_3 := simd.BroadcastFloat32s(hi)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcFloat32s4_1.IfElse(_v1.Less(_vcFloat32s4_1), _vcFloat32s4_3.IfElse(_v1.Greater(_vcFloat32s4_3), _v1)).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func Sign(dst, x []float32) {
+	_vcFloat32s5_1 := simd.BroadcastFloat32s(0)
+	_vcFloat32s5_2 := simd.BroadcastFloat32s(1)
+	_vcFloat32s5_4 := simd.BroadcastFloat32s(-1)
+	if _loopvecOverlap(dst, x) {
+		for i := range dst {
+			if x[i] > 0 {
+				dst[i] = 1
+			} else if x[i] < 0 {
+				dst[i] = -1
+			} else {
+				dst[i] = 0
+			}
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_vcFloat32s5_2.IfElse(_v1.Greater(_vcFloat32s5_1), _vcFloat32s5_4.IfElse(_v1.Less(_vcFloat32s5_1), _vcFloat32s5_1)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Step(dst, x []float32, threshold float32) {
+	_vcFloat32s6_1 := simd.BroadcastFloat32s(threshold)
+	_vcFloat32s6_2 := simd.BroadcastFloat32s(1)
+	_vcFloat32s6_3 := simd.BroadcastFloat32s(0)
+	if _loopvecOverlap(dst, x) {
+		for i := range dst {
+			if x[i] >= threshold {
+				dst[i] = 1
+			} else {
+				dst[i] = 0
+			}
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_vcFloat32s6_2.IfElse(_v1.GreaterEqual(_vcFloat32s6_1), _vcFloat32s6_3).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Abs(x []float64) {
+	_vcAFloat64s7 := simd.BroadcastFloat64s(0)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat64sPart(x[_i:])
+		_v1.Neg().IfElse(_v1.Less(_vcAFloat64s7), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func ClampInt(x []int32, lo, hi int32) {
+	_vcInt32s8_1 := simd.BroadcastInt32s(lo)
+	_vcInt32s8_3 := simd.BroadcastInt32s(hi)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadInt32sPart(x[_i:])
+		_vcInt32s8_1.IfElse(_v1.Less(_vcInt32s8_1), _vcInt32s8_3.IfElse(_v1.Greater(_vcInt32s8_3), _v1)).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func Deadband(x []float32, lo, hi float32) {
+	_vcFloat32s9_1 := simd.BroadcastFloat32s(lo)
+	_vcFloat32s9_2 := simd.BroadcastFloat32s(hi)
+	_vcFloat32s9_3 := simd.BroadcastFloat32s(0)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcFloat32s9_3.IfElse(_v1.Greater(_vcFloat32s9_1).And(_v1.Less(_vcFloat32s9_2)), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func Replace(x []int32, bad, good int32) {
+	_vcAInt32s10 := simd.BroadcastInt32s(bad)
+	_vcBInt32s10 := simd.BroadcastInt32s(good)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadInt32sPart(x[_i:])
+		_vcBInt32s10.IfElse(_v1.Equal(_vcAInt32s10), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func NaNToZero(x []float32) {
+	_vcBFloat32s11 := simd.BroadcastFloat32s(0)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcBFloat32s11.IfElse(_v1.NotEqual(_v1), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func ReLU(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		}
+	}
+}
+
+func LeakyReLU(dst, x []float32, alpha float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = x[i]
+		} else {
+			dst[i] = alpha * x[i]
+		}
+	}
+}
+
+func LeakyReLUInPlace(x []float64, alpha float64) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] *= alpha
+		}
+	}
+}
+
+func ReLU6(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		} else if x[i] > 6 {
+			x[i] = 6
+		}
+	}
+}
+
+func HardTanh(x []float32, lo, hi float32) {
+	for i := range x {
+		if x[i] < lo {
+			x[i] = lo
+		} else if x[i] > hi {
+			x[i] = hi
+		}
+	}
+}
+
+func Sign(dst, x []float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = 1
+		} else if x[i] < 0 {
+			dst[i] = -1
+		} else {
+			dst[i] = 0
+		}
+	}
+}
+
+func Step(dst, x []float32, threshold float32) {
+	for i := range dst {
+		if x[i] >= threshold {
+			dst[i] = 1
+		} else {
+			dst[i] = 0
+		}
+	}
+}
+
+func Abs(x []float64) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = -x[i]
+		}
+	}
+}
+
+func ClampInt(x []int32, lo, hi int32) {
+	for i := range x {
+		if x[i] < lo {
+			x[i] = lo
+		} else if x[i] > hi {
+			x[i] = hi
+		}
+	}
+}
+
+func Deadband(x []float32, lo, hi float32) {
+	for i := range x {
+		if x[i] > lo && x[i] < hi {
+			x[i] = 0
+		}
+	}
+}
+
+func Replace(x []int32, bad, good int32) {
+	for i := range x {
+		if x[i] == bad {
+			x[i] = good
+		}
+	}
+}
+
+func NaNToZero(x []float32) {
+	for i := range x {
+		if x[i] != x[i] {
+			x[i] = 0
+		}
+	}
+}
+-- stderr.want --
+loopvec: rewrote 12 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"example.com/test"
+)
+
+var sizes = []int{0, 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 65, 100, 131}
+
+// special values cycle through the float inputs so every lane count meets NaN,
+// infinities, and both zeros.
+var special = []float32{
+	float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)),
+	0, float32(math.Copysign(0, -1)), -1, 1, 6, -6, 6.5, -0.5, 3.25, 100, -100,
+}
+
+func floats32(n int) []float32 {
+	s := make([]float32, n)
+	for i := range s {
+		s[i] = special[(i*7+n)%len(special)]
+	}
+	return s
+}
+
+func floats64(n int) []float64 {
+	s := make([]float64, n)
+	for i := range s {
+		s[i] = float64(special[(i*5+n)%len(special)])
+	}
+	return s
+}
+
+func ints(n int) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32((i*37+n)%23) - 11
+	}
+	return s
+}
+
+// bits makes the output comparable: NaN compares unequal to itself and -0 equals 0.
+func bits32(s []float32) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + uint64(math.Float32bits(v))
+	}
+	return h
+}
+
+func bits64(s []float64) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + math.Float64bits(v)
+	}
+	return h
+}
+
+func sum(s []int32) (t int64) {
+	for i, v := range s {
+		t += int64(v) * int64(i+1)
+	}
+	return t
+}
+
+func main() {
+	for _, n := range sizes {
+		x := floats32(n)
+		test.ReLU(x)
+		fmt.Println(n, "ReLU", bits32(x))
+
+		dst := make([]float32, n)
+		test.LeakyReLU(dst, floats32(n), 0.125)
+		fmt.Println(n, "LeakyReLU", bits32(dst))
+
+		f := floats64(n)
+		test.LeakyReLUInPlace(f, 0.01)
+		fmt.Println(n, "LeakyReLUInPlace", bits64(f))
+
+		x = floats32(n)
+		test.ReLU6(x)
+		fmt.Println(n, "ReLU6", bits32(x))
+
+		x = floats32(n)
+		test.HardTanh(x, -1.5, 2.5)
+		fmt.Println(n, "HardTanh", bits32(x))
+
+		test.Sign(dst, floats32(n))
+		fmt.Println(n, "Sign", bits32(dst))
+
+		test.Step(dst, floats32(n), 1)
+		fmt.Println(n, "Step", bits32(dst))
+
+		f = floats64(n)
+		test.Abs(f)
+		fmt.Println(n, "Abs", bits64(f))
+
+		i := ints(n)
+		test.ClampInt(i, -4, 5)
+		fmt.Println(n, "ClampInt", sum(i))
+
+		x = floats32(n)
+		test.Deadband(x, -2, 2)
+		fmt.Println(n, "Deadband", bits32(x))
+
+		i = ints(n)
+		test.Replace(i, 3, 99)
+		fmt.Println(n, "Replace", sum(i))
+
+		x = floats32(n)
+		test.NaNToZero(x)
+		fmt.Println(n, "NaNToZero", bits32(x))
+	}
+}
+-- testmain/output --
+0 ReLU 0
+0 LeakyReLU 0
+0 LeakyReLUInPlace 0
+0 ReLU6 0
+0 HardTanh 0
+0 Sign 0
+0 Step 0
+0 Abs 0
+0 ClampInt 0
+0 Deadband 0
+0 Replace 0
+0 NaNToZero 0
+1 ReLU 2139095040
+1 LeakyReLU 2139095040
+1 LeakyReLUInPlace 9218868437227405312
+1 ReLU6 1086324736
+1 HardTanh 1075838976
+1 Sign 1065353216
+1 Step 1065353216
+1 Abs 9218868437227405312
+1 ClampInt -4
+1 Deadband 2139095040
+1 Replace -10
+1 NaNToZero 2139095040
+2 ReLU 1087373312
+2 LeakyReLU 9223373902603878400
+2 LeakyReLUInPlace 2659375579962277888
+2 ReLU6 1086324736
+2 HardTanh 13835059455766560768
+2 Sign 9223373435504164864
+2 Step 1065353216
+2 Abs 11882747616817053696
+2 ClampInt 6
+2 Deadband 9223373902603878400
+2 Replace 1
+2 NaNToZero 9223373902603878400
+3 ReLU 0
+3 LeakyReLU 9223373419842633728
+3 LeakyReLUInPlace 18082492584004104872
+3 ReLU6 0
+3 HardTanh 1393934991360
+3 Sign 9223373434438811648
+3 Step 0
+3 Abs 2963650029786497024
+3 ClampInt -3
+3 Deadband 0
+3 Replace -5
+3 NaNToZero 1393934991360
+5 ReLU 16233125181494657024
+5 LeakyReLU 1244589873406410752
+5 LeakyReLUInPlace 9927267290635675092
+5 ReLU6 89418984755036160
+5 HardTanh 13671231458100903936
+5 Sign 4446996303632662528
+5 Step 87692749528104960
+5 Abs 10653827868498329600
+5 ClampInt 7
+5 Deadband 16233125181494657024
+5 Replace -13
+5 NaNToZero 2145684661889662976
+8 ReLU 9544004775964573696
+8 LeakyReLU 2007624179020464128
+8 LeakyReLUInPlace 9401087978229030172
+8 ReLU6 9042587352010063872
+8 HardTanh 9963803161539903488
+8 Sign 17872232619022745600
+8 Step 12927728183830118400
+8 Abs 3943745898693001216
+8 ClampInt 6
+8 Deadband 3105958077002678272
+8 Replace 735
+8 NaNToZero 3105958077002678272
+9 ReLU 15800510837334999040
+9 LeakyReLU 6118114674070257664
+9 LeakyReLUInPlace 10165928559854914292
+9 ReLU6 504894954833707008
+9 HardTanh 12548078186826563584
+9 Sign 13131730993062871040
+9 Step 8187226557870243840
+9 Abs 5860309015115857920
+9 ClampInt -30
+9 Deadband 6118114674070257664
+9 Replace 200
+9 NaNToZero 6118114674070257664
+16 ReLU 3962692171768791040
+16 LeakyReLU 16423675241307308032
+16 LeakyReLUInPlace 7952498722124483804
+16 ReLU6 828083059768164352
+16 HardTanh 3489649884011692032
+16 Sign 15053437848361369600
+16 Step 11922877114593837056
+16 Abs 15145605546846978048
+16 ClampInt 64
+16 Deadband 16423675241307308032
+16 Replace 1376
+16 NaNToZero 16423675241307308032
+17 ReLU 0
+17 LeakyReLU 14368200081843159040
+17 LeakyReLUInPlace 80564195576662852
+17 ReLU6 0
+17 HardTanh 15163342607641214976
+17 Sign 3130560733767532544
+17 Step 0
+17 Abs 16618564099973840896
+17 ClampInt 40
+17 Deadband 0
+17 Replace 848
+17 NaNToZero 15163342607641214976
+33 ReLU 14779982038903554048
+33 LeakyReLU 4511068993947172864
+33 LeakyReLUInPlace 14975154265851219500
+33 ReLU6 1580852497772183552
+33 HardTanh 1493831306151198720
+33 Sign 10203383498371235840
+33 Step 553212808502706176
+33 Abs 14630506339466477568
+33 ClampInt 209
+33 Deadband 14779982038903554048
+33 Replace 2119
+33 NaNToZero 5983408655062532096
+64 ReLU 1024628963969859584
+64 LeakyReLU 14735613337614155776
+64 LeakyReLUInPlace 1568232451986696140
+64 ReLU6 17484121318113673216
+64 HardTanh 12230604993807253504
+64 Sign 6378247186215337984
+64 Step 3186891800593825792
+64 Abs 10717159738258227200
+64 ClampInt 455
+64 Deadband 6958071630606106624
+64 Replace 7470
+64 NaNToZero 6958071630606106624
+65 ReLU 13606966393761169408
+65 LeakyReLU 16997935607144513536
+65 LeakyReLUInPlace 1936055615359245732
+65 ReLU6 9306800252818292736
+65 HardTanh 14317097462116909056
+65 Sign 281809114420477952
+65 Step 15537197802508517376
+65 Abs 14516227498921951232
+65 ClampInt 1006
+65 Deadband 16997935607144513536
+65 Replace 7166
+65 NaNToZero 16997935607144513536
+100 ReLU 1820913219198255104
+100 LeakyReLU 6880045606906101760
+100 LeakyReLUInPlace 8280098072883107620
+100 ReLU6 1819157275881766912
+100 HardTanh 11735303837269884928
+100 Sign 17885775070270324736
+100 Step 1784038409552003072
+100 Abs 12655114952911093760
+100 ClampInt 1660
+100 Deadband 6880045606906101760
+100 Replace 25979
+100 NaNToZero 6880045606906101760
+131 ReLU 3096662748471754752
+131 LeakyReLU 12943247367634157568
+131 LeakyReLUInPlace 13702678675536060816
+131 ReLU6 11591387724929564672
+131 HardTanh 10503524902674366464
+131 Sign 8860345493805334528
+131 Step 8305028907191500800
+131 Abs 14812902124374982656
+131 ClampInt 2859
+131 Deadband 3096662748471754752
+131 Replace 41561
+131 NaNToZero 3651979335085588480

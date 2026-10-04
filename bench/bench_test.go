@@ -508,3 +508,69 @@ func BenchmarkReadAfterStoreInt32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkReLUFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%7) - 3
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ReLUFloat32s(x)
+			}
+		})
+	}
+}
+
+func BenchmarkLeakyReLUFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%7) - 3
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				LeakyReLUFloat32s(dst, x, 0.01)
+			}
+		})
+	}
+}
+
+func BenchmarkReLU6Float32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%13) - 3
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ReLU6Float32s(x)
+			}
+		})
+	}
+}
+
+func BenchmarkSignFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%7) - 3
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				SignFloat32s(dst, x)
+			}
+		})
+	}
+}

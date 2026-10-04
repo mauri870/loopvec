@@ -244,3 +244,43 @@ func ReadAfterStoreInt32s(a, b, d []int32) {
 		a[i] = b[i] + a[i+1]*d[i]
 	}
 }
+
+func ReLUFloat32s(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		}
+	}
+}
+
+func LeakyReLUFloat32s(dst, x []float32, alpha float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = x[i]
+		} else {
+			dst[i] = alpha * x[i]
+		}
+	}
+}
+
+func ReLU6Float32s(x []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		} else if x[i] > 6 {
+			x[i] = 6
+		}
+	}
+}
+
+func SignFloat32s(dst, x []float32) {
+	for i := range dst {
+		if x[i] > 0 {
+			dst[i] = 1
+		} else if x[i] < 0 {
+			dst[i] = -1
+		} else {
+			dst[i] = 0
+		}
+	}
+}

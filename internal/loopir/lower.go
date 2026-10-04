@@ -407,6 +407,14 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 
 	body := make([]Stmt, 0, len(block.List))
 	for _, stmt := range block.List {
+		if ifStmt, ok := stmt.(*ast.IfStmt); ok {
+			store, reason := l.ifStore(ifStmt)
+			if reason != "" {
+				return nil, reason
+			}
+			body = append(body, store)
+			continue
+		}
 		assign, ok := stmt.(*ast.AssignStmt)
 		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
 			return nil, ReasonUnsupportedBody
@@ -721,6 +729,166 @@ func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 		return Store{}, reason
 	}
 	return Store{Dst: dst, Val: val}, ""
+}
+
+// loadKey identifies the element a load reads: the range value variable reads the
+// same element as the slice at the loop index.
+type loadKey struct {
+	obj types.Object
+	off string
+}
+
+func loadKeys(v Value) map[loadKey]bool {
+	keys := map[loadKey]bool{}
+	for _, leaf := range Leaves(v) {
+		if load, ok := leaf.(*Load); ok {
+			keys[loadKey{load.Ref.Obj, load.Off}] = true
+		}
+	}
+	return keys
+}
+
+// ifStore lowers an if statement whose branches each store to the same element
+// into one Store of a Select. Both branches are evaluated for every lane, so
+// every slice they or a nested condition read must be one the first condition
+// reads (or the destination, which the loop stores either way): otherwise the
+// vector loop would read, and bounds check, a slice the scalar loop never reaches.
+func (l *lowerer) ifStore(s *ast.IfStmt) (Store, Reason) {
+	store, reason := l.ifChain(s)
+	if reason != "" {
+		return Store{}, reason
+	}
+	sel := store.Val.(*Select)
+	known := loadKeys(sel.Cond)
+	known[loadKey{store.Dst.Obj, ""}] = true
+	for _, leaf := range Leaves(sel) {
+		if load, ok := leaf.(*Load); ok && !known[loadKey{load.Ref.Obj, load.Off}] {
+			return Store{}, ReasonConditionalLoad
+		}
+	}
+	return store, ""
+}
+
+// ifChain lowers if/else if/else, each branch a single assignment to dst[i].
+func (l *lowerer) ifChain(s *ast.IfStmt) (Store, Reason) {
+	if s.Init != nil {
+		return Store{}, ReasonUnsupportedIf
+	}
+	cond, reason := l.cond(s.Cond)
+	if reason != "" {
+		return Store{}, reason
+	}
+	then, reason := l.branch(s.Body)
+	if reason != "" {
+		return Store{}, reason
+	}
+	var other Value
+	switch e := s.Else.(type) {
+	case nil:
+		// No else: the element keeps its value. The vector loop stores it back, which
+		// is only unobservable when the condition already reads the element.
+		if !loadKeys(cond)[loadKey{then.Dst.Obj, ""}] {
+			return Store{}, ReasonConditionalStore
+		}
+		other = &Load{Ref: then.Dst}
+	case *ast.BlockStmt:
+		store, reason := l.branch(e)
+		if reason != "" {
+			return Store{}, reason
+		}
+		if store.Dst.Obj != then.Dst.Obj {
+			return Store{}, ReasonUnsupportedIf
+		}
+		other = store.Val
+	case *ast.IfStmt:
+		store, reason := l.ifChain(e)
+		if reason != "" {
+			return Store{}, reason
+		}
+		if store.Dst.Obj != then.Dst.Obj {
+			return Store{}, ReasonUnsupportedIf
+		}
+		other = store.Val
+	}
+	return Store{Dst: then.Dst, Val: &Select{Cond: cond, Then: then.Val, Else: other}}, ""
+}
+
+// branch lowers the body of an if: one assignment to an element.
+func (l *lowerer) branch(block *ast.BlockStmt) (Store, Reason) {
+	if len(block.List) != 1 {
+		return Store{}, ReasonUnsupportedIf
+	}
+	assign, ok := block.List[0].(*ast.AssignStmt)
+	if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return Store{}, ReasonUnsupportedIf
+	}
+	if _, isIdent := ast.Unparen(assign.Lhs[0]).(*ast.Ident); isIdent {
+		return Store{}, ReasonUnsupportedIf
+	}
+	return l.store(assign)
+}
+
+// cond lowers a condition: comparisons of loop values joined by && and ||.
+func (l *lowerer) cond(expr ast.Expr) (Value, Reason) {
+	e, ok := ast.Unparen(expr).(*ast.BinaryExpr)
+	if !ok {
+		return nil, ReasonUnsupportedIf
+	}
+	if e.Op == token.LAND || e.Op == token.LOR {
+		x, reason := l.cond(e.X)
+		if reason != "" {
+			return nil, reason
+		}
+		y, reason := l.cond(e.Y)
+		if reason != "" {
+			return nil, reason
+		}
+		// && and || skip the right side when the left decides, so it must read
+		// nothing the left does not.
+		known := loadKeys(x)
+		for key := range loadKeys(y) {
+			if !known[key] {
+				return nil, ReasonConditionalLoad
+			}
+		}
+		op := OpMaskAnd
+		if e.Op == token.LOR {
+			op = OpMaskOr
+		}
+		return &Logic{Op: op, X: x, Y: y}, ""
+	}
+	var op Op
+	switch e.Op {
+	case token.EQL:
+		op = OpEq
+	case token.NEQ:
+		op = OpNe
+	case token.LSS:
+		op = OpLt
+	case token.LEQ:
+		op = OpLe
+	case token.GTR:
+		op = OpGt
+	case token.GEQ:
+		op = OpGe
+	default:
+		return nil, ReasonUnsupportedIf
+	}
+	x, reason := l.value(e.X)
+	if reason != "" {
+		return nil, reason
+	}
+	y, reason := l.value(e.Y)
+	if reason != "" {
+		return nil, reason
+	}
+	// A comparison of two broadcasts has no vector type to take.
+	_, xInvariant := x.(*Invariant)
+	_, yInvariant := y.(*Invariant)
+	if xInvariant && yInvariant {
+		return nil, ReasonUnsupportedIf
+	}
+	return &Compare{Op: op, X: x, Y: y}, ""
 }
 
 // value lowers an expression evaluated once per iteration.

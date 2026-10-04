@@ -886,3 +886,69 @@ func FuzzStoredOffsetInt32s(f *testing.F) {
 		}, ReadAfterStoreInt32s)
 	})
 }
+
+func FuzzActivationFloat32s(f *testing.F) {
+	f.Add(0, 0, uint64(1), float32(0.01))
+	f.Add(1, 0, uint64(2), float32(0.5))
+	f.Add(9, 0, uint64(3), float32(0.01))
+	f.Add(9, 1, uint64(4), float32(2)) // dst and x overlap by one
+	f.Add(37, 0, uint64(5), float32(-1))
+	f.Add(37, -3, uint64(6), float32(0.25))
+	f.Fuzz(func(t *testing.T, nRaw, offRaw int, seed uint64, alpha float32) {
+		n := clampLen(nRaw)
+		off := clampOverlap(offRaw, n)
+		starts, backingLen := layout(n, off)
+		dstStart, xStart := starts[0], starts[1]
+		src := randFloat32Backing(seed, backingLen)
+
+		check := func(name string, ref, got func(dst, x []float32)) {
+			want := append([]float32(nil), src...)
+			have := append([]float32(nil), src...)
+			ref(want[dstStart:dstStart+n], want[xStart:xStart+n])
+			got(have[dstStart:dstStart+n], have[xStart:xStart+n])
+			for i := range want {
+				if !float32Equal(have[i], want[i]) {
+					t.Fatalf("%s(n=%d off=%d alpha=%v) differs at %d: got %v (0x%x) want %v (0x%x)",
+						name, n, off, alpha, i, have[i], math.Float32bits(have[i]), want[i], math.Float32bits(want[i]))
+				}
+			}
+		}
+
+		check("ReLU", func(dst, _ []float32) {
+			for i := range dst {
+				if dst[i] < 0 {
+					dst[i] = 0
+				}
+			}
+		}, func(dst, _ []float32) { ReLUFloat32s(dst) })
+		check("LeakyReLU", func(dst, x []float32) {
+			for i := range dst {
+				if x[i] > 0 {
+					dst[i] = x[i]
+				} else {
+					dst[i] = alpha * x[i]
+				}
+			}
+		}, func(dst, x []float32) { LeakyReLUFloat32s(dst, x, alpha) })
+		check("ReLU6", func(dst, _ []float32) {
+			for i := range dst {
+				if dst[i] < 0 {
+					dst[i] = 0
+				} else if dst[i] > 6 {
+					dst[i] = 6
+				}
+			}
+		}, func(dst, _ []float32) { ReLU6Float32s(dst) })
+		check("Sign", func(dst, x []float32) {
+			for i := range dst {
+				if x[i] > 0 {
+					dst[i] = 1
+				} else if x[i] < 0 {
+					dst[i] = -1
+				} else {
+					dst[i] = 0
+				}
+			}
+		}, SignFloat32s)
+	})
+}

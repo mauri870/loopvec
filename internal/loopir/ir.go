@@ -31,6 +31,15 @@ const (
 	OpNot    // unary: ^x
 	OpAbs    // unary: math.Abs(x)
 	OpSqrt   // unary: math.Sqrt(x)
+	OpEq     // x == y, a mask
+	OpNe     // x != y
+	OpLt     // x < y
+	OpLe     // x <= y
+	OpGt     // x > y
+	OpGe     // x >= y
+	OpIfElse // x where the mask is set, y elsewhere
+	OpMaskAnd
+	OpMaskOr
 )
 
 // Method returns the name of the simd method that implements op.
@@ -68,6 +77,24 @@ func (op Op) Method() string {
 		return "Abs"
 	case OpSqrt:
 		return "Sqrt"
+	case OpEq:
+		return "Equal"
+	case OpNe:
+		return "NotEqual"
+	case OpLt:
+		return "Less"
+	case OpLe:
+		return "LessEqual"
+	case OpGt:
+		return "Greater"
+	case OpGe:
+		return "GreaterEqual"
+	case OpIfElse:
+		return "IfElse"
+	case OpMaskAnd:
+		return "And"
+	case OpMaskOr:
+		return "Or"
 	}
 	return ""
 }
@@ -205,6 +232,29 @@ type Shift struct {
 	Count ast.Expr
 }
 
+// Compare is a lane-wise comparison of X and Y, a mask. Op is OpEq through OpGe.
+type Compare struct {
+	Op   Op
+	X, Y Value
+}
+
+// Logic combines two masks with OpMaskAnd or OpMaskOr. Go's && and || evaluate the
+// right side only when the left does not decide the result; both sides here are
+// evaluated, which is the same because lowering only accepts a right side that
+// reads nothing the left did not.
+type Logic struct {
+	Op   Op
+	X, Y Value
+}
+
+// Select is Then in the lanes where Cond is set and Else in the others: an
+// if/else whose branches each store the same element. Both branches are evaluated
+// for every lane, so lowering only accepts one that cannot fail where the scalar
+// loop would not have run it.
+type Select struct {
+	Cond, Then, Else Value
+}
+
 // Use reads a temporary.
 type Use struct{ Temp *Temp }
 
@@ -214,3 +264,6 @@ func (*Load) isValue()      {}
 func (*Invariant) isValue() {}
 func (*Unary) isValue()     {}
 func (*Binary) isValue()    {}
+func (*Compare) isValue()   {}
+func (*Logic) isValue()     {}
+func (*Select) isValue()    {}

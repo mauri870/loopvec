@@ -112,8 +112,13 @@ safety argument stays structural:
   else in the loop; the emitter runs it with full-width loads, since a partial
   load zero-pads and zero is the identity only for some operators. A float sum or
   product is a `Reduce` only with `-fp-reassoc` (`loopir.Options.FloatReassoc`),
-  since regrouping changes the rounding; float min and max never are. `if` and
-  nested loops (2-D access, `aa[i][j]`) are rejected on body shape alone.
+  since regrouping changes the rounding; float min and max never are. An `if` whose branches each
+  store the same element is a `Select` of a `Compare` mask (`ifStore`): both branches
+  run for every lane, so a slice read in a branch (or in a nested condition) must also
+  be read by the first condition (`ReasonConditionalLoad`), and an `if` with no `else`
+  needs a condition that reads the stored element (`ReasonConditionalStore`), since
+  simd has no masked store and the vector loop writes the unchanged lanes back. Nested
+  loops (2-D access, `aa[i][j]`) are rejected on body shape alone.
 
 There is no shape whitelist: lowering builds a value tree of any depth, and
 the capability table (`checkOps` in `plan.go`) decides whether simd can express

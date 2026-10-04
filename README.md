@@ -38,6 +38,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 | `for i := 0; i < n; i++ { ... }`, `for i := range n { ... }` | explicit int limit; slices are length-checked first |
 | `for i := 0; i < 4; i++ { ... }` | constant limit |
 | `for i := 1; i < len(s)-1; i++ { ... }`, `for i := lo; i < hi; i++ { ... }` | any start and limit that do not change in the loop |
+| `for i := range x { if x[i] < 0 { x[i] = 0 } }`, `if c { dst[i] = u } else if d { dst[i] = v } else { dst[i] = w }` | compare, then select (`IfElse`): ReLU, leaky ReLU, ReLU6, hard tanh, clamp, sign, step |
 | `for i := range dst { dst[i] = a[i+1] - a[i] }`, `work[j] += a[row*lda+j]` | read at an offset from the index (stencil, row of a 2-D slice); a slice the loop also writes is read only at a constant positive offset (`a[i] = a[i+1] + b[i]`) |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
@@ -317,6 +318,9 @@ geomean                                   27.21Gi           116.9Gi         +329
 Filling a byte slice with a non-zero value (`FillUint8s`, 1M elements) is over 30x
 faster, +3000% throughput.
 
+Activation functions written as plain `if`/`else` loops (ReLU, leaky ReLU, ReLU6, sign;
+`float32`, 4K to 1M elements) run 5 to 9x faster.
+
 Running `loopvec -methods -split` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
 detects 176 vectorizable loops, yielding **~3.5x faster** on an AMD Ryzen 9 9950X3D (AVX-512):
 
@@ -497,7 +501,12 @@ elements (for `int32` or `float32`) stay scalar.
 
 **Loop shapes.** Range loops must declare their index (`for i := range x`). The
 body must be assignments to `dst[i]` and to temporaries that nothing reads after
-the loop, with no `if`; `dst[i+1]` and `a[0]` are not rewritten.
+the loop. An `if` is rewritten when each branch is one assignment to the same
+element and the condition compares loop values (`&&` and `||` allowed). Both
+branches run for every element, so a slice read in a branch must also be read by
+the condition, and an `if` without an `else` needs a condition that reads the
+element it stores; otherwise the loop stays scalar. `dst[i+1]` and `a[0]` are not
+rewritten.
 
 </details>
 

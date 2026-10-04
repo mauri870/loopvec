@@ -1,0 +1,123 @@
+# An if is a select only when both sides can be computed for every lane without
+# changing what the scalar loop does: the stored element is read by the condition
+# (or both branches store it), every other slice is read by the first condition, the
+# condition is a comparison of loop values, and each branch is one assignment to the
+# same element. Everything else stays scalar, with the reason.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// The vector loop would write x back in the lanes where y is not positive.
+func StoreUnderOtherCondition(x, y []float32) {
+	for i := range x {
+		if y[i] > 0 {
+			x[i] = 1
+		}
+	}
+}
+
+// b is short in the lanes where a is not positive, and the scalar loop never reads it.
+func BranchReadsOtherSlice(dst, a, b []float32) {
+	for i := range dst {
+		if a[i] > 0 {
+			dst[i] = b[i]
+		} else {
+			dst[i] = 0
+		}
+	}
+}
+
+func ElseIfReadsOtherSlice(dst, a, b []float32) {
+	for i := range dst {
+		if a[i] > 0 {
+			dst[i] = 1
+		} else if b[i] > 0 {
+			dst[i] = 2
+		} else {
+			dst[i] = 3
+		}
+	}
+}
+
+// && skips b[i] when a[i] is not positive.
+func AndReadsOtherSlice(x, a, b []float32) {
+	for i := range x {
+		if a[i] > 0 && b[i] > 0 {
+			x[i] = 0
+		} else {
+			x[i] = 1
+		}
+	}
+}
+
+func InitStatement(x []float32) {
+	for i := range x {
+		if v := x[i]; v < 0 {
+			x[i] = 0
+		}
+	}
+}
+
+func NotAComparison(x []float32, flag bool) {
+	for i := range x {
+		if flag {
+			x[i] = 0
+		} else {
+			x[i] = 1
+		}
+	}
+}
+
+func TwoStatements(x, y []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+			y[i] = 0
+		}
+	}
+}
+
+func DifferentSlices(x, y []float32) {
+	for i := range x {
+		if x[i] < 0 {
+			x[i] = 0
+		} else {
+			y[i] = 1
+		}
+	}
+}
+
+// The comparison is on float32 and the store is int32.
+func MixedTypes(n []int32, f []float32) {
+	for i := range n {
+		if f[i] > 0 {
+			n[i] = 1
+		} else {
+			n[i] = 2
+		}
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":5,"func":"StoreUnderOtherCondition","vectorized":false,"reason":"a store under a condition may write elements the scalar loop leaves alone","stage":"lower"}
+{"file":"$WORK/ops.go","line":14,"func":"BranchReadsOtherSlice","vectorized":false,"reason":"a slice is read only under a condition","stage":"lower"}
+{"file":"$WORK/ops.go","line":24,"func":"ElseIfReadsOtherSlice","vectorized":false,"reason":"a slice is read only under a condition","stage":"lower"}
+{"file":"$WORK/ops.go","line":37,"func":"AndReadsOtherSlice","vectorized":false,"reason":"a slice is read only under a condition","stage":"lower"}
+{"file":"$WORK/ops.go","line":47,"func":"InitStatement","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
+{"file":"$WORK/ops.go","line":55,"func":"NotAComparison","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
+{"file":"$WORK/ops.go","line":65,"func":"TwoStatements","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
+{"file":"$WORK/ops.go","line":74,"func":"DifferentSlices","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
+{"file":"$WORK/ops.go","line":85,"func":"MixedTypes","vectorized":false,"reason":"assignments write slices of different element types","stage":"plan"}

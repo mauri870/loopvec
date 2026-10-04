@@ -124,6 +124,12 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 		if reason := checkOps(elem, planned.Root); reason != "" {
 			return nil, reason
 		}
+		// A comparison can read a slice of another type than the one stored.
+		for _, leaf := range Leaves(planned.Root) {
+			if load, ok := leaf.(*Load); ok && !types.Identical(load.Ref.Elem, elem) {
+				return nil, ReasonMixedTypes
+			}
+		}
 		p.Stmts = append(p.Stmts, planned)
 	}
 	if len(p.Stmts) == 1 && p.Stmts[0].Dst != nil {
@@ -194,6 +200,25 @@ func checkOps(elem types.Type, v Value) Reason {
 		op, operands = v.Op, []Value{v.X, v.Y}
 	case *Shift:
 		op, operands = v.Op, []Value{v.X}
+	case *Compare:
+		op, operands = v.Op, []Value{v.X, v.Y}
+	case *Logic:
+		for _, operand := range []Value{v.X, v.Y} {
+			if reason := checkOps(elem, operand); reason != "" {
+				return reason
+			}
+		}
+		return ""
+	case *Select:
+		if !supports(elem, OpIfElse) {
+			return ReasonUnsupportedOp
+		}
+		for _, operand := range []Value{v.Cond, v.Then, v.Else} {
+			if reason := checkOps(elem, operand); reason != "" {
+				return reason
+			}
+		}
+		return ""
 	default:
 		return ""
 	}
@@ -243,6 +268,12 @@ func Depth(v Value) int {
 		return 1 + Depth(v.X)
 	case *Binary:
 		return 1 + max(Depth(v.X), Depth(v.Y))
+	case *Compare:
+		return 1 + max(Depth(v.X), Depth(v.Y))
+	case *Logic:
+		return 1 + max(Depth(v.X), Depth(v.Y))
+	case *Select:
+		return 1 + max(Depth(v.Cond), Depth(v.Then), Depth(v.Else))
 	}
 	return 0
 }
@@ -264,6 +295,12 @@ func Normalize(v Value) Value {
 			x, y = y, x
 		}
 		return &Binary{Op: v.Op, X: x, Y: y}
+	case *Compare:
+		return &Compare{Op: v.Op, X: Normalize(v.X), Y: Normalize(v.Y)}
+	case *Logic:
+		return &Logic{Op: v.Op, X: Normalize(v.X), Y: Normalize(v.Y)}
+	case *Select:
+		return &Select{Cond: Normalize(v.Cond), Then: Normalize(v.Then), Else: Normalize(v.Else)}
 	}
 	return v
 }
@@ -290,6 +327,12 @@ func Children(v Value) []Value {
 			return []Value{v.Y, v.X}
 		}
 		return []Value{v.X, v.Y}
+	case *Compare:
+		return []Value{v.X, v.Y}
+	case *Logic:
+		return []Value{v.X, v.Y}
+	case *Select:
+		return []Value{v.Cond, v.Then, v.Else}
 	}
 	return nil
 }

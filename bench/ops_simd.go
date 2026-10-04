@@ -814,6 +814,74 @@ func ReadAfterStoreInt32s(a, b, d []int32) {
 	}
 }
 
+func ReLUFloat32s(x []float32) {
+	_vcAFloat32s37 := simd.BroadcastFloat32s(0)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcAFloat32s37.IfElse(_v1.Less(_vcAFloat32s37), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func LeakyReLUFloat32s(dst, x []float32, alpha float32) {
+	_vcAFloat32s38 := simd.BroadcastFloat32s(0)
+	_vcBFloat32s38 := simd.BroadcastFloat32s(alpha)
+	if _loopvecOverlap(dst, x) {
+		for i := range dst {
+			if x[i] > 0 {
+				dst[i] = x[i]
+			} else {
+				dst[i] = alpha * x[i]
+			}
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_v1.IfElse(_v1.Greater(_vcAFloat32s38), _v1.Mul(_vcBFloat32s38)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ReLU6Float32s(x []float32) {
+	_vcFloat32s39_1 := simd.BroadcastFloat32s(0)
+	_vcFloat32s39_3 := simd.BroadcastFloat32s(6)
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadFloat32sPart(x[_i:])
+		_vcFloat32s39_1.IfElse(_v1.Less(_vcFloat32s39_1), _vcFloat32s39_3.IfElse(_v1.Greater(_vcFloat32s39_3), _v1)).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+func SignFloat32s(dst, x []float32) {
+	_vcFloat32s40_1 := simd.BroadcastFloat32s(0)
+	_vcFloat32s40_2 := simd.BroadcastFloat32s(1)
+	_vcFloat32s40_4 := simd.BroadcastFloat32s(-1)
+	if _loopvecOverlap(dst, x) {
+		for i := range dst {
+			if x[i] > 0 {
+				dst[i] = 1
+			} else if x[i] < 0 {
+				dst[i] = -1
+			} else {
+				dst[i] = 0
+			}
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_vcFloat32s40_2.IfElse(_v1.Greater(_vcFloat32s40_1), _vcFloat32s40_4.IfElse(_v1.Less(_vcFloat32s40_1), _vcFloat32s40_1)).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T, window ...int) bool {
 	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
 	if len(window) == 4 {

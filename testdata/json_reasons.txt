@@ -134,7 +134,7 @@ func Vectorized(dst, a []float32) {
 {"file":"$WORK/ops.go","line":49,"func":"DownBoundCall","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
 {"file":"$WORK/ops.go","line":55,"func":"DestinationOffset","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
 {"file":"$WORK/ops.go","line":61,"func":"OperandCall","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
-{"file":"$WORK/ops.go","line":69,"func":"BodyIfGuardedStore","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":69,"func":"BodyIfGuardedStore","vectorized":false,"reason":"a store under a condition may write elements the scalar loop leaves alone","stage":"lower"}
 {"file":"$WORK/ops.go","line":78,"func":"BodyTwoStatements","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
 {"file":"$WORK/ops.go","line":86,"func":"TypeString","vectorized":false,"reason":"element type not supported by simd","stage":"lower"}
 {"file":"$WORK/ops.go","line":92,"func":"OpInt64Mul","vectorized":false,"reason":"operation not supported by simd for this element type","stage":"plan"}
