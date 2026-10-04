@@ -278,14 +278,6 @@ func (e *emitter) fold(stmt loopir.PlanStmt, acc string) string {
 	return fmt.Sprintf("%s.%s(%s)", acc, stmt.Op.Method(), e.expr(stmt.Root))
 }
 
-// minVectors is how many of the widest vectors a reduction needs before the
-// vector loop is used. Setting up the accumulators and combining the lanes costs
-// about 6ns however short the loop, more than the scalar loop for fewer than
-// roughly forty int32 elements on AVX-512, and the scalar loop that follows runs
-// anything the vector loop does not. The bound is in elements so that a short
-// loop pays nothing for the vector width.
-const minVectors = 4
-
 // fullLoop generates a loop that folds into accumulators. The vector loop runs
 // while a whole vector remains, every accumulator starts at the identity of its
 // operation, and afterwards the lanes are combined into the scalar accumulator
@@ -304,7 +296,7 @@ func (e *emitter) fullLoop() (string, error) {
 	}
 	copies := unroll(folds)
 	fmt.Fprintf(&b, "_i := %s\n", e.plan.Start)
-	fmt.Fprintf(&b, "if %s >= %d {\n", e.count(), minVectors*maxLanes(folds[0].Acc.Type()))
+	fmt.Fprintf(&b, "if %s >= %d {\n", e.count(), loopir.MinReduceVectors*loopir.MaxLanes(folds[0].Acc.Type()))
 	for n, fold := range folds {
 		for k := range copies {
 			fmt.Fprintf(&b, "%s := simd.Broadcast%s(%s)\n", accName(n+1, k, copies), e.plan.SimdType, identity(fold.Acc.Type(), fold.Op))
@@ -327,7 +319,7 @@ func (e *emitter) fullLoop() (string, error) {
 			fmt.Fprintf(&b, "%s = %s.%s(%s)\n", first, first, fold.Op.Method(), accName(n+1, k, copies))
 		}
 		name := fold.Acc.Name()
-		fmt.Fprintf(&b, "var _buf%d [%d]%s\n%s.Store(_buf%[1]d[:])\n", n+1, maxLanes(fold.Acc.Type()), fold.Acc.Type(), first)
+		fmt.Fprintf(&b, "var _buf%d [%d]%s\n%s.Store(_buf%[1]d[:])\n", n+1, loopir.MaxLanes(fold.Acc.Type()), fold.Acc.Type(), first)
 		fmt.Fprintf(&b, "for _, _x := range _buf%d[:_lanes] {\n%s = %s\n}\n", n+1, name, combine(fold.Op, name, "_x"))
 	}
 	b.WriteString("}\n")
@@ -411,20 +403,6 @@ func identity(t types.Type, op loopir.Op) string {
 		return new(big.Int).Neg(new(big.Int).Rsh(top, 1)).String()
 	}
 	return "0"
-}
-
-// maxLanes is the most elements of type t a vector holds: simd vectors are at
-// most 512 bits.
-func maxLanes(t types.Type) int {
-	switch t.Underlying().(*types.Basic).Kind() {
-	case types.Int8, types.Uint8:
-		return 64
-	case types.Int16, types.Uint16:
-		return 32
-	case types.Int32, types.Uint32, types.Float32:
-		return 16
-	}
-	return 8
 }
 
 // combine is the scalar expression that folds x into acc with op.

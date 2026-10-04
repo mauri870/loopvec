@@ -86,6 +86,10 @@ const (
 	// ReasonTooManySlices covers a body that touches more slices than the
 	// runtime overlap checks are budgeted for.
 	ReasonTooManySlices Reason = "loop touches more than 8 distinct slices"
+	// ReasonShortLoop covers a loop whose constant trip count is below the measured
+	// break-even, 8 elements, or 4 full vectors for a reduction: the scalar loop is
+	// faster than the vector loop plus its setup.
+	ReasonShortLoop Reason = "constant trip count is too small for the vector loop to pay off"
 	// ReasonFloatMinMax covers min and max of floating-point values: the simd
 	// method is the hardware instruction, which on amd64 returns the second
 	// operand for a NaN and does not order -0 below +0, where Go's min and max
@@ -111,7 +115,7 @@ func (r Reason) Stage() string {
 	switch r {
 	case ReasonMethodSkipped:
 		return "analysis"
-	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonFloatReduction, ReasonMixedTypes, ReasonTooManySlices:
+	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonFloatReduction, ReasonMixedTypes, ReasonTooManySlices, ReasonShortLoop:
 		return "plan"
 	}
 	return "lower"

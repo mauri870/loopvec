@@ -10,6 +10,33 @@ import (
 // checks grows with it.
 const maxSlices = 8
 
+// minTrip is the fewest iterations a loop with a constant trip count must have to be
+// worth rewriting. Measured crossover on AVX-512: the vector loop (with the per-call
+// dispatch the compiler adds around simd code) breaks even at about 8 elements.
+const minTrip = 8
+
+// MinReduceVectors is how many of the widest vectors a reduction needs before the vector
+// loop is used. Setting up the accumulators and combining the lanes costs about 6ns
+// however short the loop, more than the scalar loop for fewer than roughly forty int32
+// elements on AVX-512, and the scalar loop that follows runs anything the vector loop
+// does not. The bound is in elements so that a short loop pays nothing for the vector
+// width.
+const MinReduceVectors = 4
+
+// MaxLanes is the most elements of type t a vector holds: simd vectors are at most 512
+// bits.
+func MaxLanes(t types.Type) int {
+	switch t.Underlying().(*types.Basic).Kind() {
+	case types.Int8, types.Uint8:
+		return 64
+	case types.Int16, types.Uint16:
+		return 32
+	case types.Int32, types.Uint32, types.Float32:
+		return 16
+	}
+	return 8
+}
+
 // Plan is a Loop that simd can express, with the decisions the emitted code
 // depends on.
 type Plan struct {
@@ -139,6 +166,18 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 	}
 
 	trip := l.Ind.Trip
+	// A loop that runs a few times, known at compile time, is faster as it is.
+	if from, errFrom := strconv.ParseInt(trip.Start, 10, 64); errFrom == nil {
+		if to, errTo := strconv.ParseInt(trip.Limit, 10, 64); errTo == nil {
+			least := int64(minTrip)
+			if p.Full {
+				least = int64(MinReduceVectors * MaxLanes(elem))
+			}
+			if to-from < least {
+				return nil, ReasonShortLoop
+			}
+		}
+	}
 	p.Start, p.Limit, p.NonEmpty, p.TripRef = trip.Start, trip.Limit, trip.NonEmpty, trip.Slice
 	// The generated loop stops at the length of the stored slice, so unless the
 	// limit is exactly that, the limit is spelled out on every slice or a longer

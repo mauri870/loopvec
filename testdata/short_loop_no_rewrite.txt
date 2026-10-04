@@ -1,0 +1,111 @@
+# A loop whose trip count is a constant below the break-even, 8 elements (or 4 full
+# vectors for a reduction), is left alone: the scalar loop is faster than the vector
+# loop and the dispatch around it. The same loops with a larger or an unknown count
+# are rewritten.
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+loopvec -split .
+cmpenv stderr stderr.want
+cmp ops.go ops.go.guarded
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func Short(a, b []float32) {
+	for i := 2; i < 8; i++ {
+		a[i] += b[i]
+	}
+}
+
+func Four(a, b []float32) {
+	for i := 0; i < 4; i++ {
+		a[i] += b[i]
+	}
+}
+
+func ShortSum(a []int32) int32 {
+	var s int32
+	for i := 0; i < 32; i++ {
+		s += a[i]
+	}
+	return s
+}
+
+func Eight(a, b []float32) {
+	for i := 0; i < 8; i++ {
+		a[i] += b[i]
+	}
+}
+
+func LongSum(a []int32) int32 {
+	var s int32
+	for i := 0; i < 64; i++ {
+		s += a[i]
+	}
+	return s
+}
+
+func Unknown(a, b []float32, n int) {
+	for i := 0; i < n; i++ {
+		a[i] += b[i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 3 loop(s) in $WORK/ops.go
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func Short(a, b []float32) {
+	for i := 2; i < 8; i++ {
+		a[i] += b[i]
+	}
+}
+
+func Four(a, b []float32) {
+	for i := 0; i < 4; i++ {
+		a[i] += b[i]
+	}
+}
+
+func ShortSum(a []int32) int32 {
+	var s int32
+	for i := 0; i < 32; i++ {
+		s += a[i]
+	}
+	return s
+}
+
+func Eight(a, b []float32) {
+	for i := 0; i < 8; i++ {
+		a[i] += b[i]
+	}
+}
+
+func LongSum(a []int32) int32 {
+	var s int32
+	for i := 0; i < 64; i++ {
+		s += a[i]
+	}
+	return s
+}
+
+func Unknown(a, b []float32, n int) {
+	for i := 0; i < n; i++ {
+		a[i] += b[i]
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"Short","vectorized":false,"reason":"constant trip count is too small for the vector loop to pay off","stage":"plan"}
+{"file":"$WORK/ops.go","line":10,"func":"Four","vectorized":false,"reason":"constant trip count is too small for the vector loop to pay off","stage":"plan"}
+{"file":"$WORK/ops.go","line":17,"func":"ShortSum","vectorized":false,"reason":"constant trip count is too small for the vector loop to pay off","stage":"plan"}
+{"file":"$WORK/ops.go","line":24,"func":"Eight","vectorized":true}
+{"file":"$WORK/ops.go","line":31,"func":"LongSum","vectorized":true}
+{"file":"$WORK/ops.go","line":38,"func":"Unknown","vectorized":true}
