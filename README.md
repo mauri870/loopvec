@@ -6,6 +6,10 @@ vectorization**. Rewritten code requires `GOEXPERIMENT=simd` (Go 1.27+).
 
 Go blog post: https://go.dev/blog/simd-experiment
 
+> NOTE:  SIMD support in Go is experimental, so there are several bugs lurking around, both in the Go compiler/runtime and this tool.
+> The bugs that affect loopvec and/or Go are in [BUGS.md](BUGS.md).
+> For now, prioritize testing with [`gotip`](https://pkg.go.dev/golang.org/dl/gotip).
+
 ## What it detects
 
 The tool recognizes these loop shapes and rewrites them to use portable SIMD
@@ -67,7 +71,7 @@ writing any of it. This also applies to the reverse-loop pattern above —
 slices overlap, and rewriting it to run forward would change the result in
 exactly that case. loopvec guards against this: every rewritten loop with
 more than one distinct slice operand is wrapped in a runtime check
-(`_loopvecOverlap`, comparing `unsafe.SliceData` ranges) that falls back to
+(`_loopvecOverlap`, comparing address ranges) that falls back to
 the original scalar loop whenever the operands' memory overlaps, regardless
 of loop direction. It does not tell an exact alias from an offset one, so
 `Add(x, x, y)` also takes the scalar loop. For a loop over part of its slices it
@@ -345,34 +349,84 @@ faster, +3000% throughput.
 Activation functions written as plain `if`/`else` loops (ReLU, leaky ReLU, ReLU6, sign;
 `float32`, 4K to 1M elements) run 5 to 9x faster.
 
-Running `loopvec -methods -split` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
-detects 176 vectorizable loops, yielding **~3.5x faster** on an AMD Ryzen 9 9950X3D (AVX-512):
+Running `loopvec -methods` on [gorgonia/tensor](https://github.com/gorgonia/tensor)
+detects 477 vectorizable loops. The result is **~2.7x faster**
+on an AMD Ryzen 9 9950X3D (AVX-512), geomean over all rows. The rewritten kernels are
+2.5 to 15x faster at 4K and 1M elements and 1.1 to 6.8x at 64.
 
 <details>
 <summary>bench.txt</summary>
 
 ```
-                          │    scalar     │              simd               │
-                          │    sec/op     │   sec/op     vs base            │
-AddVSF32/64-32               12.235n ± 0%   3.558n ± 1%  -70.92% (p=0.002 n=6)
-AddVSF32/4096-32              762.5n ± 1%   146.9n ± 1%  -80.74% (p=0.002 n=6)
-AddVSF32/1048576-32          201.21µ ± 1%   37.64µ ± 1%  -81.30% (p=0.002 n=6)
-MulVSF32/64-32               14.115n ± 1%   3.736n ± 1%  -73.53% (p=0.002 n=6)
-MulVSF32/4096-32              843.8n ± 2%   147.2n ± 1%  -82.56% (p=0.002 n=6)
-MulVSF32/1048576-32          220.16µ ± 3%   37.43µ ± 0%  -83.00% (p=0.002 n=6)
-AddVSF64/64-32               12.405n ± 1%   5.668n ± 5%  -54.31% (p=0.002 n=6)
-AddVSF64/4096-32              757.7n ± 3%   286.8n ± 1%  -62.16% (p=0.002 n=6)
-AddVSF64/1048576-32          204.33µ ± 1%   75.24µ ± 1%  -63.18% (p=0.002 n=6)
-MulVSF64/64-32               12.445n ± 1%   5.907n ± 1%  -52.53% (p=0.002 n=6)
-MulVSF64/4096-32              754.3n ± 1%   286.9n ± 1%  -61.97% (p=0.002 n=6)
-MulVSF64/1048576-32          204.05µ ± 1%   75.39µ ± 2%  -63.05% (p=0.002 n=6)
-VecAddI32/64-32              12.035n ± 1%   4.423n ± 1%  -63.24% (p=0.002 n=6)
-VecAddI32/4096-32             761.0n ± 1%   194.9n ± 1%  -74.39% (p=0.002 n=6)
-VecAddI32/1048576-32         204.74µ ± 1%   65.12µ ± 2%  -68.19% (p=0.002 n=6)
-VecMulI32/64-32              14.440n ± 0%   4.464n ± 3%  -69.09% (p=0.002 n=6)
-VecMulI32/4096-32             948.4n ± 0%   193.9n ± 1%  -79.55% (p=0.002 n=6)
-VecMulI32/1048576-32         250.38µ ± 1%   64.80µ ± 1%  -74.12% (p=0.002 n=6)
-geomean                        1.303µ        373.4n       -71.33%
+                       │    scalar    │               simd               │
+                       │    sec/op     │   sec/op     vs base                │
+AddVSF32/64-32           12.750n ±  2%   4.629n ± 4%  -63.70% (p=0.000 n=10)
+AddVSF32/4096-32          735.6n ±  2%   151.3n ± 2%  -79.43% (p=0.000 n=10)
+AddVSF32/1048576-32      194.40µ ±  2%   36.28µ ± 2%  -81.34% (p=0.000 n=10)
+MulVSF32/64-32            7.607n ±  3%   4.508n ± 1%  -40.75% (p=0.000 n=10)
+MulVSF32/4096-32          744.6n ±  1%   149.1n ± 2%  -79.98% (p=0.000 n=10)
+MulVSF32/1048576-32      186.15µ ±  1%   36.19µ ± 2%  -80.56% (p=0.000 n=10)
+AddVSF64/64-32           13.325n ±  3%   6.848n ± 4%  -48.61% (p=0.000 n=10)
+AddVSF64/4096-32          763.9n ±  1%   287.0n ± 2%  -62.43% (p=0.000 n=10)
+AddVSF64/1048576-32      204.07µ ±  3%   72.13µ ± 2%  -64.65% (p=0.000 n=10)
+MulVSF64/64-32            7.620n ±  4%   6.793n ± 2%  -10.85% (p=0.000 n=10)
+MulVSF64/4096-32          738.9n ±  2%   286.0n ± 2%  -61.29% (p=0.000 n=10)
+MulVSF64/1048576-32      185.61µ ±  1%   73.94µ ± 3%  -60.17% (p=0.000 n=10)
+AddSVF32/64-32           12.765n ±  1%   4.555n ± 1%  -64.32% (p=0.000 n=10)
+AddSVF32/4096-32          733.4n ±  1%   149.6n ± 2%  -79.61% (p=0.000 n=10)
+AddSVF32/1048576-32      195.48µ ±  2%   36.94µ ± 3%  -81.10% (p=0.000 n=10)
+MinVSF32/64-32           12.770n ±  1%   4.276n ± 3%  -66.52% (p=0.000 n=10)
+MinVSF32/4096-32          768.4n ±  2%   151.5n ± 2%  -80.28% (p=0.000 n=10)
+MinVSF32/1048576-32      199.91µ ±  2%   39.03µ ± 3%  -80.48% (p=0.000 n=10)
+VecAddI32/64-32          12.645n ±  1%   7.038n ± 2%  -44.34% (p=0.000 n=10)
+VecAddI32/4096-32         761.8n ±  2%   197.4n ± 1%  -74.09% (p=0.000 n=10)
+VecAddI32/1048576-32     201.39µ ±  2%   64.13µ ± 3%  -68.16% (p=0.000 n=10)
+VecMulI32/64-32          14.870n ±  1%   7.359n ± 2%  -50.51% (p=0.000 n=10)
+VecMulI32/4096-32         953.8n ±  1%   195.8n ± 2%  -79.47% (p=0.000 n=10)
+VecMulI32/1048576-32     249.86µ ±  2%   63.78µ ± 3%  -74.48% (p=0.000 n=10)
+VecAddF32/64-32           13.47n ±  2%   13.61n ± 3%        ~ (p=0.093 n=10)
+VecAddF32/4096-32         780.0n ±  5%   762.8n ± 3%   -2.21% (p=0.008 n=10)
+VecAddF32/1048576-32      201.6µ ±  3%   203.0µ ± 1%        ~ (p=0.089 n=10)
+VecDivF32/64-32           28.93n ±  3%   30.71n ± 2%   +6.12% (p=0.000 n=10)
+VecDivF32/4096-32         1.852µ ±  1%   1.844µ ± 2%        ~ (p=0.492 n=10)
+VecDivF32/1048576-32     1010.1µ ± 10%   974.0µ ± 6%        ~ (p=0.971 n=10)
+VecMaxF32/64-32          13.890n ±  5%   6.993n ± 3%  -49.65% (p=0.000 n=10)
+VecMaxF32/4096-32         749.5n ±  2%   199.4n ± 3%  -73.39% (p=0.000 n=10)
+VecMaxF32/1048576-32     205.29µ ±  2%   64.29µ ± 2%  -68.68% (p=0.000 n=10)
+NegF32/64-32             12.990n ±  1%   4.014n ± 2%  -69.10% (p=0.000 n=10)
+NegF32/4096-32            737.4n ±  1%   147.8n ± 1%  -79.95% (p=0.000 n=10)
+NegF32/1048576-32        198.26µ ±  1%   38.19µ ± 3%  -80.74% (p=0.000 n=10)
+AbsF32/64-32              13.92n ±  1%   13.99n ± 2%        ~ (p=0.247 n=10)
+AbsF32/4096-32            893.0n ±  2%   892.0n ± 1%        ~ (p=0.987 n=10)
+AbsF32/1048576-32         230.1µ ±  1%   225.5µ ± 3%        ~ (p=0.089 n=10)
+SqrtF32/64-32             58.46n ±  2%   59.14n ± 2%   +1.16% (p=0.011 n=10)
+SqrtF32/4096-32           3.724µ ±  1%   3.662µ ± 4%        ~ (p=0.210 n=10)
+SqrtF32/1048576-32        881.9µ ±  5%   885.3µ ± 2%        ~ (p=0.393 n=10)
+InvF32/64-32             28.830n ±  1%   4.257n ± 2%  -85.23% (p=0.000 n=10)
+InvF32/4096-32           1843.5n ±  2%   123.6n ± 1%  -93.30% (p=0.000 n=10)
+InvF32/1048576-32        469.11µ ±  2%   33.03µ ± 3%  -92.96% (p=0.000 n=10)
+SquareF32/64-32          13.035n ±  6%   4.216n ± 4%  -67.65% (p=0.000 n=10)
+SquareF32/4096-32         773.1n ±  1%   129.3n ± 3%  -83.28% (p=0.000 n=10)
+SquareF32/1048576-32     199.58µ ±  2%   32.58µ ± 5%  -83.68% (p=0.000 n=10)
+ClampF32/64-32            35.89n ±  3%   35.57n ± 3%        ~ (p=0.239 n=10)
+ClampF32/4096-32          2.304µ ±  4%   2.215µ ± 3%   -3.86% (p=0.002 n=10)
+ClampF32/1048576-32       575.0µ ±  2%   570.6µ ± 2%        ~ (p=0.052 n=10)
+GtSameF32/64-32          25.825n ±  3%   6.121n ± 2%  -76.30% (p=0.000 n=10)
+GtSameF32/4096-32        1521.5n ±  2%   175.4n ± 2%  -88.47% (p=0.000 n=10)
+GtSameF32/1048576-32     406.89µ ±  5%   60.96µ ± 4%  -85.02% (p=0.000 n=10)
+EqSameF32/64-32          19.125n ±  8%   6.479n ± 7%  -66.12% (p=0.000 n=10)
+EqSameF32/4096-32        1143.5n ±  4%   175.4n ± 1%  -84.66% (p=0.000 n=10)
+EqSameF32/1048576-32     297.90µ ±  3%   63.64µ ± 2%  -78.64% (p=0.000 n=10)
+SumI32/64-32             10.425n ±  3%   7.758n ± 3%  -25.58% (p=0.000 n=10)
+SumI32/4096-32            738.7n ±  2%   118.5n ± 2%  -83.96% (p=0.000 n=10)
+SumI32/1048576-32        191.63µ ±  3%   31.15µ ± 2%  -83.75% (p=0.000 n=10)
+SliceMaxI32/64-32         26.44n ±  2%   26.38n ± 1%        ~ (p=0.930 n=10)
+SliceMaxI32/4096-32       2.178µ ±  1%   2.169µ ± 2%        ~ (p=0.517 n=10)
+SliceMaxI32/1048576-32    557.5µ ±  2%   555.8µ ± 2%        ~ (p=0.529 n=10)
+SumF32/64-32              11.57n ±  9%   12.97n ± 2%  +12.05% (p=0.002 n=10)
+SumF32/4096-32           1432.0n ±  1%   112.2n ± 2%  -92.16% (p=0.000 n=10)
+SumF32/1048576-32        375.53µ ±  2%   30.79µ ± 5%  -91.80% (p=0.000 n=10)
+geomean                   1.704µ         621.1n       -63.56%
 ```
 </details>
 
@@ -462,77 +516,6 @@ included, without touching any source file. See [toolexec.md](toolexec.md).
 
 ## Known Limitations
 
-SIMD support in Go is experimental, so there are likely several bugs lurking around, both in the Go compiler/runtime and this tool.
-
-<details>
-<summary>Details</summary>
-
-**Blank identifier parameters are renamed in the simd file.** The gotip
-`GOEXPERIMENT=simd` compiler rejects blank identifier (`_`) parameters in
-functions that contain simd code, emitting `cannot use _ as value or type`.
-loopvec automatically renames them to `_p0`, `_p1`, … in the generated simd
-file so the compiler does not see them. The original file is unchanged.
-
-**Methods are not rewritten by default.** The experimental SIMD compiler crashes
-with an internal error when a `//go:build goexperiment.simd` file contains a
-method (function with a receiver). Only top-level functions are vectorized.
-Tracked at [golang/go#80657](https://github.com/golang/go/issues/80657).
-
-I have a preliminary fix at https://go.dev/cl/839405. Once you have a toolchain
-that includes it, pass `-methods` to enable method rewriting:
-
-```bash
-go install golang.org/dl/gotip@latest
-gotip download 839405
-# rewrite both functions and methods
-GOEXPERIMENT=simd gotip tool loopvec -methods -split ./...
-```
-
-**Loop limits.** When a loop is limited by something other than the length of
-the slice it writes (`i < n`, `range n`, or `range src` while writing `dst`), the
-rewritten loop stops at that limit and first checks every slice with
-`_ = s[limit-1]`. An out-of-range access therefore still panics, with an index
-error, but before any element is written, whereas the scalar loop would have
-written the elements ahead of the failing index first. Only an `int` variable or
-a positive integer constant is accepted as a limit.
-
-**Files with build constraints are skipped.** Any file that carries a
-`//go:build` (or legacy `// +build`) line is left untouched. This includes files
-already guarded by `-split`, so re-running `-split` on a package you have
-already split is a no-op.
-
-**No reductions.** `sum += a[i]`, `dot += a[i]*b[i]`, `min`/`max` accumulation,
-and similar are not rewritten. The `simd` package's `ReduceSum` and friends
-are only in `gotip`, not the current `go1.27` release.
-
-**Float `min` and `max`** are not rewritten: on amd64 the hardware instruction
-differs from Go's for NaN and signed zero.
-
-**No SIMD hardware.** With `GODEBUG=simd=0`, or on a CPU `simd` does not support,
-go1.27's emulated `float64` vectors return wrong results, so rewritten `float64`
-loops are unreliable there.
-
-**Reductions.** A fold into an integer local (`sum += a[i]`, `m = min(m, a[i])`)
-runs whole vectors into an accumulator that starts at the operation's identity,
-combines the lanes at the end, and runs the leftover elements with the original
-body. Integer operations wrap the same way in any order, so the result is
-identical. A float sum or product is regrouped, and the result can differ in the
-last bits, so it is rewritten only with `-fp-reassoc` (`LOOPVEC_TOOLEXEC_FP_REASSOC=1`
-for `loopvec-toolexec`); the main loop then folds four vectors per iteration so
-that the dependent adds overlap. The error stays within the usual summation bound,
-`n*u*sum|term|`. Float `min` and `max` are never rewritten. Loops under 64
-elements (for `int32` or `float32`) stay scalar.
-
-**Loop shapes.** Range loops must declare their index (`for i := range x`). The
-body must be assignments to `dst[i]` and to temporaries that nothing reads after
-the loop. An `if` is rewritten when each branch is one assignment to the same
-element and the condition compares loop values (`&&` and `||` allowed). Both
-branches run for every element, so a slice read in a branch must also be read by
-the condition, and an `if` without an `else` needs a condition that reads the
-element it stores; otherwise the loop stays scalar. `dst[i+1]` and `a[0]` are not
-rewritten.
-
-</details>
 
 ## Testing
 
