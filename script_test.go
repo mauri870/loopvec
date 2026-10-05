@@ -64,7 +64,7 @@ func TestScripts(t *testing.T) {
 	cmds["gotip"] = script.Program("gotip", nil, 0)
 
 	engine := &script.Engine{
-		Conds: scripttest.DefaultConds(),
+		Conds: testConds(env),
 		Cmds:  cmds,
 		Quiet: !testing.Verbose(),
 	}
@@ -101,7 +101,7 @@ func updateScripts(t *testing.T, env []string, binary, toolexec, pattern string)
 			cmds["skip"] = skipUpdateCmd()
 
 			engine := &script.Engine{
-				Conds: scripttest.DefaultConds(),
+				Conds: testConds(env),
 				Cmds:  cmds,
 				Quiet: !testing.Verbose(),
 			}
@@ -301,9 +301,24 @@ func (r *goldenRecorder) apply(a *txtar.Archive) bool {
 	return changed
 }
 
+// testConds is scripttest.DefaultConds plus [tip], active when the go command the
+// scripts run is a development toolchain. A few behaviors differ there on purpose
+// (the method crash of go1.27.1 is fixed on tip), and those scripts guard the
+// toolchain-specific part with it.
+func testConds(env []string) map[string]script.Cond {
+	conds := scripttest.DefaultConds()
+	cmd := exec.Command("go", "version")
+	cmd.Env = env
+	out, _ := cmd.Output()
+	conds["tip"] = script.BoolCondition("the go command is a development toolchain", strings.Contains(string(out), "devel"))
+	return conds
+}
+
 // testEnv returns the process environment without GOEXPERIMENT (scripts opt in
 // with "env GOEXPERIMENT=simd") and with GOTOOLCHAIN pinned to the toolchain
-// declared in go.mod, regardless of the caller's setting.
+// declared in go.mod, regardless of the caller's setting, except that
+// GOTOOLCHAIN=local is kept: the job that tests a development toolchain puts it
+// first on PATH and must not have it replaced by the pinned release.
 func testEnv(t *testing.T) []string {
 	t.Helper()
 	var env []string
@@ -312,6 +327,9 @@ func testEnv(t *testing.T) []string {
 			continue
 		}
 		env = append(env, kv)
+	}
+	if os.Getenv("GOTOOLCHAIN") == "local" {
+		return append(env, "GOTOOLCHAIN=local")
 	}
 	return append(env, "GOTOOLCHAIN="+goModToolchain(t))
 }

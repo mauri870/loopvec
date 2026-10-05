@@ -8,13 +8,49 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
+    # The development toolchain moves under us; a failure there is reported but
+    # does not block a merge.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toolchain: pinned
+            experimental: false
+          - toolchain: tip
+            experimental: true
     steps:
       - uses: actions/checkout@v4
 
+      # The pinned job uses the toolchain go.mod names. The tip job needs a Go to
+      # bootstrap gotip with, and then puts tip first on PATH.
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Find the current tip commit
+        if: matrix.toolchain == 'tip'
+        run: echo "TIP_COMMIT=$(git ls-remote https://go.googlesource.com/go HEAD | cut -f1)" >> "$GITHUB_ENV"
+
+      - name: Cache gotip
+        if: matrix.toolchain == 'tip'
+        uses: actions/cache@v4
+        with:
+          path: ~/sdk/gotip
+          key: gotip-${{ runner.os }}-${{ env.TIP_COMMIT }}
+
+      - name: Install gotip
+        if: matrix.toolchain == 'tip'
+        run: |
+          go install golang.org/dl/gotip@latest
+          gotip download
+          echo "$HOME/sdk/gotip/bin" >> "$GITHUB_PATH"
+          echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
+      - name: Go version
+        run: go version
 
       - name: Build
         run: make build
@@ -31,15 +67,21 @@ jobs:
       - name: Test tsvc (arm64, qemu)
         run: make tsvc-test-qemu-arm64
 
+      # Generated files, formatting and lint are checked against the pinned
+      # toolchain only: the capability table is generated from the toolchain's
+      # own simd package, so tip would show a diff whenever it adds a method.
       - name: Check generated files and goldens are up to date
+        if: matrix.toolchain == 'pinned'
         run: |
           make test-update
           git diff --exit-code
 
       - name: Fmt
+        if: matrix.toolchain == 'pinned'
         run: |
           make fix
           git diff --exit-code
 
       - name: Lint
+        if: matrix.toolchain == 'pinned'
         run: make lint
