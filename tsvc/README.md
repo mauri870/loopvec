@@ -68,8 +68,8 @@ by `n*2^-24`, for the kernels that vectorize only with `-fp-reassoc`).
 | s231 | loop interchange | loop with data dependency | bits | vectorize | no |
 | s2233 | loop interchange | interchanging with one of two inner loops | bits | vectorize | no |
 | s235 | loop interchanging | imperfectly nested loops | fused | vectorize | no |
-| s241 | node splitting | preloading necessary to allow vectorization | fused | vectorize | no |
-| s243 | node splitting | false dependence cycle breaking | fused | vectorize | no |
+| s241 | node splitting | preloading necessary to allow vectorization | fused | vectorize | yes |
+| s243 | node splitting | false dependence cycle breaking | fused | vectorize | yes |
 | s2244 | node splitting | cycle with ture and anti dependency | bits | vectorize | no |
 | s251 | scalar and array expansion | scalar expansion | fused | vectorize | yes |
 | s1251 | scalar and array expansion | scalar expansion | fused | vectorize | yes |
@@ -160,7 +160,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 20, gaps 72, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 22, gaps 70, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

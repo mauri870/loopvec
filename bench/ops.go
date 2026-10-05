@@ -284,3 +284,26 @@ func SignFloat32s(dst, x []float32) {
 		}
 	}
 }
+
+func FillNaNFloat64s(dst []float64) {
+	for i := range dst {
+		dst[i] = math.NaN()
+	}
+}
+
+// Vec holds its data in a field, as most numeric types do.
+type Vec struct {
+	Values []float32
+}
+
+func ScaleFieldFloat32s(v *Vec, a float32) {
+	for i := range v.Values {
+		v.Values[i] *= a
+	}
+}
+
+func AddFieldFloat32s(dst, a *Vec) {
+	for i := range dst.Values {
+		dst.Values[i] += a.Values[i]
+	}
+}

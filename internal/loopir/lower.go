@@ -1210,6 +1210,9 @@ func (l *lowerer) invariant(expr ast.Expr) bool {
 			return l.invariant(e.X) && l.invariant(e.Y)
 		}
 	case *ast.CallExpr:
+		if l.pureMathCall(e) {
+			return true
+		}
 		fun, ok := l.info.Types[e.Fun]
 		if !ok || !fun.IsType() || len(e.Args) != 1 {
 			return false
@@ -1218,6 +1221,38 @@ func (l *lowerer) invariant(expr ast.Expr) bool {
 		return basic && l.invariant(e.Args[0])
 	}
 	return false
+}
+
+// pureMathCall matches the few functions of package math that build a special value
+// from invariant arguments: NaN, Inf, Float32frombits and Float64frombits. They have no
+// side effects and cannot panic, so evaluating one once before the loop, even when the
+// loop does not run, changes nothing.
+func (l *lowerer) pureMathCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	fn, ok := l.info.Uses[sel.Sel].(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "math" {
+		return false
+	}
+	var arity int
+	switch fn.Name() {
+	case "NaN":
+	case "Inf", "Float32frombits", "Float64frombits":
+		arity = 1
+	default:
+		return false
+	}
+	if len(call.Args) != arity {
+		return false
+	}
+	for _, arg := range call.Args {
+		if !l.invariant(arg) {
+			return false
+		}
+	}
+	return true
 }
 
 // isZero reports whether expr is a numeric constant equal to zero.

@@ -1,0 +1,44 @@
+# Only the math functions that build a special value from invariant arguments are
+# invariant. Anything else in math, and a call whose argument changes every
+# iteration, stays scalar.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+import "math"
+
+func Floor(out []float64) {
+	for i := range out {
+		out[i] = math.Floor(2.5)
+	}
+}
+
+func InfOfIndex(out []float64) {
+	for i := range out {
+		out[i] = math.Inf(i)
+	}
+}
+
+func BitsOfElement(out []float32, bits []uint32) {
+	for i := range out {
+		out[i] = math.Float32frombits(bits[i])
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":6,"func":"Floor","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":12,"func":"InfOfIndex","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}
+{"file":"$WORK/ops.go","line":18,"func":"BitsOfElement","vectorized":false,"reason":"operand is not a same-index slice, range value, or plain scalar","stage":"lower"}

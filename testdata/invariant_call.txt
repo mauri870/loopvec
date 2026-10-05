@@ -1,0 +1,281 @@
+# math.NaN, math.Inf, math.Float32frombits and math.Float64frombits with invariant
+# arguments are pure and cannot panic, so a loop that stores one is a broadcast fill:
+# the call is evaluated once before the loop. The results must match the scalar loop
+# bit for bit, which is the only way to compare NaN and negative zero.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+import "math"
+
+func FillNaN(out []float64) {
+	for i := range out {
+		out[i] = math.NaN()
+	}
+}
+
+func FillNaN32(out []float32) {
+	for i := range out {
+		out[i] = float32(math.NaN())
+	}
+}
+
+func FillInf(out []float64, sign int) {
+	for i := range out {
+		out[i] = math.Inf(sign)
+	}
+}
+
+func FillNegZero(out []float64) {
+	for i := range out {
+		out[i] = math.Float64frombits(1 << 63)
+	}
+}
+
+func FillBits32(out []float32, bits uint32) {
+	for i := range out {
+		out[i] = math.Float32frombits(bits)
+	}
+}
+
+func ScaleByInf(dst, a []float64) {
+	for i := range dst {
+		dst[i] = a[i] * math.Inf(1)
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"math"
+	"simd"
+	"unsafe"
+)
+
+func FillNaN(out []float64) {
+	_vcFloat64s0 := simd.BroadcastFloat64s(math.NaN())
+	for _i := 0; _i < len(out); {
+		_n := _vcFloat64s0.StorePart(out[_i:])
+		_i += _n
+	}
+}
+
+func FillNaN32(out []float32) {
+	_vcFloat32s1 := simd.BroadcastFloat32s(float32(math.NaN()))
+	for _i := 0; _i < len(out); {
+		_n := _vcFloat32s1.StorePart(out[_i:])
+		_i += _n
+	}
+}
+
+func FillInf(out []float64, sign int) {
+	_vcFloat64s2 := simd.BroadcastFloat64s(math.Inf(sign))
+	for _i := 0; _i < len(out); {
+		_n := _vcFloat64s2.StorePart(out[_i:])
+		_i += _n
+	}
+}
+
+func FillNegZero(out []float64) {
+	_vcFloat64s3 := simd.BroadcastFloat64s(math.Float64frombits(1 << 63))
+	for _i := 0; _i < len(out); {
+		_n := _vcFloat64s3.StorePart(out[_i:])
+		_i += _n
+	}
+}
+
+func FillBits32(out []float32, bits uint32) {
+	_vcFloat32s4 := simd.BroadcastFloat32s(math.Float32frombits(bits))
+	for _i := 0; _i < len(out); {
+		_n := _vcFloat32s4.StorePart(out[_i:])
+		_i += _n
+	}
+}
+
+func ScaleByInf(dst, a []float64) {
+	_vcFloat64s5 := simd.BroadcastFloat64s(math.Inf(1))
+	if _loopvecOverlap(dst, a) {
+		for i := range dst {
+			dst[i] = a[i] * math.Inf(1)
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = a[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat64sPart(a[_i:])
+				_v1.Mul(_vcFloat64s5).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+import "math"
+
+func FillNaN(out []float64) {
+	for i := range out {
+		out[i] = math.NaN()
+	}
+}
+
+func FillNaN32(out []float32) {
+	for i := range out {
+		out[i] = float32(math.NaN())
+	}
+}
+
+func FillInf(out []float64, sign int) {
+	for i := range out {
+		out[i] = math.Inf(sign)
+	}
+}
+
+func FillNegZero(out []float64) {
+	for i := range out {
+		out[i] = math.Float64frombits(1 << 63)
+	}
+}
+
+func FillBits32(out []float32, bits uint32) {
+	for i := range out {
+		out[i] = math.Float32frombits(bits)
+	}
+}
+
+func ScaleByInf(dst, a []float64) {
+	for i := range dst {
+		dst[i] = a[i] * math.Inf(1)
+	}
+}
+-- stderr.want --
+loopvec: rewrote 6 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"example.com/test"
+)
+
+func bits64(s []float64) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + math.Float64bits(v)
+	}
+	return
+}
+
+func bits32(s []float32) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + uint64(math.Float32bits(v))
+	}
+	return
+}
+
+func main() {
+	for _, n := range []int{0, 1, 3, 8, 9, 16, 17, 100} {
+		a, b := make([]float64, n), make([]float64, n)
+		test.FillNaN(a)
+		test.FillInf(b, 1)
+		fmt.Println(n, "NaN", bits64(a), "+Inf", bits64(b))
+		test.FillInf(b, -1)
+		test.FillNegZero(a)
+		fmt.Println(n, "-Inf", bits64(b), "-0", bits64(a))
+
+		f := make([]float32, n)
+		test.FillNaN32(f)
+		fmt.Println(n, "NaN32", bits32(f))
+		test.FillBits32(f, 0x80000000)
+		fmt.Println(n, "-0 32", bits32(f))
+
+		x := make([]float64, n)
+		for i := range x {
+			x[i] = float64(i%3) - 1
+		}
+		d := make([]float64, n)
+		test.ScaleByInf(d, x)
+		fmt.Println(n, "ScaleByInf", bits64(d))
+	}
+}
+-- testmain/output --
+0 NaN 0 +Inf 0
+0 -Inf 0 -0 0
+0 NaN32 0
+0 -0 32 0
+0 ScaleByInf 0
+1 NaN 9221120237041090561 +Inf 9218868437227405312
+1 -Inf 18442240474082181120 -0 9223372036854775808
+1 NaN32 2143289344
+1 -0 32 2147483648
+1 ScaleByInf 18442240474082181120
+3 NaN 6420838943444624605 +Inf 3616390500778508288
+3 -Inf 12839762537633284096 -0 9223372036854775808
+3 NaN32 4612092516827660288
+3 -0 32 407293896163328
+3 ScaleByInf 4595923419731591168
+8 NaN 4233191166880097168 +Inf 14339461213547659264
+8 -Inf 14339461213547659264 -0 0
+8 NaN32 14993824972193923072
+8 -0 32 872240134773276672
+8 ScaleByInf 17160966380095275008
+9 NaN 9849961693816614321 +Inf 11884999416630738944
+9 -Inf 2661627379775963136 -0 9223372036854775808
+9 NaN32 10613204887028105216
+9 -0 32 10489577154331803648
+9 ScaleByInf 3307893926303629312
+16 NaN 3643000237147511072 +Inf 7926335344172072960
+16 -Inf 7926335344172072960 -0 0
+16 NaN32 12351322886835798016
+16 -0 32 426624324191911936
+16 ScaleByInf 17764448730162921472
+17 NaN 4576958158931259745 +Inf 7633601368392990720
+17 -Inf 16856973405247766528 -0 9223372036854775808
+17 NaN32 4822930326235906048
+17 -0 32 1114140288533659648
+17 ScaleByInf 16793923010464579584
+100 NaN 4296463361938521672 +Inf 1981583836043018240
+100 -Inf 1981583836043018240 -0 0
+100 NaN32 6118714332755787776
+100 -0 32 18404451513565970432
+100 ScaleByInf 13747237862548439040

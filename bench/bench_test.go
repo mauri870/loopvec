@@ -574,3 +574,46 @@ func BenchmarkSignFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkFillNaNFloat64s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float64, n)
+			setBytes(b, n, 8, 1)
+			b.ResetTimer()
+			for b.Loop() {
+				FillNaNFloat64s(dst)
+			}
+		})
+	}
+}
+
+func BenchmarkScaleFieldFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			v := &Vec{Values: make([]float32, n)}
+			for i := range v.Values {
+				v.Values[i] = 1
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				ScaleFieldFloat32s(v, 1)
+			}
+		})
+	}
+}
+
+func BenchmarkAddFieldFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := &Vec{Values: make([]float32, n)}
+			a := &Vec{Values: make([]float32, n)}
+			setBytes(b, n, 4, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				AddFieldFloat32s(dst, a)
+			}
+		})
+	}
+}

@@ -882,6 +882,52 @@ func SignFloat32s(dst, x []float32) {
 	}
 }
 
+func FillNaNFloat64s(dst []float64) {
+	_vcFloat64s41 := simd.BroadcastFloat64s(math.NaN())
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat64s41.StorePart(dst[_i:])
+		_i += _n
+	}
+}
+
+// Vec holds its data in a field, as most numeric types do.
+type Vec struct {
+	Values []float32
+}
+
+func ScaleFieldFloat32s(v *Vec, a float32) {
+	_vcFloat32s42 := simd.BroadcastFloat32s(a)
+	if len(v.Values) > 0 {
+		_sv_Values := v.Values
+		for _i := 0; _i < len(v.Values); {
+			_v1, _n := simd.LoadFloat32sPart(_sv_Values[_i:])
+			_v1.Mul(_vcFloat32s42).StorePart(_sv_Values[_i:])
+			_i += _n
+		}
+	}
+}
+
+func AddFieldFloat32s(dst, a *Vec) {
+	if len(dst.Values) > 0 {
+		_sdst_Values, _sa_Values := dst.Values, a.Values
+		if _loopvecOverlap(_sdst_Values, _sa_Values) {
+			for i := range dst.Values {
+				dst.Values[i] += a.Values[i]
+			}
+		} else {
+			if len(dst.Values) > 0 {
+				_ = _sa_Values[len(dst.Values)-1]
+				for _i := 0; _i < len(dst.Values); {
+					_v1, _n := simd.LoadFloat32sPart(_sdst_Values[_i:])
+					_v2, _ := simd.LoadFloat32sPart(_sa_Values[_i:])
+					_v1.Add(_v2).StorePart(_sdst_Values[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T, window ...int) bool {
 	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
 	if len(window) == 4 {
