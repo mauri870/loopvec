@@ -10,7 +10,9 @@ GOEXPERIMENT=simd go build -toolexec=$(which loopvec-toolexec) ./...
 GOEXPERIMENT=simd go test  -toolexec=$(which loopvec-toolexec) ./...
 ```
 
-For every `compile` it type-checks the package from the compiler's export data,
+For every `compile` it type-checks the package from the compiler's export data
+(on a toolchain whose archives are in the compiler's private format, from the
+export data `go list -export` writes for tools; see [BUGS.md](BUGS.md)),
 rewrites the loops `loopvec` recognizes, type-checks the result again, and
 compiles the rewritten source. If the rewritten package does not type-check, or
 anything else is doubtful, the original source is compiled instead, so the

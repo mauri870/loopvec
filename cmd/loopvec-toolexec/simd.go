@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,10 +76,17 @@ func (b *build) goCommand(args ...string) ([]byte, error) {
 
 // goCommandIn is goCommand run in dir.
 func (b *build) goCommandIn(dir string, args ...string) ([]byte, error) {
+	return b.goCommandEnv(dir, nil, args...)
+}
+
+// goCommandEnv is goCommandIn with extra environment variables, which override
+// the inherited ones.
+func (b *build) goCommandEnv(dir string, env []string, args ...string) ([]byte, error) {
 	goroot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(b.tool)))) // GOROOT/pkg/tool/GOOS_GOARCH/compile
 	cmd := exec.Command(filepath.Join(goroot, "bin", "go"), args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), nestedEnv+"=1", "GOTOOLCHAIN=local")
+	cmd.Env = append(cmd.Env, env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -114,8 +122,21 @@ func (b *build) exports() (map[string]string, error) {
 		return nil, err
 	}
 	out, err := b.cached("exports", func() ([]byte, error) {
-		return b.goCommand("list", "-deps", "-export", "-toolexec="+self,
-			"-f", "{{.ImportPath}}={{.Export}}", "simd")
+		list := func(env ...string) ([]byte, error) {
+			return b.goCommandEnv(b.dir, env, "list", "-deps", "-export", "-toolexec="+self,
+				"-f", "{{.ImportPath}}={{.Export}}", "simd")
+		}
+		out, err := list()
+		if err != nil || exportsAreArchives(out) {
+			return out, err
+		}
+		// A toolchain whose go list -export writes the export data tools read
+		// returns files the compiler cannot import. Its go command still has a
+		// switch, meant for its own tests, that returns the compiler's archives;
+		// turning the GOEXPERIMENT off instead would change the object header and
+		// the compiler would reject the archives. If the switch goes away this
+		// fails and the package is left alone, as on any other lookup error.
+		return list("TESTGO_EXPORT_ARCHIVE=1")
 	})
 	if err != nil {
 		return nil, err
@@ -128,6 +149,26 @@ func (b *build) exports() (map[string]string, error) {
 		}
 	}
 	return exports, nil
+}
+
+// exportsAreArchives reports whether the first file listed by exports is an
+// archive, which is what the compiler reads.
+func exportsAreArchives(listing []byte) bool {
+	for line := range strings.SplitSeq(string(listing), "\n") {
+		_, file, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || file == "" {
+			continue
+		}
+		f, err := os.Open(file)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = f.Close() }()
+		head := make([]byte, 8)
+		n, _ := io.ReadFull(f, head)
+		return string(head[:n]) == "!<arch>\n"
+	}
+	return true
 }
 
 // cached computes name once per build. Concurrent wrapper processes wait on a

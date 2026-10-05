@@ -150,6 +150,8 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 	if err != nil {
 		return nil, false
 	}
+	cfg.build = b
+	cfg.dir, _ = os.Getwd()
 	info, errs := check(fset, files, c, cfg)
 	if len(errs) > 0 {
 		logf(c.pkg, "kept %s: does not type-check: %v", c.pkg, errs[0])

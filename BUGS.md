@@ -87,3 +87,23 @@ On amd64 `Float32s.Min` and `Max` are the hardware instruction, which returns th
 operand for a NaN and does not order -0 below +0. Go's `min` and `max` propagate the NaN
 and order the zeros, and arm64 matches Go. loopvec does not rewrite float `min`/`max`
 because the result would depend on the machine.
+
+## Not a bug: the compiler's export data is private
+
+On a toolchain that has [#79427](https://github.com/golang/go/issues/79427) ("decouple
+export data formats used by compiler and x/tools"), the archives the go command hands the
+compiler are in a compiler-private format, and the standard library's importer refuses to
+read it (`binary export format "p" is unsupported (compiler private)`). That is intended:
+there is no supported way to read the compiler's own format. `loopvec-toolexec` used to
+type-check from those archives, so on such a toolchain it kept every source and rewrote
+nothing.
+
+It now notices the private format and reads the export data `go list -export` writes for
+tools instead (one lookup per package, shared through the build's work directory). The
+compiler still needs its own archives for `simd`, which `go list -export` no longer
+returns; the wrapper gets them by running that command with `TESTGO_EXPORT_ARCHIVE=1`, a
+switch in the go command meant for its own tests. If a toolchain drops it, the lookup
+fails and the package is compiled as it was, so a build never fails because of it.
+Turning the `golistexportnewformat` experiment off does not work instead: it changes the
+object header and the compiler rejects the archives.
+

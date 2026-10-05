@@ -19,6 +19,10 @@ import (
 type importcfg struct {
 	packageFile map[string]string
 	importMap   map[string]string
+	// build and dir say where the package is compiled, for the lookups the
+	// importer makes when the archives are not readable by tools (publicImporter).
+	build *build
+	dir   string
 }
 
 func readImportcfg(path string) (*importcfg, error) {
@@ -50,7 +54,7 @@ func readImportcfg(path string) (*importcfg, error) {
 // with returns a copy of cfg that also provides the given packages. Packages
 // cfg already provides keep their archive.
 func (c *importcfg) with(extra map[string]string) *importcfg {
-	out := &importcfg{packageFile: map[string]string{}, importMap: c.importMap}
+	out := &importcfg{packageFile: map[string]string{}, importMap: c.importMap, build: c.build, dir: c.dir}
 	maps.Copy(out.packageFile, c.packageFile)
 	for k, v := range extra {
 		if _, ok := out.packageFile[k]; !ok {
@@ -89,6 +93,9 @@ func (c *importcfg) writeExtended(src, dst string, extra map[string]string) erro
 // importer type-checks imports from the export data the archives provide, the
 // same data the compiler itself reads.
 func (c *importcfg) importer(fset *token.FileSet) types.Importer {
+	if c.build != nil && c.usesPrivateExportData() {
+		return c.publicImporter(fset)
+	}
 	lookup := func(path string) (io.ReadCloser, error) {
 		if mapped, ok := c.importMap[path]; ok {
 			path = mapped
