@@ -56,8 +56,8 @@ ci: test-update test bench-fuzz tsvc-test tsvc-test-qemu-arm64
 	$(MAKE) lint
 
 bench:
-	go test -bench=. -benchtime=100ms -count=10 ./bench/ > /tmp/bench_scalar.txt
-	GOEXPERIMENT=simd go test -bench=. -benchtime=100ms -count=10 ./bench/ > /tmp/bench_simd.txt
+	go test -bench=. -benchtime=20ms -count=6 ./bench/ > /tmp/bench_scalar.txt
+	GOEXPERIMENT=simd go test -bench=. -benchtime=20ms -count=6 ./bench/ > /tmp/bench_simd.txt
 	benchstat /tmp/bench_scalar.txt /tmp/bench_simd.txt
 
 bench-regen: build
@@ -83,8 +83,8 @@ tsvc-coverage-update: generate
 	go test -count=1 ./tsvc/ -run TestCoverage -update
 
 tsvc-bench: generate build
-	go test -run '^$$' -bench . -benchtime=100ms -count=10 ./tsvc/ > /tmp/tsvc_bench_scalar.txt
-	LOOPVEC_TOOLEXEC_FP_REASSOC=1 GOEXPERIMENT=simd go test -run '^$$' -bench . -benchtime=100ms -count=10 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
+	go test -run '^$$' -bench . -benchtime=20ms -count=6 ./tsvc/ > /tmp/tsvc_bench_scalar.txt
+	LOOPVEC_TOOLEXEC_FP_REASSOC=1 GOEXPERIMENT=simd go test -run '^$$' -bench . -benchtime=20ms -count=6 -toolexec="$(CURDIR)/bin/loopvec-toolexec" ./tsvc/ > /tmp/tsvc_bench_simd.txt
 	benchstat /tmp/tsvc_bench_scalar.txt /tmp/tsvc_bench_simd.txt
 
 test-update: generate
