@@ -76,7 +76,7 @@ func startProfiles(cpuPath, memPath string) (stop func() error, err error) {
 			return nil, fmt.Errorf("cpuprofile: %w", err)
 		}
 		if err := pprof.StartCPUProfile(cpuFile); err != nil {
-			cpuFile.Close()
+			_ = cpuFile.Close()
 			return nil, fmt.Errorf("cpuprofile: %w", err)
 		}
 	}
@@ -97,7 +97,7 @@ func startProfiles(cpuPath, memPath string) (stop func() error, err error) {
 		// Collect first so the profile shows live memory, not garbage.
 		runtime.GC()
 		if err := pprof.WriteHeapProfile(f); err != nil {
-			f.Close()
+			_ = f.Close()
 			return fmt.Errorf("memprofile: %w", err)
 		}
 		if err := f.Close(); err != nil {
