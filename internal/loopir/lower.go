@@ -423,11 +423,11 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	body := make([]Stmt, 0, len(block.List))
 	for _, stmt := range block.List {
 		if ifStmt, ok := stmt.(*ast.IfStmt); ok {
-			store, reason := l.ifStore(ifStmt)
+			lowered, reason := l.ifStmt(ifStmt)
 			if reason != "" {
 				return nil, reason
 			}
-			body = append(body, store)
+			body = append(body, lowered)
 			continue
 		}
 		assign, ok := stmt.(*ast.AssignStmt)
@@ -761,6 +761,115 @@ func loadKeys(v Value) map[loadKey]bool {
 		}
 	}
 	return keys
+}
+
+// ifStmt lowers an if statement: a Let when its branches assign a temporary, a
+// Store when they store an element.
+func (l *lowerer) ifStmt(s *ast.IfStmt) (Stmt, Reason) {
+	if len(s.Body.List) == 1 {
+		if assign, ok := s.Body.List[0].(*ast.AssignStmt); ok && len(assign.Lhs) == 1 {
+			if _, isIdent := ast.Unparen(assign.Lhs[0]).(*ast.Ident); isIdent {
+				let, reason := l.ifLet(s)
+				if reason != "" {
+					return nil, reason
+				}
+				return let, ""
+			}
+		}
+	}
+	store, reason := l.ifStore(s)
+	if reason != "" {
+		return nil, reason
+	}
+	return store, ""
+}
+
+// ifLet lowers an if/else if/else chain whose branches each assign the same
+// temporary, t = value. The temporary after the chain is a new version of it: the
+// select of each branch's value, where a path that assigns nothing keeps the version
+// before. Both branches are computed for every lane, so as for a store, a slice read
+// in a branch or in a nested condition must also be read by the first condition.
+func (l *lowerer) ifLet(s *ast.IfStmt) (Let, Reason) {
+	obj, id, val, reason := l.letChain(s)
+	if reason != "" {
+		return Let{}, reason
+	}
+	sel := val.(*Select)
+	known := loadKeys(sel.Cond)
+	for _, leaf := range Leaves(sel) {
+		if load, ok := leaf.(*Load); ok && !known[loadKey{load.Ref.Obj, load.Off}] {
+			return Let{}, ReasonConditionalLoad
+		}
+	}
+	temp := &Temp{Var: obj.(*types.Var), Name: id.Name}
+	l.temps[obj] = temp
+	return Let{Temp: temp, Val: val}, ""
+}
+
+// letChain lowers one if of a chain and what follows its else.
+func (l *lowerer) letChain(s *ast.IfStmt) (types.Object, *ast.Ident, Value, Reason) {
+	if s.Init != nil {
+		return nil, nil, nil, ReasonUnsupportedIf
+	}
+	cond, reason := l.cond(s.Cond)
+	if reason != "" {
+		return nil, nil, nil, reason
+	}
+	obj, id, then, reason := l.tempBranch(s.Body)
+	if reason != "" {
+		return nil, nil, nil, reason
+	}
+	var other Value
+	switch e := s.Else.(type) {
+	case nil:
+		prev := l.temps[obj]
+		prev.Uses++
+		other = &Use{Temp: prev}
+	case *ast.BlockStmt:
+		otherObj, _, val, reason := l.tempBranch(e)
+		if reason != "" {
+			return nil, nil, nil, reason
+		}
+		if otherObj != obj {
+			return nil, nil, nil, ReasonUnsupportedIf
+		}
+		other = val
+	case *ast.IfStmt:
+		otherObj, _, val, reason := l.letChain(e)
+		if reason != "" {
+			return nil, nil, nil, reason
+		}
+		if otherObj != obj {
+			return nil, nil, nil, ReasonUnsupportedIf
+		}
+		other = val
+	}
+	return obj, id, &Select{Cond: cond, Then: then, Else: other}, ""
+}
+
+// tempBranch lowers the body of an if that assigns a temporary: t = value, where
+// t is a temporary an earlier statement of the body defined.
+func (l *lowerer) tempBranch(block *ast.BlockStmt) (types.Object, *ast.Ident, Value, Reason) {
+	if len(block.List) != 1 {
+		return nil, nil, nil, ReasonUnsupportedIf
+	}
+	assign, ok := block.List[0].(*ast.AssignStmt)
+	if !ok || assign.Tok != token.ASSIGN || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return nil, nil, nil, ReasonUnsupportedIf
+	}
+	id, ok := ast.Unparen(assign.Lhs[0]).(*ast.Ident)
+	if !ok {
+		return nil, nil, nil, ReasonUnsupportedIf
+	}
+	obj := l.info.Uses[id]
+	if obj == nil || l.temps[obj] == nil {
+		return nil, nil, nil, ReasonUnsupportedIf
+	}
+	val, reason := l.value(assign.Rhs[0])
+	if reason != "" {
+		return nil, nil, nil, reason
+	}
+	return obj, id, val, ""
 }
 
 // ifStore lowers an if statement whose branches each store to the same element

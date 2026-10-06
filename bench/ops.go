@@ -307,3 +307,28 @@ func AddFieldFloat32s(dst, a *Vec) {
 		dst.Values[i] += a.Values[i]
 	}
 }
+
+func HardSwishFloat32s(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		} else if t > 6 {
+			t = 6
+		}
+		dst[i] = x[i] * t / 6
+	}
+}
+
+func HardSigmoidFloat32s(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		}
+		if t > 6 {
+			t = 6
+		}
+		dst[i] = t / 6
+	}
+}

@@ -111,6 +111,40 @@ func MixedTypes(n []int32, f []float32) {
 		}
 	}
 }
+// t is not a temporary the body defined, so there is no vector to keep.
+func TempFromOutside(dst, x []float32) {
+	var t float32
+	for i := range dst {
+		if x[i] < 0 {
+			t = 0
+		}
+		dst[i] = t
+	}
+}
+
+// y is read only in a branch.
+func TempBranchReadsOtherSlice(dst, x, y []float32) {
+	for i := range dst {
+		t := x[i]
+		if t < 0 {
+			t = y[i]
+		}
+		dst[i] = t
+	}
+}
+
+func TwoTemps(dst, x []float32) {
+	for i := range dst {
+		a := x[i]
+		b := x[i]
+		if a < 0 {
+			a = 0
+		} else {
+			b = 1
+		}
+		dst[i] = a + b
+	}
+}
 -- stdout.want --
 {"file":"$WORK/ops.go","line":5,"func":"StoreUnderOtherCondition","vectorized":false,"reason":"a store under a condition may write elements the scalar loop leaves alone","stage":"lower"}
 {"file":"$WORK/ops.go","line":14,"func":"BranchReadsOtherSlice","vectorized":false,"reason":"a slice is read only under a condition","stage":"lower"}
@@ -121,3 +155,6 @@ func MixedTypes(n []int32, f []float32) {
 {"file":"$WORK/ops.go","line":65,"func":"TwoStatements","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
 {"file":"$WORK/ops.go","line":74,"func":"DifferentSlices","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
 {"file":"$WORK/ops.go","line":85,"func":"MixedTypes","vectorized":false,"reason":"assignments write slices of different element types","stage":"plan"}
+{"file":"$WORK/ops.go","line":96,"func":"TempFromOutside","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}
+{"file":"$WORK/ops.go","line":106,"func":"TempBranchReadsOtherSlice","vectorized":false,"reason":"a slice is read only under a condition","stage":"lower"}
+{"file":"$WORK/ops.go","line":116,"func":"TwoTemps","vectorized":false,"reason":"if is not a select between assignments to one element","stage":"lower"}

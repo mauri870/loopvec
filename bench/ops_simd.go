@@ -928,6 +928,64 @@ func AddFieldFloat32s(dst, a *Vec) {
 	}
 }
 
+func HardSwishFloat32s(dst, x []float32) {
+	_vcFloat32s44_1 := simd.BroadcastFloat32s(3)
+	_vcFloat32s44_2 := simd.BroadcastFloat32s(0)
+	_vcFloat32s44_4 := simd.BroadcastFloat32s(6)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			t := x[i] + 3
+			if t < 0 {
+				t = 0
+			} else if t > 6 {
+				t = 6
+			}
+			dst[i] = x[i] * t / 6
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1.Add(_vcFloat32s44_1)
+				_t2 := _vcFloat32s44_2.IfElse(_t1.Less(_vcFloat32s44_2), _vcFloat32s44_4.IfElse(_t1.Greater(_vcFloat32s44_4), _t1))
+				_v1.Mul(_t2).Div(_vcFloat32s44_4).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func HardSigmoidFloat32s(dst, x []float32) {
+	_vcFloat32s45_1 := simd.BroadcastFloat32s(3)
+	_vcFloat32s45_2 := simd.BroadcastFloat32s(0)
+	_vcFloat32s45_4 := simd.BroadcastFloat32s(6)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			t := x[i] + 3
+			if t < 0 {
+				t = 0
+			}
+			if t > 6 {
+				t = 6
+			}
+			dst[i] = t / 6
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1.Add(_vcFloat32s45_1)
+				_t2 := _vcFloat32s45_2.IfElse(_t1.Less(_vcFloat32s45_2), _t1)
+				_t3 := _vcFloat32s45_4.IfElse(_t2.Greater(_vcFloat32s45_4), _t2)
+				_t3.Div(_vcFloat32s45_4).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T, window ...int) bool {
 	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
 	if len(window) == 4 {

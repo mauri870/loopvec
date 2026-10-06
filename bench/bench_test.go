@@ -617,3 +617,37 @@ func BenchmarkAddFieldFloat32s(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkHardSwishFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%13) - 6
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				HardSwishFloat32s(dst, x)
+			}
+		})
+	}
+}
+
+func BenchmarkHardSigmoidFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			dst := make([]float32, n)
+			x := make([]float32, n)
+			for i := range x {
+				x[i] = float32(i%13) - 6
+			}
+			setBytes(b, n, 4, 2)
+			b.ResetTimer()
+			for b.Loop() {
+				HardSigmoidFloat32s(dst, x)
+			}
+		})
+	}
+}

@@ -1,0 +1,529 @@
+# An if chain that assigns a temporary becomes a new version of it, a select of each
+# branch's value where a path that assigns nothing keeps the version before. That is
+# how hard sigmoid and hard swish are written: t := x[i] + 3, then clamp t with
+# if/else if, then use it. Results must match the scalar loop bit for bit, NaN,
+# infinities and signed zeros included.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func HardSwish(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		} else if t > 6 {
+			t = 6
+		}
+		dst[i] = x[i] * t / 6
+	}
+}
+
+func HardSigmoid(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		}
+		if t > 6 {
+			t = 6
+		}
+		dst[i] = t / 6
+	}
+}
+
+func ClampInt(dst, x []int32, lo, hi int32) {
+	for i := range dst {
+		t := x[i]
+		if t < lo {
+			t = lo
+		} else if t > hi {
+			t = hi
+		}
+		dst[i] = t
+	}
+}
+
+// SiLU is x*sigmoid(x), which needs exp. These two replace sigmoid with an
+// approximation built from arithmetic: x/(1+|x|) scaled into (0,1), and a cubic
+// polynomial of x clamped to [-2,2], where it still rises. They are about the
+// same shape as SiLU, not equal to it; the test checks the rewrite, not the accuracy.
+func SiLUSoftsign(dst, x []float32) {
+	for i := range dst {
+		a := x[i]
+		if a < 0 {
+			a = -a
+		}
+		dst[i] = x[i] * (0.5 + 0.5*x[i]/(1+a))
+	}
+}
+
+func SiLUCubic(dst, x []float32) {
+	for i := range dst {
+		c := x[i]
+		if c < -2 {
+			c = -2
+		} else if c > 2 {
+			c = 2
+		}
+		s := 0.5 + c/4 - c*c*c/48
+		dst[i] = x[i] * s
+	}
+}
+
+// The condition reads a second temporary, and a branch value reads the first.
+func Mixed(dst, x []float64) {
+	for i := range dst {
+		a := x[i] * 2
+		b := a + 1
+		if b > 10 && a < 100 {
+			a = a - b
+		} else if b < -10 {
+			a = -a
+		}
+		dst[i] = a + b
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func HardSwish(dst, x []float32) {
+	_vcFloat32s0_1 := simd.BroadcastFloat32s(3)
+	_vcFloat32s0_2 := simd.BroadcastFloat32s(0)
+	_vcFloat32s0_4 := simd.BroadcastFloat32s(6)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			t := x[i] + 3
+			if t < 0 {
+				t = 0
+			} else if t > 6 {
+				t = 6
+			}
+			dst[i] = x[i] * t / 6
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1.Add(_vcFloat32s0_1)
+				_t2 := _vcFloat32s0_2.IfElse(_t1.Less(_vcFloat32s0_2), _vcFloat32s0_4.IfElse(_t1.Greater(_vcFloat32s0_4), _t1))
+				_v1.Mul(_t2).Div(_vcFloat32s0_4).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func HardSigmoid(dst, x []float32) {
+	_vcFloat32s1_1 := simd.BroadcastFloat32s(3)
+	_vcFloat32s1_2 := simd.BroadcastFloat32s(0)
+	_vcFloat32s1_4 := simd.BroadcastFloat32s(6)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			t := x[i] + 3
+			if t < 0 {
+				t = 0
+			}
+			if t > 6 {
+				t = 6
+			}
+			dst[i] = t / 6
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1.Add(_vcFloat32s1_1)
+				_t2 := _vcFloat32s1_2.IfElse(_t1.Less(_vcFloat32s1_2), _t1)
+				_t3 := _vcFloat32s1_4.IfElse(_t2.Greater(_vcFloat32s1_4), _t2)
+				_t3.Div(_vcFloat32s1_4).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func ClampInt(dst, x []int32, lo, hi int32) {
+	_vcInt32s2_1 := simd.BroadcastInt32s(lo)
+	_vcInt32s2_3 := simd.BroadcastInt32s(hi)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			t := x[i]
+			if t < lo {
+				t = lo
+			} else if t > hi {
+				t = hi
+			}
+			dst[i] = t
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(x[_i:])
+				_t1 := _v1
+				_t2 := _vcInt32s2_1.IfElse(_t1.Less(_vcInt32s2_1), _vcInt32s2_3.IfElse(_t1.Greater(_vcInt32s2_3), _t1))
+				_t2.StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// SiLU is x*sigmoid(x), which needs exp. These two replace sigmoid with an
+// approximation built from arithmetic: x/(1+|x|) scaled into (0,1), and a cubic
+// polynomial of x clamped to [-2,2], where it still rises. They are about the
+// same shape as SiLU, not equal to it; the test checks the rewrite, not the accuracy.
+func SiLUSoftsign(dst, x []float32) {
+	_vcFloat32s3_1 := simd.BroadcastFloat32s(0)
+	_vcFloat32s3_2 := simd.BroadcastFloat32s(0.5)
+	_vcFloat32s3_3 := simd.BroadcastFloat32s(1)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			a := x[i]
+			if a < 0 {
+				a = -a
+			}
+			dst[i] = x[i] * (0.5 + 0.5*x[i]/(1+a))
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1
+				_t2 := _t1.Neg().IfElse(_t1.Less(_vcFloat32s3_1), _t1)
+				_v1.Mul(_vcFloat32s3_2).Div(_t2.Add(_vcFloat32s3_3)).Add(_vcFloat32s3_2).Mul(_v1).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func SiLUCubic(dst, x []float32) {
+	_vcFloat32s4_1 := simd.BroadcastFloat32s(-2)
+	_vcFloat32s4_3 := simd.BroadcastFloat32s(2)
+	_vcFloat32s4_5 := simd.BroadcastFloat32s(48)
+	_vcFloat32s4_6 := simd.BroadcastFloat32s(4)
+	_vcFloat32s4_7 := simd.BroadcastFloat32s(0.5)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			c := x[i]
+			if c < -2 {
+				c = -2
+			} else if c > 2 {
+				c = 2
+			}
+			s := 0.5 + c/4 - c*c*c/48
+			dst[i] = x[i] * s
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(x[_i:])
+				_t1 := _v1
+				_t2 := _vcFloat32s4_1.IfElse(_t1.Less(_vcFloat32s4_1), _vcFloat32s4_3.IfElse(_t1.Greater(_vcFloat32s4_3), _t1))
+				_t3 := _t2.Div(_vcFloat32s4_6).Add(_vcFloat32s4_7).Sub(_t2.Mul(_t2).Mul(_t2).Div(_vcFloat32s4_5))
+				_v1.Mul(_t3).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// The condition reads a second temporary, and a branch value reads the first.
+func Mixed(dst, x []float64) {
+	_vcFloat64s5_1 := simd.BroadcastFloat64s(2)
+	_vcFloat64s5_2 := simd.BroadcastFloat64s(1)
+	_vcFloat64s5_3 := simd.BroadcastFloat64s(10)
+	_vcFloat64s5_4 := simd.BroadcastFloat64s(100)
+	_vcFloat64s5_5 := simd.BroadcastFloat64s(-10)
+	if _loopvecOverlap(x, dst) {
+		for i := range dst {
+			a := x[i] * 2
+			b := a + 1
+			if b > 10 && a < 100 {
+				a = a - b
+			} else if b < -10 {
+				a = -a
+			}
+			dst[i] = a + b
+		}
+	} else {
+		if len(dst) > 0 {
+			_ = x[len(dst)-1]
+			for _i := 0; _i < len(dst); {
+				_v1, _n := simd.LoadFloat64sPart(x[_i:])
+				_t1 := _v1.Mul(_vcFloat64s5_1)
+				_t2 := _t1.Add(_vcFloat64s5_2)
+				_t3 := _t1.Sub(_t2).IfElse(_t2.Greater(_vcFloat64s5_3).And(_t1.Less(_vcFloat64s5_4)), _t1.Neg().IfElse(_t2.Less(_vcFloat64s5_5), _t1))
+				_t3.Add(_t2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+func HardSwish(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		} else if t > 6 {
+			t = 6
+		}
+		dst[i] = x[i] * t / 6
+	}
+}
+
+func HardSigmoid(dst, x []float32) {
+	for i := range dst {
+		t := x[i] + 3
+		if t < 0 {
+			t = 0
+		}
+		if t > 6 {
+			t = 6
+		}
+		dst[i] = t / 6
+	}
+}
+
+func ClampInt(dst, x []int32, lo, hi int32) {
+	for i := range dst {
+		t := x[i]
+		if t < lo {
+			t = lo
+		} else if t > hi {
+			t = hi
+		}
+		dst[i] = t
+	}
+}
+
+// SiLU is x*sigmoid(x), which needs exp. These two replace sigmoid with an
+// approximation built from arithmetic: x/(1+|x|) scaled into (0,1), and a cubic
+// polynomial of x clamped to [-2,2], where it still rises. They are about the
+// same shape as SiLU, not equal to it; the test checks the rewrite, not the accuracy.
+func SiLUSoftsign(dst, x []float32) {
+	for i := range dst {
+		a := x[i]
+		if a < 0 {
+			a = -a
+		}
+		dst[i] = x[i] * (0.5 + 0.5*x[i]/(1+a))
+	}
+}
+
+func SiLUCubic(dst, x []float32) {
+	for i := range dst {
+		c := x[i]
+		if c < -2 {
+			c = -2
+		} else if c > 2 {
+			c = 2
+		}
+		s := 0.5 + c/4 - c*c*c/48
+		dst[i] = x[i] * s
+	}
+}
+
+// The condition reads a second temporary, and a branch value reads the first.
+func Mixed(dst, x []float64) {
+	for i := range dst {
+		a := x[i] * 2
+		b := a + 1
+		if b > 10 && a < 100 {
+			a = a - b
+		} else if b < -10 {
+			a = -a
+		}
+		dst[i] = a + b
+	}
+}
+-- stderr.want --
+loopvec: rewrote 6 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"math"
+
+	"example.com/test"
+)
+
+var special = []float32{
+	float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)),
+	0, float32(math.Copysign(0, -1)), -1, 1, 3, -3, 3.5, -3.5, 6, -6, 2.99, 100, -100,
+}
+
+func floats32(n int) []float32 {
+	s := make([]float32, n)
+	for i := range s {
+		s[i] = special[(i*7+n)%len(special)]
+	}
+	return s
+}
+
+func floats64(n int) []float64 {
+	s := make([]float64, n)
+	for i := range s {
+		s[i] = float64(special[(i*5+n)%len(special)])
+	}
+	return s
+}
+
+func bits32(s []float32) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + uint64(math.Float32bits(v))
+	}
+	return h
+}
+
+func bits64(s []float64) (h uint64) {
+	for _, v := range s {
+		h = h*1099511628211 + math.Float64bits(v)
+	}
+	return h
+}
+
+func main() {
+	for _, n := range []int{0, 1, 2, 5, 8, 9, 16, 17, 33, 100} {
+		d := make([]float32, n)
+		test.HardSwish(d, floats32(n))
+		fmt.Println(n, "HardSwish", bits32(d))
+		test.HardSigmoid(d, floats32(n))
+		fmt.Println(n, "HardSigmoid", bits32(d))
+
+		test.SiLUSoftsign(d, floats32(n))
+		fmt.Println(n, "SiLUSoftsign", bits32(d))
+		test.SiLUCubic(d, floats32(n))
+		fmt.Println(n, "SiLUCubic", bits32(d))
+
+		x := make([]int32, n)
+		for i := range x {
+			x[i] = int32((i*37+n)%41) - 20
+		}
+		di := make([]int32, n)
+		test.ClampInt(di, x, -5, 7)
+		var sum int64
+		for i, v := range di {
+			sum += int64(v) * int64(i+1)
+		}
+		fmt.Println(n, "ClampInt", sum)
+
+		m := make([]float64, n)
+		test.Mixed(m, floats64(n))
+		fmt.Println(n, "Mixed", bits64(m))
+	}
+}
+-- testmain/output --
+0 HardSwish 0
+0 HardSigmoid 0
+0 SiLUSoftsign 0
+0 SiLUCubic 0
+0 ClampInt 0
+0 Mixed 0
+1 HardSwish 2139095040
+1 HardSigmoid 1065353216
+1 SiLUSoftsign 4290772992
+1 SiLUCubic 2139095040
+1 ClampInt -5
+1 Mixed 9218868437227405312
+2 HardSwish 13835059922848448512
+2 HardSigmoid 1065353216
+2 SiLUSoftsign 13835059922846817394
+2 SiLUCubic 9223373902594091690
+2 ClampInt 9
+2 Mixed 3643975048496152576
+5 HardSwish 14026342994868125403
+5 HardSigmoid 10743737214692703963
+5 SiLUSoftsign 9928260880258838677
+5 SiLUCubic 15576174311634321405
+5 ClampInt 69
+5 Mixed 11458283351937384448
+8 HardSwish 5434605966020310612
+8 HardSigmoid 14847804439414414262
+8 SiLUSoftsign 3989707577245957910
+8 SiLUCubic 5284367755134503768
+8 ClampInt 118
+8 Mixed 11135580417753612288
+9 HardSwish 2654101054678843099
+9 HardSigmoid 5025989686098083547
+9 SiLUSoftsign 9818894259408869855
+9 SiLUCubic 12010707268767500197
+9 ClampInt 115
+9 Mixed 8063266216434728960
+16 HardSwish 12291239281198063247
+16 HardSigmoid 4779327702160311281
+16 SiLUSoftsign 13562391639770128867
+16 SiLUCubic 15789133080459687027
+16 ClampInt -63
+16 Mixed 8440228817330503680
+17 HardSwish 13605334352735651759
+17 HardSigmoid 3733007393824107857
+17 SiLUSoftsign 16476505290289887491
+17 SiLUCubic 3959260188921203219
+17 ClampInt 87
+17 Mixed 3879985112560959488
+33 HardSwish 11846844431327683358
+33 HardSigmoid 335787480071915234
+33 SiLUSoftsign 18317235180008045254
+33 SiLUCubic 16980771353971941606
+33 ClampInt 813
+33 Mixed 6386870177023131648
+100 HardSwish 12018291931718854554
+100 HardSigmoid 13980565662526867302
+100 SiLUSoftsign 3463389627182548849
+100 SiLUCubic 11432185467727776668
+100 ClampInt 4135
+100 Mixed 1122445691205976064
