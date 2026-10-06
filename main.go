@@ -3,13 +3,15 @@
 //
 // Usage:
 //
-//	loopvec [-split | -w | -d] [packages...]
+//	loopvec [-split | -w | -d] [-cpuprofile file] [-memprofile file] [packages...]
 //
 // Without flags, loopvec prints the rewritten source to stdout.
 // With -split, loopvec writes the simd variant to file_simd.go and adds
 // //go:build !goexperiment.simd to the original file.
 // With -w, loopvec writes changes back to the source files in place.
 // With -d, loopvec prints a unified diff for each changed file.
+// With -cpuprofile or -memprofile, loopvec writes a pprof profile of its own
+// run to the named file.
 package main
 
 import (
@@ -21,6 +23,8 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -36,6 +40,8 @@ var (
 	jsonMode     = flag.Bool("json", false, "print one JSON line per candidate loop (file, line, func, vectorized, reason) instead of rewriting")
 	allowMethods = flag.Bool("methods", false, "rewrite loops inside methods (requires Go 1.28+ / gotip CL 839405 to avoid compiler crash)")
 	floatReassoc = flag.Bool("fp-reassoc", false, "rewrite floating-point sums and products by regrouping the additions, which can change the result in the last bits")
+	cpuProfile   = flag.String("cpuprofile", "", "write a CPU profile of the run to `file`")
+	memProfile   = flag.String("memprofile", "", "write a heap profile at the end of the run to `file`")
 )
 
 func main() {
@@ -45,10 +51,60 @@ func main() {
 		patterns = []string{"."}
 	}
 
-	if err := run(patterns); err != nil {
+	stopProfiles, err := startProfiles(*cpuProfile, *memProfile)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "loopvec:", err)
 		os.Exit(1)
 	}
+	err = run(patterns)
+	if perr := stopProfiles(); err == nil {
+		err = perr
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "loopvec:", err)
+		os.Exit(1)
+	}
+}
+
+// startProfiles starts the CPU profile when cpuPath is set and returns a
+// function that stops it and writes the heap profile when memPath is set.
+func startProfiles(cpuPath, memPath string) (stop func() error, err error) {
+	var cpuFile *os.File
+	if cpuPath != "" {
+		cpuFile, err = os.Create(cpuPath)
+		if err != nil {
+			return nil, fmt.Errorf("cpuprofile: %w", err)
+		}
+		if err := pprof.StartCPUProfile(cpuFile); err != nil {
+			cpuFile.Close()
+			return nil, fmt.Errorf("cpuprofile: %w", err)
+		}
+	}
+	return func() error {
+		if cpuFile != nil {
+			pprof.StopCPUProfile()
+			if err := cpuFile.Close(); err != nil {
+				return fmt.Errorf("cpuprofile: %w", err)
+			}
+		}
+		if memPath == "" {
+			return nil
+		}
+		f, err := os.Create(memPath)
+		if err != nil {
+			return fmt.Errorf("memprofile: %w", err)
+		}
+		// Collect first so the profile shows live memory, not garbage.
+		runtime.GC()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			f.Close()
+			return fmt.Errorf("memprofile: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("memprofile: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 func run(patterns []string) error {
