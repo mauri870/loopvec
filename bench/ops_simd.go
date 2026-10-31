@@ -1994,6 +1994,52 @@ func HardSigmoidFloat32s(dst, x []float32) {
 	}
 }
 
+func StoreRowFloat32s(c, x []float32, alpha float32, row, ldc int) {
+	_vcAFloat32s46 := simd.BroadcastFloat32s(alpha)
+	if _loopvecOverlap(c, x, 0+(min(0, row*ldc)), len(x)+(max(0, row*ldc)), 0, len(x)) {
+		for j := range x {
+			c[row*ldc+j] += alpha * x[j]
+		}
+	} else {
+		if len(x) > 0 {
+			_ = c[len(x)+(row*ldc)-1]
+			_ = x[len(x)-1]
+			{
+				_w1 := c[row*ldc:][:len(x):len(x)]
+				_count := len(_w1)
+				_w2 := x[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat32s(_c2)
+					_v2 := simd.LoadFloat32s(_c1)
+					_v1.MulAdd(_vcAFloat32s46, _v2).Store(_c1)
+					_v3 := simd.LoadFloat32s(_c2[_lanes:])
+					_v4 := simd.LoadFloat32s(_c1[_lanes:])
+					_v3.MulAdd(_vcAFloat32s46, _v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadFloat32s(_c2[2*_lanes:])
+					_v6 := simd.LoadFloat32s(_c1[2*_lanes:])
+					_v5.MulAdd(_vcAFloat32s46, _v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadFloat32s(_c2[3*_lanes:])
+					_v8 := simd.LoadFloat32s(_c1[3*_lanes:])
+					_v7.MulAdd(_vcAFloat32s46, _v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadFloat32s(_w2[_i:])
+					_v10 := simd.LoadFloat32s(_w1[_i:])
+					_v9.MulAdd(_vcAFloat32s46, _v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadFloat32sPart(_w2[_i:])
+					_v12, _ := simd.LoadFloat32sPart(_w1[_i:])
+					_v11.MulAdd(_vcAFloat32s46, _v12).StorePart(_w1[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
 func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false

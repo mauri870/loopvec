@@ -107,8 +107,8 @@ by `n*2^-24`, for the kernels that vectorize only with `-fp-reassoc`).
 | s421 | storage classes and equivalencing | equivalence- no overlap | bits | vectorize | yes |
 | s1421 | storage classes and equivalencing | equivalence- no overlap | bits | vectorize | yes |
 | s422 | storage classes and equivalencing | common and equivalence statement; anti-dependence, threshold of 4 | bits | vectorize | yes |
-| s423 | storage classes and equivalencing | common and equivalenced variables - with anti-dependence; do this again here | bits | vectorize | no |
-| s424 | storage classes and equivalencing | common and equivalenced variables - overlap; vectorizeable in strips of 64 or less; do this again here | bits | vectorize | no |
+| s423 | storage classes and equivalencing | common and equivalenced variables - with anti-dependence; do this again here | bits | vectorize | yes |
+| s424 | storage classes and equivalencing | common and equivalenced variables - overlap; vectorizeable in strips of 64 or less; do this again here | bits | vectorize | yes |
 | s431 | parameters | parameter statement | bits | vectorize | no |
 | s441 | non-logical if's | arithmetic if | fused | vectorize | no |
 | s443 | non-logical if's | arithmetic if | fused | vectorize | no |
@@ -160,7 +160,7 @@ loop with a real dependence between iterations is correct to leave alone.
 the expectation copied from the kernel's directive so the file reads on its own:
 
 ```
-# loopvec TSVC coverage: vectorized 22, gaps 70, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 24, gaps 68, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop start is not 0 (or len(s)-1 when counting down)
 ...

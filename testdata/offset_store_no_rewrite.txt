@@ -1,0 +1,75 @@
+# A store at an offset is left alone when two iterations could touch the same
+# element in an order the vector loop does not keep: a slice stored at two
+# offsets, a read of the stored slice behind the stored element (a recurrence), a
+# read at a distance that is not a constant, a read at another offset in a loop
+# that counts down, and an offset the body changes. A stride and a nested index
+# are not an offset.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func TwoOffsets(a, b, c []int32) {
+	for i := 0; i < len(b); i++ {
+		a[i] = b[i]
+		a[i+1] = c[i]
+	}
+}
+
+func Recurrence(a, b []int32) {
+	for i := 0; i < len(b); i++ {
+		a[i+1] = a[i] + b[i]
+	}
+}
+
+func DistanceUnknown(a []int32, k, n int) {
+	for i := 0; i < n; i++ {
+		a[i+k] = a[i] * 2
+	}
+}
+
+func CountingDownAhead(a []int32) {
+	for i := len(a) - 4; i >= 0; i-- {
+		a[i+1] = a[i+3] * 2
+	}
+}
+
+func OffsetAssigned(dst, a []int32, off int) {
+	for i := range a {
+		dst[off+i] = a[i]
+		off++
+	}
+}
+
+func Stride(dst, a []int32) {
+	for i := range a {
+		dst[2*i] = a[i]
+	}
+}
+
+func Nested(dst [][]int32, a []int32) {
+	for i := range a {
+		dst[0][i] = a[i]
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"TwoOffsets","vectorized":false,"reason":"a slice is stored at more than one offset","stage":"lower"}
+{"file":"$WORK/ops.go","line":11,"func":"Recurrence","vectorized":false,"reason":"an iteration reads an element an earlier iteration wrote","stage":"lower"}
+{"file":"$WORK/ops.go","line":17,"func":"DistanceUnknown","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":23,"func":"CountingDownAhead","vectorized":false,"reason":"a slice is read at an offset and written in the same loop","stage":"lower"}
+{"file":"$WORK/ops.go","line":29,"func":"OffsetAssigned","vectorized":false,"reason":"loop body is not a sequence of indexed assignments","stage":"lower"}
+{"file":"$WORK/ops.go","line":36,"func":"Stride","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}
+{"file":"$WORK/ops.go","line":42,"func":"Nested","vectorized":false,"reason":"destination is not a simple, same-index slice element","stage":"lower"}

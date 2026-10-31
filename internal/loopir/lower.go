@@ -587,7 +587,7 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 				// dst[i] = src[i] is a copy, emitted as the copy builtin. Copying a
 				// slice onto itself does nothing; at an offset it shifts the elements,
 				// which copy does correctly where the ranges overlap.
-				if v.Ref.Obj == stmt.Dst.Obj && v.Off == "" {
+				if v.Ref.Obj == stmt.Dst.Obj && v.Off == stmt.Off {
 					return nil, ReasonUnsupportedOperand
 				}
 			case *Invariant:
@@ -623,32 +623,44 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		}
 	}
 
-	// A slice that is both stored and read at an offset is a dependence between
-	// iterations: iteration i reads the element iteration i+d writes. The vector
-	// loop runs a whole chunk of iterations statement by statement, so it keeps the
-	// scalar result only when the read is of a later iteration's element (d > 0, in a
-	// forward loop): that iteration has not run yet, so the scalar loop reads the
-	// value from before the loop, and the emitted loop loads it before any store of
-	// the chunk. A read of an earlier iteration's element (d < 0) is a recurrence,
-	// and a distance that is not a constant, or a loop that counts down, has no
-	// order loopvec can check.
-	stored := map[types.Object]bool{}
+	// Every store to a slice is at one offset, so each iteration writes its own
+	// element. Two offsets would have different iterations write the same element,
+	// in an order the vector loop, which runs one statement over a whole chunk
+	// before the next, does not keep.
+	//
+	// A slice that is both stored and read at another offset is a dependence
+	// between iterations: iteration i reads the element iteration i+d writes, d
+	// the read offset less the store offset. The vector loop runs a whole chunk of
+	// iterations statement by statement, so it keeps the scalar result only when
+	// the read is of a later iteration's element (d > 0, in a forward loop): that
+	// iteration has not run yet, so the scalar loop reads the value from before the
+	// loop, and the emitted loop loads it before any store of the chunk. A read of
+	// an earlier iteration's element (d < 0) is a recurrence, and a distance that
+	// is not a constant, or a loop that counts down, has no order loopvec can check.
+	stored := map[types.Object]string{}
 	for _, stmt := range body {
 		if store, ok := stmt.(Store); ok {
-			stored[store.Dst.Obj] = true
+			if off, ok := stored[store.Dst.Obj]; ok && off != store.Off {
+				return nil, ReasonStoreOffsets
+			}
+			stored[store.Dst.Obj] = store.Off
 		}
 	}
 	for _, stmt := range body {
 		for _, leaf := range Leaves(stmtValue(stmt)) {
 			load, ok := leaf.(*Load)
-			if !ok || load.Off == "" || !stored[load.Ref.Obj] {
+			if !ok {
 				continue
 			}
-			distance, err := strconv.ParseInt(load.Off, 10, 64)
+			off, isStored := stored[load.Ref.Obj]
+			if !isStored || load.Off == off {
+				continue
+			}
+			d, ok := distance(load.Off, off)
 			switch {
-			case err != nil || step != 1:
+			case !ok || step != 1:
 				return nil, ReasonOffsetOfStored
-			case distance < 0:
+			case d < 0:
 				return nil, ReasonCarriedDependence
 			}
 		}
@@ -666,6 +678,9 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 		return err == nil && (errStart == nil && start+off < 0 || errLimit == nil && limit+off <= 0)
 	}
 	for _, stmt := range body {
+		if store, ok := stmt.(Store); ok && negative(store.Off) {
+			return nil, ReasonNegativeIndex
+		}
 		for _, leaf := range Leaves(stmtValue(stmt)) {
 			if load, ok := leaf.(*Load); ok && negative(load.Off) {
 				return nil, ReasonNegativeIndex
@@ -844,7 +859,7 @@ func (l *lowerer) deadOutsideLoop(v *types.Var) bool {
 	return true
 }
 
-// store lowers one assignment to dst[i].
+// store lowers one assignment to dst[i], or to dst[i+e] for a loop-invariant e.
 func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 	var op Op
 	switch assign.Tok {
@@ -857,7 +872,7 @@ func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 			return Store{}, ReasonUnsupportedOperand
 		}
 	}
-	dst, ok := l.index(assign.Lhs[0])
+	dst, off, ok := l.indexAt(assign.Lhs[0])
 	if !ok {
 		return Store{}, ReasonUnsupportedDestination
 	}
@@ -873,18 +888,18 @@ func (l *lowerer) store(assign *ast.AssignStmt) (Store, Reason) {
 		if assign.Tok == token.SHR_ASSIGN {
 			shift = token.SHR
 		}
-		val, reason = l.shiftOf(shift, &Load{Ref: dst}, assign.Rhs[0])
+		val, reason = l.shiftOf(shift, &Load{Ref: dst, Off: off}, assign.Rhs[0])
 	default:
 		// dst[i] op= rhs is dst[i] = dst[i] op rhs.
 		var rhs Value
 		if rhs, reason = l.value(assign.Rhs[0]); reason == "" {
-			val = &Binary{Op: op, X: &Load{Ref: dst}, Y: rhs}
+			val = &Binary{Op: op, X: &Load{Ref: dst, Off: off}, Y: rhs}
 		}
 	}
 	if reason != "" {
 		return Store{}, reason
 	}
-	return Store{Dst: dst, Val: val}, ""
+	return Store{Dst: dst, Off: off, Val: val}, ""
 }
 
 // loadKey identifies the element a load reads: the range value variable reads the
@@ -1025,7 +1040,7 @@ func (l *lowerer) ifStore(s *ast.IfStmt) (Store, Reason) {
 	}
 	sel := store.Val.(*Select)
 	known := loadKeys(sel.Cond)
-	known[loadKey{store.Dst.Obj, ""}] = true
+	known[loadKey{store.Dst.Obj, store.Off}] = true
 	for _, leaf := range Leaves(sel) {
 		if load, ok := leaf.(*Load); ok && !known[loadKey{load.Ref.Obj, load.Off}] {
 			return Store{}, ReasonConditionalLoad
@@ -1052,16 +1067,16 @@ func (l *lowerer) ifChain(s *ast.IfStmt) (Store, Reason) {
 	case nil:
 		// No else: the element keeps its value. The vector loop stores it back, which
 		// is only unobservable when the condition already reads the element.
-		if !loadKeys(cond)[loadKey{then.Dst.Obj, ""}] {
+		if !loadKeys(cond)[loadKey{then.Dst.Obj, then.Off}] {
 			return Store{}, ReasonConditionalStore
 		}
-		other = &Load{Ref: then.Dst}
+		other = &Load{Ref: then.Dst, Off: then.Off}
 	case *ast.BlockStmt:
 		store, reason := l.branch(e)
 		if reason != "" {
 			return Store{}, reason
 		}
-		if store.Dst.Obj != then.Dst.Obj {
+		if store.Dst.Obj != then.Dst.Obj || store.Off != then.Off {
 			return Store{}, ReasonUnsupportedIf
 		}
 		other = store.Val
@@ -1070,12 +1085,12 @@ func (l *lowerer) ifChain(s *ast.IfStmt) (Store, Reason) {
 		if reason != "" {
 			return Store{}, reason
 		}
-		if store.Dst.Obj != then.Dst.Obj {
+		if store.Dst.Obj != then.Dst.Obj || store.Off != then.Off {
 			return Store{}, ReasonUnsupportedIf
 		}
 		other = store.Val
 	}
-	return Store{Dst: then.Dst, Val: &Select{Cond: cond, Then: then.Val, Else: other}}, ""
+	return Store{Dst: then.Dst, Off: then.Off, Val: &Select{Cond: cond, Then: then.Val, Else: other}}, ""
 }
 
 // branch lowers the body of an if: one assignment to an element.
@@ -1361,10 +1376,22 @@ func (l *lowerer) load(expr ast.Expr) (*Load, bool) {
 	return &Load{Ref: ref, Off: off}, true
 }
 
-// index matches slice[i] where slice is an identifier and i the loop index.
-func (l *lowerer) index(expr ast.Expr) (*Ref, bool) {
-	ref, off, ok := l.indexAt(expr)
-	return ref, ok && off == ""
+// distance is the constant read offset less the constant store offset, each ""
+// for zero; ok is false when either is not a constant.
+func distance(read, store string) (d int64, ok bool) {
+	r, s := int64(0), int64(0)
+	var err error
+	if read != "" {
+		if r, err = strconv.ParseInt(read, 10, 64); err != nil {
+			return 0, false
+		}
+	}
+	if store != "" {
+		if s, err = strconv.ParseInt(store, 10, 64); err != nil {
+			return 0, false
+		}
+	}
+	return r - s, true
 }
 
 // maxOffset bounds a constant offset, so that adding it to a limit cannot

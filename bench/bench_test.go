@@ -451,6 +451,21 @@ func BenchmarkAccumRowInt32s(b *testing.B) {
 	}
 }
 
+// StoreRowFloat32s adds alpha*x into one row of a two-dimensional slice.
+func BenchmarkStoreRowFloat32s(b *testing.B) {
+	for _, n := range benchSizes {
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			x := make([]float32, n)
+			c := make([]float32, 2*n)
+			setBytes(b, n, 4, 3)
+			b.ResetTimer()
+			for b.Loop() {
+				StoreRowFloat32s(c, x, 2, 1, n)
+			}
+		})
+	}
+}
+
 func BenchmarkMinUint16s(b *testing.B) {
 	for _, n := range benchSizes {
 		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {

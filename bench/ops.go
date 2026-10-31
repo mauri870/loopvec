@@ -332,3 +332,9 @@ func HardSigmoidFloat32s(dst, x []float32) {
 		dst[i] = t / 6
 	}
 }
+
+func StoreRowFloat32s(c, x []float32, alpha float32, row, ldc int) {
+	for j := range x {
+		c[row*ldc+j] += alpha * x[j]
+	}
+}

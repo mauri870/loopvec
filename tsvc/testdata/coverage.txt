@@ -1,8 +1,8 @@
-# loopvec TSVC coverage: vectorized 22, gaps 70, declined 1, skipped 0 (of 93)
+# loopvec TSVC coverage: vectorized 24, gaps 68, declined 1, skipped 0 (of 93)
 s000	vectorize	yes
 s111	vectorize	no	loop step is not i++ (or i-- when counting down)
 s1111	vectorize	no	destination is not a simple, same-index slice element
-s112	vectorize	no	destination is not a simple, same-index slice element
+s112	vectorize	no	a slice is read at an offset and written in the same loop
 s1112	vectorize	yes
 s113	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s1113	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -24,8 +24,8 @@ s141	vectorize	no	destination is not a simple, same-index slice element
 s162	vectorize	no	a slice is read at an offset and written in the same loop
 s171	vectorize	no	destination is not a simple, same-index slice element
 s172	vectorize	no	loop step is not i++ (or i-- when counting down)
-s173	vectorize	no	destination is not a simple, same-index slice element
-s174	vectorize	no	destination is not a simple, same-index slice element
+s173	vectorize	no	a slice is read at an offset and written in the same loop
+s174	vectorize	no	a slice is read at an offset and written in the same loop
 s175	vectorize	no	loop step is not i++ (or i-- when counting down)
 s176	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s211	vectorize	no	an iteration reads an element an earlier iteration wrote
@@ -36,10 +36,10 @@ s2233	vectorize	no	destination is not a simple, same-index slice element
 s235	vectorize	no	destination is not a simple, same-index slice element
 s241	vectorize	yes
 s243	vectorize	yes
-s2244	vectorize	no	destination is not a simple, same-index slice element
+s2244	vectorize	no	a slice is stored at more than one offset
 s251	vectorize	yes
 s1251	vectorize	yes
-s3251	vectorize	no	destination is not a simple, same-index slice element
+s3251	vectorize	no	an iteration reads an element an earlier iteration wrote
 s252	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s254	vectorize	no	operand is not a same-index slice, range value, or plain scalar
 s255	vectorize	no	operand is not a same-index slice, range value, or plain scalar
@@ -73,8 +73,8 @@ s352	vectorize	no	loop step is not i++ (or i-- when counting down)
 s421	vectorize	yes
 s1421	vectorize	yes
 s422	vectorize	yes
-s423	vectorize	no	destination is not a simple, same-index slice element
-s424	vectorize	no	destination is not a simple, same-index slice element
+s423	vectorize	yes
+s424	vectorize	yes
 s431	vectorize	no	a slice is read at an offset and written in the same loop
 s441	vectorize	no	a slice is read only under a condition
 s443	vectorize	no	a slice is read only under a condition

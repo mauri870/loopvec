@@ -1,0 +1,671 @@
+# A store may be at a loop-invariant offset from the index (b[i*ldb+j],
+# line[off+x], dst[i-k]), the way a load may. Every store to one slice is at the
+# same offset, so each iteration writes its own element, a load of that element is
+# ordered after the stores before it, and a loop that counts down runs forward as
+# when it stores at the index. A read of the stored slice at a constant positive
+# distance past the stored element is loaded before any store of the chunk, as for
+# a store at the index. The store is capped at the limit plus the offset, so the
+# vector loop writes no element the scalar loop does not, and the length check
+# covers the last element stored.
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// Copies row i of an lda-strided matrix into row i of an ldb-strided one: a copy.
+func CopyRow(b, a []float64, i, n, lda, ldb int) {
+	for j := 0; j < n; j++ {
+		b[i*ldb+j] = a[i*lda+j]
+	}
+}
+
+// Adds alpha*x into a row of c.
+func AxpyRow(c, x []float32, alpha float32, row, n int) {
+	for j := 0; j < n; j++ {
+		c[row+j] += alpha * x[j]
+	}
+}
+
+// Fills w elements starting at off.
+func FillAt(line []uint16, off, w int, v uint16) {
+	for x := range w {
+		line[off+x] = v
+	}
+}
+
+// Stores behind the index.
+func Behind(dst, a []int32, k int) {
+	for i := k; i < len(a); i++ {
+		dst[i-k] = a[i] * 2
+	}
+}
+
+// Reads two elements ahead of the one it stores, in the slice it stores.
+func Ahead(a []int32, n int) {
+	for i := 0; i < n; i++ {
+		a[i+1] = a[i+3] * 2
+	}
+}
+
+// Clamps at an offset: the condition reads the element it stores.
+func ClampAt(a []int16, off, n int) {
+	for i := range n {
+		if a[off+i] < 0 {
+			a[off+i] = 0
+		}
+	}
+}
+
+// Sums a while copying it to an offset.
+func SumCopy(d, a []int32, off int) int32 {
+	var s int32
+	for i := range a {
+		s += a[i]
+		d[off+i] = a[i]
+	}
+	return s
+}
+
+// Stores the same element twice; the second store reads the first.
+func Twice(a, b []int32, off int) {
+	for i := 0; i < len(b); i++ {
+		a[off+i] = b[i] + 1
+		a[off+i] *= b[i]
+	}
+}
+
+// Counts down, storing at an offset and reading only the element it stores.
+func Reverse(dst, a []int32, off int) {
+	for i := len(a) - 1; i >= 0; i-- {
+		dst[off+i] = a[i] + dst[off+i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// Copies row i of an lda-strided matrix into row i of an ldb-strided one: a copy.
+func CopyRow(b, a []float64, i, n, lda, ldb int) {
+	if _loopvecOverlap(b, a, 0+(min(0, i*ldb)), n+(max(0, i*ldb)), 0+(min(0, i*lda)), n+(max(0, i*lda))) {
+		for j := 0; j < n; j++ {
+			b[i*ldb+j] = a[i*lda+j]
+		}
+	} else {
+		if n > 0 {
+			_ = b[n+(i*ldb)-1]
+			_ = a[n+(i*lda)-1]
+			copy(b[i*ldb:n+(i*ldb)], a[i*lda:])
+		}
+	}
+}
+
+// Adds alpha*x into a row of c.
+func AxpyRow(c, x []float32, alpha float32, row, n int) {
+	_vcAFloat32s1 := simd.BroadcastFloat32s(alpha)
+	if _loopvecOverlap(c, x, 0+(min(0, row)), n+(max(0, row)), 0, n) {
+		for j := 0; j < n; j++ {
+			c[row+j] += alpha * x[j]
+		}
+	} else {
+		if n > 0 {
+			_ = c[n+row-1]
+			_ = x[n-1]
+			{
+				_w1 := c[row:][:n:n]
+				_count := len(_w1)
+				_w2 := x[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat32s(_c2)
+					_v2 := simd.LoadFloat32s(_c1)
+					_v1.MulAdd(_vcAFloat32s1, _v2).Store(_c1)
+					_v3 := simd.LoadFloat32s(_c2[_lanes:])
+					_v4 := simd.LoadFloat32s(_c1[_lanes:])
+					_v3.MulAdd(_vcAFloat32s1, _v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadFloat32s(_c2[2*_lanes:])
+					_v6 := simd.LoadFloat32s(_c1[2*_lanes:])
+					_v5.MulAdd(_vcAFloat32s1, _v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadFloat32s(_c2[3*_lanes:])
+					_v8 := simd.LoadFloat32s(_c1[3*_lanes:])
+					_v7.MulAdd(_vcAFloat32s1, _v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadFloat32s(_w2[_i:])
+					_v10 := simd.LoadFloat32s(_w1[_i:])
+					_v9.MulAdd(_vcAFloat32s1, _v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadFloat32sPart(_w2[_i:])
+					_v12, _ := simd.LoadFloat32sPart(_w1[_i:])
+					_v11.MulAdd(_vcAFloat32s1, _v12).StorePart(_w1[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+// Fills w elements starting at off.
+func FillAt(line []uint16, off, w int, v uint16) {
+	_vcUint16s2 := simd.BroadcastUint16s(v)
+	if w > 0 {
+		_ = line[w+off-1]
+		{
+			_w1 := line[off:][:w:w]
+			_count := len(_w1)
+			_i, _lanes := 0, simd.BroadcastUint16s(0).Len()
+			for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+				_c1 := _w1[_i:][:4*_lanes]
+				_vcUint16s2.Store(_c1)
+				_vcUint16s2.Store(_c1[_lanes:])
+				_vcUint16s2.Store(_c1[2*_lanes:])
+				_vcUint16s2.Store(_c1[3*_lanes:])
+			}
+			for ; _i <= _count-_lanes; _i += _lanes {
+				_vcUint16s2.Store(_w1[_i:])
+			}
+			for _i < _count {
+				_n := _vcUint16s2.StorePart(_w1[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Stores behind the index.
+func Behind(dst, a []int32, k int) {
+	_vcInt32s3 := simd.BroadcastInt32s(2)
+	if _loopvecOverlap(dst, a, k+(min(0, -(k))), len(a)+(max(0, -(k))), k, len(a)) {
+		for i := k; i < len(a); i++ {
+			dst[i-k] = a[i] * 2
+		}
+	} else {
+		if len(a) > k {
+			_ = dst[len(a)-(k)-1]
+			_ = a[len(a)-1]
+			{
+				_w1 := dst[k-(k):][:(len(a) - k):(len(a) - k)]
+				_count := len(_w1)
+				_w2 := a[k:][:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v1.Mul(_vcInt32s3).Store(_c1)
+					_v2 := simd.LoadInt32s(_c2[_lanes:])
+					_v2.Mul(_vcInt32s3).Store(_c1[_lanes:])
+					_v3 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v3.Mul(_vcInt32s3).Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v4.Mul(_vcInt32s3).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt32s(_w2[_i:])
+					_v5.Mul(_vcInt32s3).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v6.Mul(_vcInt32s3).StorePart(_w1[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+// Reads two elements ahead of the one it stores, in the slice it stores.
+func Ahead(a []int32, n int) {
+	_vcInt32s4 := simd.BroadcastInt32s(2)
+	if n > 0 {
+		_ = a[n]
+		_ = a[n+2]
+		{
+			_w1 := a[1:][:n:n]
+			_count := len(_w1)
+			_w2 := a[3:][:_count:_count]
+			_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+			for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+				_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+				_v1 := simd.LoadInt32s(_c2)
+				_v1.Mul(_vcInt32s4).Store(_c1)
+				_v2 := simd.LoadInt32s(_c2[_lanes:])
+				_v2.Mul(_vcInt32s4).Store(_c1[_lanes:])
+				_v3 := simd.LoadInt32s(_c2[2*_lanes:])
+				_v3.Mul(_vcInt32s4).Store(_c1[2*_lanes:])
+				_v4 := simd.LoadInt32s(_c2[3*_lanes:])
+				_v4.Mul(_vcInt32s4).Store(_c1[3*_lanes:])
+			}
+			for ; _i <= _count-_lanes; _i += _lanes {
+				_v5 := simd.LoadInt32s(_w2[_i:])
+				_v5.Mul(_vcInt32s4).Store(_w1[_i:])
+			}
+			for _i < _count {
+				_v6, _n := simd.LoadInt32sPart(_w2[_i:])
+				_v6.Mul(_vcInt32s4).StorePart(_w1[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Clamps at an offset: the condition reads the element it stores.
+func ClampAt(a []int16, off, n int) {
+	_vcAInt16s5 := simd.BroadcastInt16s(0)
+	if n > 0 {
+		_ = a[n+off-1]
+		{
+			_w1 := a[off:][:n:n]
+			_count := len(_w1)
+			_i, _lanes := 0, simd.BroadcastInt16s(0).Len()
+			for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+				_c1 := _w1[_i:][:4*_lanes]
+				_v1 := simd.LoadInt16s(_c1)
+				_vcAInt16s5.IfElse(_v1.Less(_vcAInt16s5), _v1).Store(_c1)
+				_v2 := simd.LoadInt16s(_c1[_lanes:])
+				_vcAInt16s5.IfElse(_v2.Less(_vcAInt16s5), _v2).Store(_c1[_lanes:])
+				_v3 := simd.LoadInt16s(_c1[2*_lanes:])
+				_vcAInt16s5.IfElse(_v3.Less(_vcAInt16s5), _v3).Store(_c1[2*_lanes:])
+				_v4 := simd.LoadInt16s(_c1[3*_lanes:])
+				_vcAInt16s5.IfElse(_v4.Less(_vcAInt16s5), _v4).Store(_c1[3*_lanes:])
+			}
+			for ; _i <= _count-_lanes; _i += _lanes {
+				_v5 := simd.LoadInt16s(_w1[_i:])
+				_vcAInt16s5.IfElse(_v5.Less(_vcAInt16s5), _v5).Store(_w1[_i:])
+			}
+			for _i < _count {
+				_v6, _n := simd.LoadInt16sPart(_w1[_i:])
+				_vcAInt16s5.IfElse(_v6.Less(_vcAInt16s5), _v6).StorePart(_w1[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Sums a while copying it to an offset.
+func SumCopy(d, a []int32, off int) int32 {
+	var s int32
+	if _loopvecOverlap(a, d, 0, len(a), 0+(min(0, off)), len(a)+(max(0, off))) {
+		for i := range a {
+			s += a[i]
+			d[off+i] = a[i]
+		}
+	} else {
+		if len(a) > 0 {
+			_ = a[len(a)-1]
+			_ = d[len(a)+off-1]
+			{
+				_i := 0
+				if len(a) >= 64 {
+					_a1_0 := simd.BroadcastInt32s(0)
+					_a1_1 := simd.BroadcastInt32s(0)
+					_a1_2 := simd.BroadcastInt32s(0)
+					_a1_3 := simd.BroadcastInt32s(0)
+					_lanes := _a1_0.Len()
+					for ; _i <= len(a)-4*_lanes; _i += 4 * _lanes {
+						_v1 := simd.LoadInt32s(a[_i:len(a)])
+						_a1_0 = _a1_0.Add(_v1)
+						_v1.Store(d[_i+off : len(a)+off])
+						_v2 := simd.LoadInt32s(a[_i+_lanes : len(a)])
+						_a1_1 = _a1_1.Add(_v2)
+						_v2.Store(d[_i+_lanes+off : len(a)+off])
+						_v3 := simd.LoadInt32s(a[_i+2*_lanes : len(a)])
+						_a1_2 = _a1_2.Add(_v3)
+						_v3.Store(d[_i+2*_lanes+off : len(a)+off])
+						_v4 := simd.LoadInt32s(a[_i+3*_lanes : len(a)])
+						_a1_3 = _a1_3.Add(_v4)
+						_v4.Store(d[_i+3*_lanes+off : len(a)+off])
+					}
+					for ; _i <= len(a)-_lanes; _i += _lanes {
+						_v5 := simd.LoadInt32s(a[_i:len(a)])
+						_a1_0 = _a1_0.Add(_v5)
+						_v5.Store(d[_i+off : len(a)+off])
+					}
+					_a1_0 = _a1_0.Add(_a1_1)
+					_a1_0 = _a1_0.Add(_a1_2)
+					_a1_0 = _a1_0.Add(_a1_3)
+					var _buf1 [16]int32
+					_a1_0.Store(_buf1[:])
+					for _, _x := range _buf1[:_lanes] {
+						s = s + _x
+					}
+				}
+				for i := _i; i < len(a); i++ {
+					s += a[i]
+					d[off+i] = a[i]
+				}
+			}
+		}
+	}
+	return s
+}
+
+// Stores the same element twice; the second store reads the first.
+func Twice(a, b []int32, off int) {
+	_vcInt32s7_1 := simd.BroadcastInt32s(1)
+	if _loopvecOverlap(a, b, 0+(min(0, off)), len(b)+(max(0, off)), 0, len(b)) {
+		for i := 0; i < len(b); i++ {
+			a[off+i] = b[i] + 1
+			a[off+i] *= b[i]
+		}
+	} else {
+		if len(b) > 0 {
+			_ = a[len(b)+off-1]
+			_ = b[len(b)-1]
+			{
+				_w1 := a[off:][:len(b):len(b)]
+				_count := len(_w1)
+				_w2 := b[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v1.Add(_vcInt32s7_1).Store(_c1)
+					_v2 := simd.LoadInt32s(_c1)
+					_v2.Mul(_v1).Store(_c1)
+					_v3 := simd.LoadInt32s(_c2[_lanes:])
+					_v3.Add(_vcInt32s7_1).Store(_c1[_lanes:])
+					_v4 := simd.LoadInt32s(_c1[_lanes:])
+					_v4.Mul(_v3).Store(_c1[_lanes:])
+					_v5 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v5.Add(_vcInt32s7_1).Store(_c1[2*_lanes:])
+					_v6 := simd.LoadInt32s(_c1[2*_lanes:])
+					_v6.Mul(_v5).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v7.Add(_vcInt32s7_1).Store(_c1[3*_lanes:])
+					_v8 := simd.LoadInt32s(_c1[3*_lanes:])
+					_v8.Mul(_v7).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(_w2[_i:])
+					_v9.Add(_vcInt32s7_1).Store(_w1[_i:])
+					_v10 := simd.LoadInt32s(_w1[_i:])
+					_v10.Mul(_v9).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v11.Add(_vcInt32s7_1).StorePart(_w1[_i:])
+					_v12, _ := simd.LoadInt32sPart(_w1[_i:])
+					_v12.Mul(_v11).StorePart(_w1[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+// Counts down, storing at an offset and reading only the element it stores.
+func Reverse(dst, a []int32, off int) {
+	if _loopvecOverlap(dst, a, 0+(min(0, off)), len(a)+(max(0, off)), 0, len(a)) {
+		for i := len(a) - 1; i >= 0; i-- {
+			dst[off+i] = a[i] + dst[off+i]
+		}
+	} else {
+		if len(a) > 0 {
+			_ = dst[len(a)+off-1]
+			_ = a[len(a)-1]
+			{
+				_w1 := dst[off:][:len(a):len(a)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v2 := simd.LoadInt32s(_c1)
+					_v1.Add(_v2).Store(_c1)
+					_v3 := simd.LoadInt32s(_c2[_lanes:])
+					_v4 := simd.LoadInt32s(_c1[_lanes:])
+					_v3.Add(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v6 := simd.LoadInt32s(_c1[2*_lanes:])
+					_v5.Add(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v8 := simd.LoadInt32s(_c1[3*_lanes:])
+					_v7.Add(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(_w2[_i:])
+					_v10 := simd.LoadInt32s(_w1[_i:])
+					_v9.Add(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v12, _ := simd.LoadInt32sPart(_w1[_i:])
+					_v11.Add(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+// Copies row i of an lda-strided matrix into row i of an ldb-strided one: a copy.
+func CopyRow(b, a []float64, i, n, lda, ldb int) {
+	for j := 0; j < n; j++ {
+		b[i*ldb+j] = a[i*lda+j]
+	}
+}
+
+// Adds alpha*x into a row of c.
+func AxpyRow(c, x []float32, alpha float32, row, n int) {
+	for j := 0; j < n; j++ {
+		c[row+j] += alpha * x[j]
+	}
+}
+
+// Fills w elements starting at off.
+func FillAt(line []uint16, off, w int, v uint16) {
+	for x := range w {
+		line[off+x] = v
+	}
+}
+
+// Stores behind the index.
+func Behind(dst, a []int32, k int) {
+	for i := k; i < len(a); i++ {
+		dst[i-k] = a[i] * 2
+	}
+}
+
+// Reads two elements ahead of the one it stores, in the slice it stores.
+func Ahead(a []int32, n int) {
+	for i := 0; i < n; i++ {
+		a[i+1] = a[i+3] * 2
+	}
+}
+
+// Clamps at an offset: the condition reads the element it stores.
+func ClampAt(a []int16, off, n int) {
+	for i := range n {
+		if a[off+i] < 0 {
+			a[off+i] = 0
+		}
+	}
+}
+
+// Sums a while copying it to an offset.
+func SumCopy(d, a []int32, off int) int32 {
+	var s int32
+	for i := range a {
+		s += a[i]
+		d[off+i] = a[i]
+	}
+	return s
+}
+
+// Stores the same element twice; the second store reads the first.
+func Twice(a, b []int32, off int) {
+	for i := 0; i < len(b); i++ {
+		a[off+i] = b[i] + 1
+		a[off+i] *= b[i]
+	}
+}
+
+// Counts down, storing at an offset and reading only the element it stores.
+func Reverse(dst, a []int32, off int) {
+	for i := len(a) - 1; i >= 0; i-- {
+		dst[off+i] = a[i] + dst[off+i]
+	}
+}
+-- stderr.want --
+loopvec: rewrote 9 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+	"slices"
+
+	"example.com/test"
+)
+
+var sizes = []int{0, 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 65, 100, 131}
+
+func ramp(n int, scale int32) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i*i+1)*scale - 40
+	}
+	return s
+}
+
+func sum[T int16 | uint16 | int32 | float32 | float64](s []T) (t float64) {
+	for i, v := range s {
+		// The conversion rounds the product, so no target fuses it into the sum.
+		t += float64(float64(v) * float64(i+1))
+	}
+	return t
+}
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
+}
+
+func main() {
+	for _, n := range sizes {
+		const lda, ldb = 140, 150
+		a := make([]float64, 4*lda)
+		for i := range a {
+			a[i] = float64(i) / 3
+		}
+		b := make([]float64, 4*ldb)
+		for i := range 4 {
+			test.CopyRow(b, a, i, n, lda, ldb)
+		}
+
+		c := make([]float32, n+7)
+		x := make([]float32, n)
+		for i := range x {
+			x[i] = float32(i) / 4
+		}
+		test.AxpyRow(c, x, 3, 7, n)
+		test.AxpyRow(c, x, -1, 0, n)
+
+		line := make([]uint16, n+5)
+		test.FillAt(line, 5, n, 9)
+
+		d := make([]int32, n)
+		test.Behind(d, ramp(n+3, 1), 3)
+
+		h := ramp(n+3, 2)
+		test.Ahead(h, n)
+
+		s16 := make([]int16, n+2)
+		for i := range s16 {
+			s16[i] = int16(i*5%13) - 6
+		}
+		test.ClampAt(s16, 2, n)
+
+		sd := make([]int32, n+9)
+		total := test.SumCopy(sd, ramp(n, 3), 9)
+
+		tw := make([]int32, n+11)
+		test.Twice(tw, ramp(n, 1), 11)
+
+		rv := ramp(n+4, 5)
+		test.Reverse(rv, ramp(n, 1), 4)
+
+		fmt.Println(n, sum(b), sum(c), sum(line), sum(d), sum(h), sum(s16), total, sum(sd), sum(tw), sum(rv))
+	}
+
+	// Slices too short for the loop panic before the loop writes anything wrong;
+	// each call gets its own copy, so what a panicking loop wrote is not observed.
+	x := make([]float32, 37)
+	c := make([]float32, 40)
+	fmt.Println(
+		try(func() { test.CopyRow(make([]float64, 20), make([]float64, 30), 1, 11, 10, 10) }),
+		try(func() { test.AxpyRow(slices.Clone(c), x, 3, 4, 37) }),
+		try(func() { test.AxpyRow(c, x, 1, 0, -2) }),
+		try(func() { test.FillAt(make([]uint16, 70), 69, 2, 7) }),
+		try(func() { test.Behind(make([]int32, 40), ramp(43, 1), 2) }),
+		try(func() { test.SumCopy(make([]int32, 10), ramp(9, 1), 2) }),
+	)
+
+	// Overlapping views take the original loop, so the result is the scalar one.
+	p := make([]float32, 40)
+	for i := range p {
+		p[i] = float32(i%7) - 2
+	}
+	test.AxpyRow(p[1:], p, 1, 0, 30)
+	q := ramp(40, 1)
+	fmt.Println(sum(p), test.SumCopy(q, q[:39], 1), sum(q))
+}
+-- testmain/output --
+0 0 0 0 0 -200 -8 0 0 0 -100
+1 98280 0 54 -60 -288 4 -37 -370 17784 -70
+2 197142.6666666667 6.25 117 -152 -264 4 -71 -744 36062 242
+3 296590.6666666667 19.75 189 -236 -16 9 -96 -1044 52722 1012
+5 497253.3333333334 72.5 360 -160 1720 45 -95 -1020 73868 4810
+8 802704 231 684 1704 10184 69 124 2556 79160 20412
+9 905720 309 810 3180 15472 124 279 5346 92160 29642
+16 1.6438933333333335e+06 1310 1944 39440 118232 232 3128 70040 2.646768e+06 198300
+17 1.7518160000000002e+06 1530 2142 50388 146816 346 3859 89046 3.971336e+06 244122
+33 3.5654373333333326e+06 8756 6534 690404 1.649184e+06 1022 33099 1.147806e+06 2.524566e+08 2.583162e+06
+64 7.575680000000004e+06 54264 21600 9.22272e+06 2.0135352e+07 3512 253664 1.4654816e+07 1.3013051328e+10 3.0776732e+07
+65 7.716626666666672e+06 56680 22230 9.80122e+06 2.136816e+07 3512 265915 1.556139e+07 1.4264262584e+10 3.264953e+07
+100 1.3143399999999993e+07 192637.5 49950 5.33583e+07 1.127652e+08 8692 981350 8.313785e+07 1.8293135886e+11 1.710221e+08
+131 1.881247333333331e+07 419363.75 83709 1.5496514e+08 3.23149552e+08 14389 2217568 2.393763e+08 9.07732130162e+11 4.8864562e+08
+true true false true true true
+8775 -1521 -31980

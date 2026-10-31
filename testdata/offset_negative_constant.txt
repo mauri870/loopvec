@@ -1,10 +1,11 @@
-# A read at a negative constant offset is rewritten while every index it reads can
-# be zero or more. When an index is a negative constant, the first one in a loop
-# with a constant start (a[i-1] from 0) or every one in a loop with a constant limit
-# (a[i-16] in a loop that stops before 16), the scalar loop panics when it runs and
-# the vector loop would index at a negative constant, which does not compile, so the
-# loop is left alone, whether the start and limit are written as literals, named
-# constants or constant expressions. The rewritten package must build.
+# A read or store at a negative constant offset is rewritten while every index it
+# touches can be zero or more. When an index is a negative constant, the first one
+# in a loop with a constant start (a[i-1] from 0) or every one in a loop with a
+# constant limit (a[i-16] in a loop that stops before 16), the scalar loop panics
+# when it runs and the vector loop would index at a negative constant, which does
+# not compile, so the loop is left alone, whether the start and limit are written as
+# literals, named constants or constant expressions. The rewritten package must
+# build.
 
 loopvec -json .
 cmpenv stdout stdout.want
@@ -76,6 +77,18 @@ func NamedStartCopy(dst, a []int32, n int) {
 		dst[i] = a[i-1]
 	}
 }
+
+func StoreFirstIndexZero(dst, a []int32) {
+	for i := 15; i < 31; i++ {
+		dst[i-15] = a[i] * 3
+	}
+}
+
+func StoreEveryIndexNegative(dst, a []int32) {
+	for i := 0; i < 16; i++ {
+		dst[i-16] = a[i] * 3
+	}
+}
 -- stdout.want --
 {"file":"$WORK/ops.go","line":4,"func":"FirstIndexZeroConstant","vectorized":true}
 {"file":"$WORK/ops.go","line":10,"func":"EveryIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
@@ -86,5 +99,7 @@ func NamedStartCopy(dst, a []int32, n int) {
 {"file":"$WORK/ops.go","line":42,"func":"NamedStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
 {"file":"$WORK/ops.go","line":48,"func":"ExpressionStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
 {"file":"$WORK/ops.go","line":54,"func":"NamedStartCopy","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":60,"func":"StoreFirstIndexZero","vectorized":true}
+{"file":"$WORK/ops.go","line":66,"func":"StoreEveryIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
 -- stderr.want --
-loopvec: rewrote 2 loop(s) in $WORK/ops.go
+loopvec: rewrote 3 loop(s) in $WORK/ops.go

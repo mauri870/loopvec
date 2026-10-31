@@ -166,9 +166,12 @@ type Loop struct {
 // Stmt is a statement of a loop body: a Store or a Let.
 type Stmt interface{ isStmt() }
 
-// Store writes Val to Dst[i].
+// Store writes Val to Dst[i+Off]. Off is source text for an integer expression
+// that is the same on every iteration, "" for zero, as in Load. Every store to
+// one slice is at the same offset, so no two iterations write the same element.
 type Store struct {
 	Dst *Ref
+	Off string
 	Val Value
 }
 
@@ -207,9 +210,10 @@ type Value interface{ isValue() }
 
 // Load reads Ref[i+Off]. Off is source text for an integer expression that is the
 // same on every iteration, "" for zero. A slice that is also stored in the loop is
-// read only at a constant positive offset: iteration i then reads the element a
-// later iteration writes, and the vector loop, which loads the chunk before any
-// store of the body, sees the same old value.
+// read only at the offset it is stored at, or a constant positive distance past
+// it: iteration i then reads the element a later iteration writes, and the vector
+// loop, which loads the chunk before any store of the body, sees the same old
+// value.
 // FromRange is set when the source is the range value variable, which holds the
 // element as it was when the iteration began: a store to the same slice earlier in
 // the body does not change it.

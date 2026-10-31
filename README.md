@@ -45,6 +45,7 @@ operations that lower to **AVX-512/AVX2/NEON** depending on the target CPU:
 | `for i := range x { if x[i] < 0 { x[i] = 0 } }`, `if c { dst[i] = u } else if d { dst[i] = v } else { dst[i] = w }` | compare, then select (`IfElse`): ReLU, leaky ReLU, ReLU6, hard tanh, clamp, sign, step; also when the branches assign a temporary (`t := x[i]+3; if t < 0 { t = 0 } else if t > 6 { t = 6 }`: hard sigmoid, hard swish, cubic SiLU) |
 | `for i := range v.Values { v.Values[i] *= a }`, `dst.f[i] += src.f[i]` | a slice reached through a field (`x.f`, `x.f.g`); the root must not be assigned in the loop, and the field is copied into a local once |
 | `for i := range dst { dst[i] = a[i+1] - a[i] }`, `work[j] += a[row*lda+j]` | read at an offset from the index (stencil, row of a 2-D slice); a slice the loop also writes is read only at a constant positive offset (`a[i] = a[i+1] + b[i]`) |
+| `b[i*ldb+j] = a[i*lda+j]`, `c[row+j] += alpha * x[j]`, `line[off+x] = v` | store at an offset from the index (row of a 2-D slice); every store to a slice is at the same offset, and the slice is read only there or at a constant positive distance past it |
 
 Supported element types: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`,
 `uint32`, `uint64`, `float32`, `float64`.

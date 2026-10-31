@@ -94,18 +94,21 @@ safety argument stays structural:
   the loop runs at least once (`x` may be a nil pointer the scalar loop never reads), and
   the overlap check and the vector loop use the locals; the fallback is the original loop.
   Arrays, pointers to slices, maps, and the result of a call stay rejected.
-- A store is `ident[i]` where `i` is *exactly* the loop variable (`index`). A load
-  may also be `ident[i+e]`, `ident[e+i]` or `ident[i-e]` for a loop-invariant integer
-  `e` (`indexAt`, `Load.Off`). A slice that is also stored may be read only at a
-  constant positive offset in a forward loop: iteration i then reads what a later
-  iteration writes, so the scalar loop sees the old value and the emitter loads it
-  before any store of the chunk (`statements` hoists those loads). A negative
-  offset is a recurrence (`ReasonCarriedDependence`); a variable distance or a
-  loop that counts down is `ReasonOffsetOfStored`. The length check is
-  against the last index read (`lastIndex`), and offset loads are not capped at the
-  limit. Every other store and load is `ident[i]` (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
-  whether they're actually dependent. That is what guarantees no two
-  iterations touch the same element.
+- A store or a load is `ident[i]`, `ident[i+e]`, `ident[e+i]` or `ident[i-e]` where
+  `i` is *exactly* the loop variable and `e` a loop-invariant integer (`indexAt`,
+  `Store.Off`, `Load.Off`). Every store to one slice is at the same offset
+  (`ReasonStoreOffsets` otherwise), so each iteration writes its own element. A slice
+  that is also stored may be read at that offset, or at a constant positive distance
+  past it in a forward loop: iteration i then reads what a later iteration writes, so
+  the scalar loop sees the old value and the emitter loads it before any store of the
+  chunk (`statements` hoists those loads). A negative distance is a recurrence
+  (`ReasonCarriedDependence`); a variable distance or a loop that counts down is
+  `ReasonOffsetOfStored`. The length check is against the last index touched
+  (`lastIndex`); offset loads are not capped at the limit, and a store at an offset
+  is capped at the limit plus the offset (`destination`), so it writes nothing the
+  scalar loop does not. `dst[2*i]` and `dst[i][j]` are rejected outright, regardless
+  of whether they're actually dependent. That is what guarantees no two iterations
+  touch the same element.
 - A non-slice operand becomes an `Invariant` only if it is a variable, a
   constant, a conversion or negation of one, or a sum, difference, product or
   bitwise combination of two (`invariant`). It is evaluated

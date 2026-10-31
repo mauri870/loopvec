@@ -89,10 +89,10 @@ func (e *emitter) copyCall() string {
 	destination, source := store.Dst.Name, load.Ref.Name
 	switch {
 	case e.plan.Start != "0":
-		destination += "[" + e.plan.Start + ":" + e.plan.Bound + "]"
+		destination += "[" + addOffset(e.plan.Start, store.Off) + ":" + addOffset(e.plan.Bound, store.Off) + "]"
 		source += "[" + addOffset(e.plan.Start, load.Off) + ":]"
 	case e.plan.Bound != "":
-		destination += "[:" + e.plan.Bound + "]"
+		destination += "[" + store.Off + ":" + addOffset(e.plan.Bound, store.Off) + "]"
 		if load.Off != "" {
 			source += "[" + load.Off + ":]"
 		}
@@ -138,6 +138,18 @@ func (e *emitter) operand(ref *loopir.Ref, pos, off string) string {
 		return ref.Name + "[" + pos + ":" + e.plan.Bound + "]"
 	}
 	return ref.Name + "[" + addOffset(pos, off) + ":]"
+}
+
+// destination slices the stored ref from position pos at offset off. Inside the
+// element-wise loop the store's window does that, since it holds exactly the
+// elements the loop stores. Elsewhere a store at an offset is capped at the limit
+// plus the offset, so it never writes an element past the last one the scalar
+// loop writes.
+func (e *emitter) destination(ref *loopir.Ref, pos, off string) string {
+	if _, ok := e.windows[windowKey{ref.Obj, off}]; ok || off == "" {
+		return e.operand(ref, pos, off)
+	}
+	return ref.Name + "[" + addOffset(pos, off) + ":" + addOffset(e.plan.Bound, off) + "]"
 }
 
 // addOffset is the expression pos + off, where off is "" for zero, a constant, or
@@ -321,20 +333,23 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 		}
 		fmt.Fprintf(b, "\t%s, %s := simd.Load%sPart(%s)\n", name, lanes, e.plan.SimdType, e.operand(load.Ref, offset, load.Off))
 	}
-	// A slice stored in the loop and read ahead of the index (a[i+1]) is read
-	// before any store of the body: the scalar loop reads the value from before
-	// the loop, because the iteration that writes it has not run yet, and a
-	// store earlier in the body would already have changed it in the vector.
-	stored := map[types.Object]bool{}
+	// A slice stored in the loop and read ahead of the element it is stored at
+	// (a[i+1] beside a[i]) is read before any store of the body: the scalar loop
+	// reads the value from before the loop, because the iteration that writes it
+	// has not run yet, and a store earlier in the body would already have changed
+	// it in the vector.
+	stored := map[types.Object]string{}
 	for _, stmt := range e.plan.Stmts {
 		if stmt.Dst != nil {
-			stored[stmt.Dst.Obj] = true
+			stored[stmt.Dst.Obj] = stmt.Off
 		}
 	}
 	for _, stmt := range e.plan.Stmts {
 		for _, leaf := range loopir.Leaves(stmt.Root) {
-			if load, ok := leaf.(*loopir.Load); ok && stored[load.Ref.Obj] && load.Off != "" {
-				emitLoad(load)
+			if load, ok := leaf.(*loopir.Load); ok {
+				if off, isStored := stored[load.Ref.Obj]; isStored && load.Off != off {
+					emitLoad(load)
+				}
 			}
 		}
 	}
@@ -356,16 +371,16 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 			acc := accName(accs, copy, copies)
 			fmt.Fprintf(b, "\t%s = %s\n", acc, e.fold(stmt, acc))
 		case full:
-			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.operand(stmt.Dst, offset, ""))
-			delete(loaded, key{stmt.Dst.Obj, ""})
+			fmt.Fprintf(b, "\t%s.Store(%s)\n", e.expr(stmt.Root), e.destination(stmt.Dst, offset, stmt.Off))
+			delete(loaded, key{stmt.Dst.Obj, stmt.Off})
 		default:
-			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.operand(stmt.Dst, offset, ""))
+			text := fmt.Sprintf("%s.StorePart(%s)", e.expr(stmt.Root), e.destination(stmt.Dst, offset, stmt.Off))
 			if !haveLanes {
 				// Nothing was loaded, so the store reports how many lanes it wrote.
 				text, haveLanes = "_n := "+text, true
 			}
 			fmt.Fprintf(b, "\t%s\n", text)
-			delete(loaded, key{stmt.Dst.Obj, ""})
+			delete(loaded, key{stmt.Dst.Obj, stmt.Off})
 		}
 	}
 }

@@ -30,23 +30,27 @@ const (
 	// adding one to it could overflow (a <= limit, or the start of a loop that
 	// counts down, that is not a constant or something minus a constant).
 	ReasonUnsupportedBound Reason = "loop limit is not a loop-invariant integer expression"
-	// ReasonUnsupportedDestination covers a destination that isn't a plain
-	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
-	// nested index (dst[i][j]).
+	// ReasonUnsupportedDestination covers a destination that isn't a slice
+	// element at the loop index or a loop-invariant offset from it: a stride
+	// (dst[2*i]), a nested index (dst[i][j]), or an offset that changes.
 	ReasonUnsupportedDestination Reason = "destination is not a simple, same-index slice element"
-	// ReasonOffsetOfStored covers a slice that is read at an offset from the loop
-	// index (a[i+1]) and also written in the loop, in a way the dependence test
-	// cannot clear: the offset is not a constant, or the loop counts down.
+	// ReasonOffsetOfStored covers a slice that is read at another offset from the
+	// loop index than it is written at (a[i+1] and a[i]), in a way the dependence
+	// test cannot clear: the distance is not a constant, or the loop counts down.
 	ReasonOffsetOfStored Reason = "a slice is read at an offset and written in the same loop"
+	// ReasonStoreOffsets covers a slice stored at two different offsets from the
+	// loop index (a[i] and a[i+1]): two iterations write the same element, and the
+	// vector loop would not keep the order the scalar loop writes it in.
+	ReasonStoreOffsets Reason = "a slice is stored at more than one offset"
 	// ReasonCarriedDependence covers a slice read at an earlier index than the
 	// iteration writes (a[i] = a[i-1] + x): iteration i reads what iteration i-1
 	// wrote, so the iterations cannot run as a vector.
 	ReasonCarriedDependence Reason = "an iteration reads an element an earlier iteration wrote"
-	// ReasonNegativeIndex covers a slice read at a constant offset that puts an
-	// index below zero: the first index, with a constant start (a[i-1] in a loop
-	// from 0), or every index, with a constant limit (a[i-20] in a loop that stops
-	// before 16). The scalar loop panics when it runs, and the vector loop would
-	// index or slice at a negative constant, which does not compile.
+	// ReasonNegativeIndex covers a slice read or stored at a constant offset that
+	// puts an index below zero: the first index, with a constant start (a[i-1] in
+	// a loop from 0), or every index, with a constant limit (a[i-20] in a loop
+	// that stops before 16). The scalar loop panics when it runs, and the vector
+	// loop would index or slice at a negative constant, which does not compile.
 	ReasonNegativeIndex Reason = "a constant offset puts an index below zero"
 	// ReasonUnsupportedIf covers an if that is not a select: a condition that is
 	// not a comparison of loop values (joined by && and ||), an init statement, or
