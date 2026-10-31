@@ -39,14 +39,31 @@ func simdOn(tool string) bool {
 	return simdEnabled
 }
 
-var releaseRE = regexp.MustCompile(`go1\.[0-9]+`)
+// releaseRE matches a Go version as a whole word: a release and its patch
+// (go1.27.3), a prerelease (go1.28rc1), a development build (go1.28-6ae0b1f8a9)
+// or a vendor's build (go1.27.3-acme).
+var releaseRE = regexp.MustCompile(`go1\.[^\s]+`)
 
-// toolchainRelease returns the Go release (such as go1.28) of the compiler
+// release returns the Go version in s, a compiler's -V=full output or a
+// runtime.Version, without the experiments: the compiler separates them with a
+// space (go1.27.3 X:simd), but a program built with an experiment reports its
+// version with a dash when the version has none (go1.27.3-X:simd).
+func release(s string) string {
+	v, _, _ := strings.Cut(releaseRE.FindString(s), "-X:")
+	return v
+}
+
+// toolchainRelease returns the Go version (such as go1.27.3) of the compiler
 // probed by simdOn.
-func toolchainRelease() string { return releaseRE.FindString(toolVersion) }
+func toolchainRelease() string { return release(toolVersion) }
 
-// builtRelease returns the Go release this program was built with.
-func builtRelease() string { return releaseRE.FindString(runtime.Version()) }
+// builtRelease returns the Go version this program was built with. It must be
+// the toolchain's exact version, patch included: the simd package can change
+// in a patch release without go/types seeing it (go1.27.0 declares
+// ShiftAllRight(uint64) but compiles it as taking a uint8; go1.27.1 takes a
+// uint64), and then the rewritten package type-checks here but does not
+// compile.
+func builtRelease() string { return release(runtime.Version()) }
 
 // build holds the per-build state shared by the wrapper processes of one go
 // command invocation. It lives in the go command's work directory, so it is

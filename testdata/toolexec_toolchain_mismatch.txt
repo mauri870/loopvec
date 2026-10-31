@@ -1,21 +1,36 @@
 # go/types can only read export data written by the Go release it was built
-# with. When loopvec-toolexec was built with a different release than the
-# toolchain running the build, packages are compiled unchanged, and the log
-# (with LOOPVEC_TOOLEXEC_DEBUG) says why.
+# with, and the simd package can change in a patch release without go/types
+# seeing it (go1.27.0 compiles ShiftAllRight as taking a uint8). When
+# loopvec-toolexec was built with a different Go version than the toolchain
+# running the build, patch included, packages are compiled unchanged, and the
+# log (with LOOPVEC_TOOLEXEC_DEBUG) says why.
 
-chmod 0755 compile
+chmod 0755 compile patch/compile
 env LOOPVEC_TOOLEXEC_DEBUG=1
 env LOOPVEC_TOOLEXEC_LOG=$WORK/log
 exec $LOOPVEC_TOOLEXEC $WORK/compile -p example.com/x -importcfg $WORK/b001/importcfg x.go
 cmpenv stdout stdout.want
 ! stderr .
 stdout -count=1 '^fake compile: '
-grep -count=1 '^skipped example\.com/x: loopvec-toolexec was built with go1\.[0-9]+ but the toolchain is go1\.1$' log
+grep -count=1 '^skipped example\.com/x: loopvec-toolexec was built with go1\.[^ ]+ but the toolchain is go1\.1$' log
+
+# Same release, another patch.
+exec $LOOPVEC_TOOLEXEC $WORK/patch/compile -p example.com/y -importcfg $WORK/b001/importcfg x.go
+stdout -count=1 '^fake compile: -p example\.com/y '
+! stderr .
+grep -count=1 '^skipped example\.com/y: loopvec-toolexec was built with go1\.[^ ]+ but the toolchain is go1\.27\.0$' log
 
 -- compile --
 #!/bin/sh
 if [ "$1" = "-V=full" ]; then
 	echo "compile version go1.1 X:simd"
+	exit 0
+fi
+echo "fake compile: $@"
+-- patch/compile --
+#!/bin/sh
+if [ "$1" = "-V=full" ]; then
+	echo "compile version go1.27.0 X:simd"
 	exit 0
 fi
 echo "fake compile: $@"
