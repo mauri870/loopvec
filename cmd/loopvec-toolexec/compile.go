@@ -328,6 +328,7 @@ func check(fset *token.FileSet, files []*ast.File, c compileArgs, cfg *importcfg
 		Defs:       make(map[*ast.Ident]types.Object),
 		Uses:       make(map[*ast.Ident]types.Object),
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
+		Scopes:     make(map[ast.Node]*types.Scope),
 	}
 	var errs []error
 	goarch := os.Getenv("GOARCH")
