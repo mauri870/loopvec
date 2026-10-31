@@ -286,6 +286,12 @@ func (l *lowerer) bound(e ast.Expr) (bound, bool) {
 	}
 	b := bound{text: types.ExprString(e)}
 	b.value, b.isConst = l.constant(e)
+	if b.isConst {
+		// A named constant or a constant expression (s0, 1 - 1) is spelled as its
+		// value, so the checks that read a constant start or limit see it and the
+		// emitted code never indexes at a negative constant they would have caught.
+		b.text = strconv.FormatInt(b.value, 10)
+	}
 	if call, ok := ast.Unparen(e).(*ast.CallExpr); ok {
 		b.slice, _ = l.lenOf(call)
 	}
@@ -528,6 +534,25 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 				return nil, ReasonOffsetOfStored
 			case distance < 0:
 				return nil, ReasonCarriedDependence
+			}
+		}
+	}
+
+	// A constant offset that puts an index below zero makes the scalar loop panic
+	// when it runs: on its first iteration when the start is a constant and the
+	// first index is negative, or on every iteration when the limit is a constant
+	// and even the last index is. It is left alone, since the vector loop would
+	// index or slice at a negative constant, which does not compile.
+	start, errStart := strconv.ParseInt(trip.Start, 10, 64)
+	limit, errLimit := strconv.ParseInt(trip.Limit, 10, 64)
+	negative := func(offset string) bool {
+		off, err := strconv.ParseInt(offset, 10, 64)
+		return err == nil && (errStart == nil && start+off < 0 || errLimit == nil && limit+off <= 0)
+	}
+	for _, stmt := range body {
+		for _, leaf := range Leaves(stmtValue(stmt)) {
+			if load, ok := leaf.(*Load); ok && negative(load.Off) {
+				return nil, ReasonNegativeIndex
 			}
 		}
 	}
