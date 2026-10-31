@@ -102,6 +102,18 @@ const (
 	// propagate the NaN and order the zeros. arm64 matches Go, so the result
 	// would depend on the machine.
 	ReasonFloatMinMax Reason = "float min and max differ from Go's on some architectures (NaN and signed zero)"
+	// ReasonReservedName covers a loop in a function that uses an identifier
+	// beginning with an underscore, other than _ itself. Every name loopvec adds
+	// begins with one (_i, _count, _w1, _v1, _vcFloat32s0, _sx_f, ...), and code
+	// it adds before or inside the loop could shadow the function's own and change
+	// what it refers to.
+	ReasonReservedName Reason = "the function uses a name that begins with an underscore, as loopvec's own names do"
+	// ReasonShadowedName covers a loop where a predeclared name the rewritten
+	// code uses (len, min, max, copy, uint64, an element type) is declared again
+	// in a scope around it, its package or an import, or where simd or unsafe
+	// names something other than those packages: the code would call or convert
+	// with the wrong thing.
+	ReasonShadowedName Reason = "a name the rewritten code relies on (len, min, simd, ...) means something else here"
 	// ReasonMethodSkipped covers a loop inside a method, skipped unless
 	// -methods is passed (see analysis.Analyze's doc comment).
 	ReasonMethodSkipped Reason = "loops inside methods are skipped without -methods"
@@ -119,7 +131,7 @@ const (
 // and "lower" for everything about the loop's own shape.
 func (r Reason) Stage() string {
 	switch r {
-	case ReasonMethodSkipped:
+	case ReasonMethodSkipped, ReasonReservedName, ReasonShadowedName:
 		return "analysis"
 	case ReasonUnsupportedOp, ReasonFloatMinMax, ReasonFloatReduction, ReasonMixedTypes, ReasonTooManySlices, ReasonShortLoop:
 		return "plan"

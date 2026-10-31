@@ -1,0 +1,175 @@
+# Every name loopvec adds begins with an underscore, and some are declared before
+# the loop or inside it, where they would shadow the function's own: a parameter
+# named _w1 or _count, a limit named _i, or a local named like a broadcast vector
+# would then refer to loopvec's variable, so a function that uses such a name is
+# left alone; the blank identifier is not such a name. The code also relies on
+# predeclared names (len, min, copy, uint64, ...) and on the packages simd and
+# unsafe: a loop where one of them, looked up from the loop, is a local, a
+# package-level declaration or an import of something else is left alone too,
+# while a declaration the loop cannot see (max after it) does not matter. The
+# scalar loop that finishes a reduction redeclares the loop's variables around
+# its bound, so a loop variable must not take one of those names either, nor a
+# name used by the range operand or the start of a loop that counts down
+# (for n := range n, for n := n - 1; n >= 0; n--). The overlap helper loopvec
+# declares in the package relies on a few more predeclared names (uintptr,
+# ...), which the package must not redeclare. The rewritten package must build.
+
+loopvec -json ./...
+cmpenv stdout stdout.want
+
+loopvec -split .
+cmpenv stderr stderr.want
+env GOEXPERIMENT=simd
+exec go build .
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+func WindowName(dst, _w1 []int32) {
+	for i := range dst {
+		dst[i] = _w1[i] + 1
+	}
+}
+
+func CountName(dst, a []int32, _count int) {
+	for i := 0; i < len(dst); i++ {
+		dst[i] = a[i+_count] + 1
+	}
+}
+
+func IndexName(dst, a []int32, _i int) {
+	for i := 0; i < _i; i++ {
+		dst[i] = a[i] + 1
+	}
+}
+
+func BroadcastName(dst []float32, c float32) float32 {
+	_vcFloat32s0 := c * 2
+	for i := range dst {
+		dst[i] *= c
+	}
+	return _vcFloat32s0
+}
+
+func Blank(dst, a []int32, _ int) {
+	for i := range dst {
+		dst[i] = a[i] + 1
+	}
+}
+
+func LocalLen(dst, a []int32) {
+	len := func(s []int32) int { return 2 }
+	_ = len
+	for i := range dst {
+		dst[i] = a[i] + 1
+	}
+}
+
+func LocalMin(dst, a []int32, k int) {
+	min := func(x, y int) int { return 0 }
+	_ = min
+	for i := 0; i < 8; i++ {
+		dst[i] = a[i+k] + 1
+	}
+}
+
+func MaxAfterLoop(dst, a []int32) int32 {
+	for i := range dst {
+		dst[i] = a[i] + 1
+	}
+	max := int32(0)
+	for _, v := range dst {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+func SumCount(a []int32, n int) int32 {
+	var s int32
+	for n := range n {
+		s += a[n]
+	}
+	return s
+}
+
+func SumIndexLen(a []int32) int32 {
+	var s int32
+	for len := range a {
+		s += a[len]
+	}
+	return s
+}
+
+func SumDown(a []int32, n int) int32 {
+	var s int32
+	for n := n - 1; n >= 0; n-- {
+		s += a[n]
+	}
+	return s
+}
+
+func SumByte(a []byte) byte {
+	var s byte
+	{
+		type byte = int8
+		var _ byte
+		for _, x := range a {
+			s += x
+		}
+	}
+	return s
+}
+-- pkglen/ops.go --
+package pkglen
+
+func len(s []int32) int { return cap(s) / 4 }
+
+func Double(dst, a []int32, n int) {
+	for i := 0; i < n; i++ {
+		dst[i] = a[i] * 2
+	}
+}
+-- pkguintptr/ops.go --
+package pkguintptr
+
+type uintptr = int32
+
+func Inc(dst, a []int32) {
+	for i := range dst {
+		dst[i] = a[i] + 1
+	}
+}
+-- alias/ops.go --
+package alias
+
+import simd "strings"
+
+var _ = simd.ToUpper
+
+func Double(dst, a []int32) {
+	for i := range dst {
+		dst[i] = a[i] * 2
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":4,"func":"WindowName","vectorized":false,"reason":"the function uses a name that begins with an underscore, as loopvec's own names do","stage":"analysis"}
+{"file":"$WORK/ops.go","line":10,"func":"CountName","vectorized":false,"reason":"the function uses a name that begins with an underscore, as loopvec's own names do","stage":"analysis"}
+{"file":"$WORK/ops.go","line":16,"func":"IndexName","vectorized":false,"reason":"the function uses a name that begins with an underscore, as loopvec's own names do","stage":"analysis"}
+{"file":"$WORK/ops.go","line":23,"func":"BroadcastName","vectorized":false,"reason":"the function uses a name that begins with an underscore, as loopvec's own names do","stage":"analysis"}
+{"file":"$WORK/ops.go","line":30,"func":"Blank","vectorized":true}
+{"file":"$WORK/ops.go","line":38,"func":"LocalLen","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/ops.go","line":46,"func":"LocalMin","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/ops.go","line":52,"func":"MaxAfterLoop","vectorized":true}
+{"file":"$WORK/ops.go","line":65,"func":"SumCount","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/ops.go","line":73,"func":"SumIndexLen","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/ops.go","line":81,"func":"SumDown","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/alias/ops.go","line":8,"func":"Double","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/pkglen/ops.go","line":6,"func":"Double","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+{"file":"$WORK/pkguintptr/ops.go","line":6,"func":"Inc","vectorized":false,"reason":"a name the rewritten code relies on (len, min, simd, ...) means something else here","stage":"analysis"}
+-- stderr.want --
+loopvec: rewrote 2 loop(s) in $WORK/ops.go
