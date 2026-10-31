@@ -74,6 +74,10 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	}
 	needsOverlapHelper := false
 	needsSimd := false
+	// rewritten holds the functions given a rewritten loop, by their index
+	// among the file's function declarations. Rewriting changes only loop
+	// bodies and appends the overlap helper, so the indexes stay valid.
+	rewritten := map[int]bool{}
 
 	for _, plan := range plans {
 		stmtNode := plan.Loop.Node
@@ -106,6 +110,11 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 			end:   stmtNode.End(),
 			text:  repl,
 		})
+		for i, fd := range funcDecls(file) {
+			if fd.Pos() <= stmtNode.Pos() && stmtNode.End() <= fd.End() {
+				rewritten[i] = true
+			}
+		}
 		if pre != "" {
 			extraStmts = append(extraStmts, struct {
 				pos  token.Pos
@@ -179,7 +188,7 @@ func File(fset *token.FileSet, file *ast.File, info *types.Info, src []byte, opt
 	// Rename blank identifier parameters to avoid a gotip GOEXPERIMENT=simd
 	// compiler bug where _ params in simd-using functions produce
 	// "cannot use _ as value or type".
-	formatted = fixBlankParams(fset, formatted)
+	formatted = fixBlankParams(fset, formatted, rewritten)
 
 	return Result{Src: formatted, Rewrites: len(replacements), DefinesHelper: definesHelper}, nil
 }
@@ -307,9 +316,12 @@ func ensureOverlapHelper(src []byte) []byte {
 // fixBlankParams renames blank identifier (_) function parameters in src to
 // _p0, _p1, … to work around a gotip GOEXPERIMENT=simd compiler bug:
 // blank params in functions that contain simd code cause the SIMD lowering
-// pass to emit "cannot use _ as value or type". The rename is safe because
-// the parameters are never referenced by name in the body.
-func fixBlankParams(fset *token.FileSet, src []byte) []byte {
+// pass to emit "cannot use _ as value or type". Only the functions loopvec
+// rewrote, given by their funcDecls index in rewritten, are renamed: they
+// mention no name that begins with an underscore, so the new names cannot
+// capture anything, while in another function a _p0 parameter could hide a
+// package-level _p0.
+func fixBlankParams(fset *token.FileSet, src []byte, rewritten map[int]bool) []byte {
 	file, err := parser.ParseFile(fset, "", src, parser.ParseComments)
 	if err != nil {
 		return src
@@ -317,13 +329,9 @@ func fixBlankParams(fset *token.FileSet, src []byte) []byte {
 
 	counter := 0
 	changed := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		fd, ok := n.(*ast.FuncDecl)
-		if !ok {
-			return true
-		}
-		if fd.Type.Params == nil {
-			return true
+	for i, fd := range funcDecls(file) {
+		if fd.Type.Params == nil || !rewritten[i] {
+			continue
 		}
 		for _, field := range fd.Type.Params.List {
 			for _, name := range field.Names {
@@ -334,8 +342,7 @@ func fixBlankParams(fset *token.FileSet, src []byte) []byte {
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	if !changed {
 		return src
@@ -346,6 +353,17 @@ func fixBlankParams(fset *token.FileSet, src []byte) []byte {
 		return src
 	}
 	return buf.Bytes()
+}
+
+// funcDecls returns the function declarations of file in source order.
+func funcDecls(file *ast.File) []*ast.FuncDecl {
+	var fds []*ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fd, ok := decl.(*ast.FuncDecl); ok {
+			fds = append(fds, fd)
+		}
+	}
+	return fds
 }
 
 // ensureImport adds an import of path to the source if not already present.
