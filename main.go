@@ -15,7 +15,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -321,7 +320,9 @@ func addBuildTag(src []byte, tag string) []byte {
 }
 
 // printDiff prints a unified diff between orig and rewritten for path,
-// using the system diff command.
+// using the system diff command. Both sides are labeled with path, so the
+// header does not depend on the temporary files or on which diff is installed
+// (GNU and BSD diff print their timestamps differently).
 func printDiff(path string, orig, rewritten []byte) error {
 	origFile, err := os.CreateTemp("", "loopvec-orig-*.go")
 	if err != nil {
@@ -345,9 +346,7 @@ func printDiff(path string, orig, rewritten []byte) error {
 	}
 	_ = newFile.Close()
 
-	out, _ := exec.Command("diff", "-u", origFile.Name(), newFile.Name()).Output()
-	out = bytes.ReplaceAll(out, []byte(origFile.Name()), []byte(path))
-	out = bytes.ReplaceAll(out, []byte(newFile.Name()), []byte(path))
+	out, _ := exec.Command("diff", "-u", "-L", path, "-L", path, origFile.Name(), newFile.Name()).Output()
 	_, err = os.Stdout.Write(out)
 	return err
 }

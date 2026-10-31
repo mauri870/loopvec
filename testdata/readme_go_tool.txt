@@ -6,7 +6,7 @@ go work use $LOOPVEC_SRC
 
 exec go tool loopvec -d ./...
 cmpenv stderr stderr.want
-stdout -count=1 '^\+\+\+ \S+/mypkg/ops\.go\t'
+stdout -count=1 '^\+\+\+ \S+/mypkg/ops\.go$'
 
 exec go tool loopvec -split ./mypkg/...
 ! stdout .

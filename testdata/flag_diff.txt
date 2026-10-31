@@ -1,11 +1,11 @@
-# -d prints a unified diff (paths in the headers, timestamps aside) and leaves
-# the source untouched.
+# -d prints a unified diff, labeled with the file's path on both sides so the
+# headers are the same with GNU and BSD diff, and leaves the source untouched.
 
 cp ops.go ops.go.orig
 loopvec -d .
 cmpenv stderr stderr.want
-stdout -count=1 '^--- \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
-stdout -count=1 '^\+\+\+ \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
+stdout -count=1 '^--- \S+/ops\.go$'
+stdout -count=1 '^\+\+\+ \S+/ops\.go$'
 stdout -count=1 '^@@ -1,7 \+1,43 @@$'
 stdout -count=1 '^\+//go:build goexperiment.simd$'
 stdout -count=1 '^\+import \($'
