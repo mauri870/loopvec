@@ -1,6 +1,9 @@
 # Blank identifier parameters are renamed to _p0, _p1, ... to avoid a gotip
 # GOEXPERIMENT=simd compiler bug where _ params in simd-using functions produce
-# "cannot use _ as value or type".
+# "cannot use _ as value or type". Only the functions loopvec rewrites are
+# renamed: Offset reads the package-level _p0, which a parameter of that name
+# would hide, and so do Local, which also has a variable named simd, and the
+# first blank function.
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -16,9 +19,26 @@ go 1.27.1
 -- ops.go --
 package test
 
+var _p0 = 5
+
+func Offset(_ int) int { return _p0 }
+
+func Local(_ int) int {
+	simd := struct{ x int }{1}
+	return _p0 + simd.x
+}
+
+func _(_ int) int { return _p0 }
+
 func FillBlankParams(_ int, _ byte, dst []float32) {
 	for i := range dst {
 		dst[i] = 1
+	}
+}
+
+func _(_ int, dst []float32) {
+	for i := range dst {
+		dst[i] = 2
 	}
 }
 -- ops_simd.go.want --
@@ -28,6 +48,17 @@ package test
 
 import "simd"
 
+var _p0 = 5
+
+func Offset(_ int) int { return _p0 }
+
+func Local(_ int) int {
+	simd := struct{ x int }{1}
+	return _p0 + simd.x
+}
+
+func _(_ int) int { return _p0 }
+
 func FillBlankParams(_p0 int, _p1 byte, dst []float32) {
 	_vcFloat32s0 := simd.BroadcastFloat32s(1)
 	for _i := 0; _i < len(dst); {
@@ -35,15 +66,40 @@ func FillBlankParams(_p0 int, _p1 byte, dst []float32) {
 		_i += _n
 	}
 }
+
+func _(_p2 int, dst []float32) {
+	_vcFloat32s1 := simd.BroadcastFloat32s(2)
+	for _i := 0; _i < len(dst); {
+		_n := _vcFloat32s1.StorePart(dst[_i:])
+		_i += _n
+	}
+}
 -- stderr.want --
-loopvec: rewrote 1 loop(s) in $WORK/ops.go
+loopvec: rewrote 2 loop(s) in $WORK/ops.go
 -- ops.go.guarded --
 //go:build !goexperiment.simd
 
 package test
 
+var _p0 = 5
+
+func Offset(_ int) int { return _p0 }
+
+func Local(_ int) int {
+	simd := struct{ x int }{1}
+	return _p0 + simd.x
+}
+
+func _(_ int) int { return _p0 }
+
 func FillBlankParams(_ int, _ byte, dst []float32) {
 	for i := range dst {
 		dst[i] = 1
+	}
+}
+
+func _(_ int, dst []float32) {
+	for i := range dst {
+		dst[i] = 2
 	}
 }
