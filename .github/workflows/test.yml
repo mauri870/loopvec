@@ -61,8 +61,13 @@ jobs:
       - name: Test tsvc (amd64, SIMD)
         run: make tsvc-test
 
-      - name: Install qemu-user-static
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+      # ubuntu-26.04 has no qemu-user-static: qemu-user ships the static
+      # emulators there, without the -static names the Makefile runs.
+      - name: Install qemu-user
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-user
+          command -v qemu-aarch64-static || sudo ln -s "$(command -v qemu-aarch64)" /usr/local/bin/qemu-aarch64-static
+          qemu-aarch64-static --version
 
       - name: Test (arm64, qemu)
         run: make test-qemu-arm64
