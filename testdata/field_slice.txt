@@ -125,7 +125,7 @@ func Scale(v *Vec, a float32) {
 func Add(dst, a *Vec) {
 	if len(dst.Values) > 0 {
 		_sdst_Values, _sa_Values := dst.Values, a.Values
-		if _loopvecOverlap(_sdst_Values, _sa_Values) {
+		if _loopvecOverlap(_sdst_Values, _sa_Values, 0, len(_sdst_Values), 0, len(_sa_Values)) {
 			for i := range dst.Values {
 				dst.Values[i] += a.Values[i]
 			}
@@ -215,7 +215,7 @@ func Nested(v *Vec, n int) {
 func Copy(dst, src *Vec) {
 	if len(dst.Values) > 0 {
 		_sdst_Values, _ssrc_Values := dst.Values, src.Values
-		if _loopvecOverlap(_sdst_Values, _ssrc_Values) {
+		if _loopvecOverlap(_sdst_Values, _ssrc_Values, 0, len(_sdst_Values), 0, len(_ssrc_Values)) {
 			for i := range dst.Values {
 				dst.Values[i] = src.Values[i]
 			}
@@ -275,7 +275,7 @@ func Mixed(dst *Vec, src []float32) {
 	_vcFloat32s5 := simd.BroadcastFloat32s(1)
 	if len(dst.Values) > 0 {
 		_sdst_Values := dst.Values
-		if _loopvecOverlap(_sdst_Values, src) {
+		if _loopvecOverlap(_sdst_Values, src, 0, len(_sdst_Values), 0, len(src)) {
 			for i := range dst.Values {
 				dst.Values[i] = src[i] + 1
 			}
@@ -313,20 +313,14 @@ func Mixed(dst *Vec, src []float32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- ops.go.guarded --
 //go:build !goexperiment.simd

@@ -40,7 +40,7 @@ import (
 
 func DaxpyInt32s(dst, a []int32) {
 	_vcAInt32s0 := simd.BroadcastInt32s(3)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] += a[i] * 3
 		}
@@ -83,20 +83,14 @@ func DaxpyInt32s(dst, a []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- testmain/main.go --
 package main

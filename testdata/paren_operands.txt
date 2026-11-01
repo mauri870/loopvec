@@ -52,7 +52,7 @@ import (
 func Normalize(dst, a []float64, mean, inv float64) {
 	_vcAFloat64s0 := simd.BroadcastFloat64s(mean)
 	_vcBFloat64s0 := simd.BroadcastFloat64s(inv)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = (a[i] - mean) * inv
 		}
@@ -91,7 +91,7 @@ func Normalize(dst, a []float64, mean, inv float64) {
 
 func SumScaled(dst, a, b []float32, k float32) {
 	_vcBFloat32s1 := simd.BroadcastFloat32s(k)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = (a[i] + b[i]) * k
 		}
@@ -136,7 +136,7 @@ func SumScaled(dst, a, b []float32, k float32) {
 }
 
 func Parens(dst, a, b []int32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = (a[i]) + (b[i])
 		}
@@ -180,20 +180,14 @@ func Parens(dst, a, b []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- stderr.want --
 loopvec: rewrote 3 loop(s) in $WORK/ops.go

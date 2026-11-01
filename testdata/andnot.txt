@@ -63,7 +63,7 @@ import (
 type Colors []uint64
 
 func AndNotUint64s(dst, a, b []uint64) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] &^ b[i]
 		}
@@ -108,7 +108,7 @@ func AndNotUint64s(dst, a, b []uint64) {
 }
 
 func AndNotInPlace(dst []int32, mask []int32) {
-	if _loopvecOverlap(dst, mask) {
+	if _loopvecOverlap(dst, mask, 0, len(dst), 0, len(mask)) {
 		for i := range dst {
 			dst[i] &^= mask[i]
 		}
@@ -153,7 +153,7 @@ func AndNotInPlace(dst []int32, mask []int32) {
 
 func AndNotScalar(dst, a []byte, mask byte) {
 	_vcUint8s2 := simd.BroadcastUint8s(mask)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = a[i] &^ mask
 		}
@@ -191,7 +191,7 @@ func AndNotScalar(dst, a []byte, mask byte) {
 }
 
 func Feasible(feasible, used, adjacent Colors) {
-	if _loopvecOverlap(feasible, used) || _loopvecOverlap(feasible, adjacent) {
+	if _loopvecOverlap(feasible, used, 0, len(feasible), 0, len(used)) || _loopvecOverlap(feasible, adjacent, 0, len(feasible), 0, len(adjacent)) {
 		for w := range feasible {
 			feasible[w] = used[w] &^ adjacent[w]
 		}
@@ -235,20 +235,14 @@ func Feasible(feasible, used, adjacent Colors) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- testmain/main.go --
 package main

@@ -41,7 +41,7 @@ import (
 func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 	_vcAFloat32s0 := simd.BroadcastFloat32s(alpha)
 	_vcBFloat32s0 := simd.BroadcastFloat32s(beta)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i]*alpha + b[i]*beta
 		}
@@ -85,20 +85,14 @@ func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- testmain/main.go --
 package main

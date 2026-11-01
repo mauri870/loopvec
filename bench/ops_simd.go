@@ -9,7 +9,7 @@ import (
 )
 
 func AddFloat32s(dst, a, b []float32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] + b[i]
 		}
@@ -54,7 +54,7 @@ func AddFloat32s(dst, a, b []float32) {
 }
 
 func MulFloat32s(dst, a, b []float32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] * b[i]
 		}
@@ -129,7 +129,7 @@ func ScalFloat32s(x []float32, c float32) {
 
 func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
 	_vcAFloat32s3 := simd.BroadcastFloat32s(alpha)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i]*alpha + b[i]
 		}
@@ -176,7 +176,7 @@ func AxpyFloat32s(dst, a []float32, alpha float32, b []float32) {
 func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 	_vcAFloat32s4 := simd.BroadcastFloat32s(alpha)
 	_vcBFloat32s4 := simd.BroadcastFloat32s(beta)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i]*alpha + b[i]*beta
 		}
@@ -221,7 +221,7 @@ func MixFloat32s(dst, a, b []float32, alpha, beta float32) {
 }
 
 func NegFloat32s(dst, src []float32) {
-	if _loopvecOverlap(dst, src) {
+	if _loopvecOverlap(dst, src, 0, len(dst), 0, len(src)) {
 		for i := range dst {
 			dst[i] = -src[i]
 		}
@@ -259,7 +259,7 @@ func NegFloat32s(dst, src []float32) {
 }
 
 func DivFloat32s(dst, a, b []float32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] / b[i]
 		}
@@ -305,7 +305,7 @@ func DivFloat32s(dst, a, b []float32) {
 
 func DaxpyFloat32s(dst, a []float32, alpha float32) {
 	_vcAFloat32s7 := simd.BroadcastFloat32s(alpha)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] += a[i] * alpha
 		}
@@ -396,7 +396,7 @@ func FillUint8s(dst []byte) {
 
 func ReverseIncFloat32s(dst, src []float32) {
 	_vcFloat32s10 := simd.BroadcastFloat32s(1)
-	if _loopvecOverlap(dst, src) {
+	if _loopvecOverlap(dst, src, 0, len(dst), 0, len(src)) {
 		for i := len(dst) - 1; i >= 0; i-- {
 			dst[i] = src[i] + 1
 		}
@@ -434,7 +434,7 @@ func ReverseIncFloat32s(dst, src []float32) {
 }
 
 func CopyFloat32s(dst, src []float32) {
-	if _loopvecOverlap(dst, src) {
+	if _loopvecOverlap(dst, src, 0, len(dst), 0, len(src)) {
 		for i := range dst {
 			dst[i] = src[i]
 		}
@@ -447,7 +447,7 @@ func CopyFloat32s(dst, src []float32) {
 }
 
 func AndNotUint64s(dst, a, b []uint64) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] &^ b[i]
 		}
@@ -492,7 +492,7 @@ func AndNotUint64s(dst, a, b []uint64) {
 }
 
 func AbsFloat32s(dst, a []float32) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = float32(math.Abs(float64(a[i])))
 		}
@@ -530,7 +530,7 @@ func AbsFloat32s(dst, a []float32) {
 }
 
 func SqrtFloat32s(dst, a []float32) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = float32(math.Sqrt(float64(a[i])))
 		}
@@ -570,7 +570,7 @@ func SqrtFloat32s(dst, a []float32) {
 func ClampInt32s(dst, a []int32, lo, hi int32) {
 	_vcAInt32s15 := simd.BroadcastInt32s(lo)
 	_vcBInt32s15 := simd.BroadcastInt32s(hi)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = min(max(a[i], lo), hi)
 		}
@@ -608,7 +608,7 @@ func ClampInt32s(dst, a []int32, lo, hi int32) {
 }
 
 func ShrInt32s(dst, a []int32, n uint) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = a[i] >> n
 		}
@@ -646,7 +646,7 @@ func ShrInt32s(dst, a []int32, n uint) {
 }
 
 func ShlUint32s(dst, a []uint32, n uint) {
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = a[i] << n
 		}
@@ -818,7 +818,7 @@ func ChainInt32s(a, b, c, e []int32) {
 func WideInt32s(dst, a, b, c []int32, k, m int32) {
 	_vcInt32s20_1 := simd.BroadcastInt32s(k)
 	_vcInt32s20_2 := simd.BroadcastInt32s(k * m)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) || _loopvecOverlap(dst, c) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) || _loopvecOverlap(dst, c, 0, len(dst), 0, len(c)) {
 		for i := range dst {
 			dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
 		}
@@ -1405,7 +1405,7 @@ func SmoothInt32s(dst, a []int32) {
 
 func ShiftInt32s(dst, a []int32, off int) {
 	_vcInt32s33 := simd.BroadcastInt32s(3)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = a[i+off] * 3
 		}
@@ -1443,7 +1443,7 @@ func ShiftInt32s(dst, a []int32, off int) {
 }
 
 func AccumRowInt32s(work, a []int32, row, lda int) {
-	if _loopvecOverlap(work, a) {
+	if _loopvecOverlap(work, a, 0, len(work), 0, len(a)) {
 		for j := range work {
 			work[j] += a[row*lda+j]
 		}
@@ -1644,7 +1644,7 @@ func ReLUFloat32s(x []float32) {
 func LeakyReLUFloat32s(dst, x []float32, alpha float32) {
 	_vcAFloat32s38 := simd.BroadcastFloat32s(0)
 	_vcBFloat32s38 := simd.BroadcastFloat32s(alpha)
-	if _loopvecOverlap(dst, x) {
+	if _loopvecOverlap(dst, x, 0, len(dst), 0, len(x)) {
 		for i := range dst {
 			if x[i] > 0 {
 				dst[i] = x[i]
@@ -1719,7 +1719,7 @@ func SignFloat32s(dst, x []float32) {
 	_vcFloat32s40_1 := simd.BroadcastFloat32s(0)
 	_vcFloat32s40_2 := simd.BroadcastFloat32s(1)
 	_vcFloat32s40_4 := simd.BroadcastFloat32s(-1)
-	if _loopvecOverlap(dst, x) {
+	if _loopvecOverlap(dst, x, 0, len(dst), 0, len(x)) {
 		for i := range dst {
 			if x[i] > 0 {
 				dst[i] = 1
@@ -1825,7 +1825,7 @@ func ScaleFieldFloat32s(v *Vec, a float32) {
 func AddFieldFloat32s(dst, a *Vec) {
 	if len(dst.Values) > 0 {
 		_sdst_Values, _sa_Values := dst.Values, a.Values
-		if _loopvecOverlap(_sdst_Values, _sa_Values) {
+		if _loopvecOverlap(_sdst_Values, _sa_Values, 0, len(_sdst_Values), 0, len(_sa_Values)) {
 			for i := range dst.Values {
 				dst.Values[i] += a.Values[i]
 			}
@@ -1873,7 +1873,7 @@ func HardSwishFloat32s(dst, x []float32) {
 	_vcFloat32s44_1 := simd.BroadcastFloat32s(3)
 	_vcFloat32s44_2 := simd.BroadcastFloat32s(0)
 	_vcFloat32s44_4 := simd.BroadcastFloat32s(6)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			t := x[i] + 3
 			if t < 0 {
@@ -1932,7 +1932,7 @@ func HardSigmoidFloat32s(dst, x []float32) {
 	_vcFloat32s45_1 := simd.BroadcastFloat32s(3)
 	_vcFloat32s45_2 := simd.BroadcastFloat32s(0)
 	_vcFloat32s45_4 := simd.BroadcastFloat32s(6)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			t := x[i] + 3
 			if t < 0 {
@@ -1994,18 +1994,12 @@ func HardSigmoidFloat32s(dst, x []float32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }

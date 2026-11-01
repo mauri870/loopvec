@@ -116,7 +116,7 @@ func HardSwish(dst, x []float32) {
 	_vcFloat32s0_1 := simd.BroadcastFloat32s(3)
 	_vcFloat32s0_2 := simd.BroadcastFloat32s(0)
 	_vcFloat32s0_4 := simd.BroadcastFloat32s(6)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			t := x[i] + 3
 			if t < 0 {
@@ -175,7 +175,7 @@ func HardSigmoid(dst, x []float32) {
 	_vcFloat32s1_1 := simd.BroadcastFloat32s(3)
 	_vcFloat32s1_2 := simd.BroadcastFloat32s(0)
 	_vcFloat32s1_4 := simd.BroadcastFloat32s(6)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			t := x[i] + 3
 			if t < 0 {
@@ -240,7 +240,7 @@ func HardSigmoid(dst, x []float32) {
 func ClampInt(dst, x []int32, lo, hi int32) {
 	_vcInt32s2_1 := simd.BroadcastInt32s(lo)
 	_vcInt32s2_3 := simd.BroadcastInt32s(hi)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			t := x[i]
 			if t < lo {
@@ -303,7 +303,7 @@ func SiLUSoftsign(dst, x []float32) {
 	_vcFloat32s3_1 := simd.BroadcastFloat32s(0)
 	_vcFloat32s3_2 := simd.BroadcastFloat32s(0.5)
 	_vcFloat32s3_3 := simd.BroadcastFloat32s(1)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			a := x[i]
 			if a < 0 {
@@ -362,7 +362,7 @@ func SiLUCubic(dst, x []float32) {
 	_vcFloat32s4_5 := simd.BroadcastFloat32s(48)
 	_vcFloat32s4_6 := simd.BroadcastFloat32s(4)
 	_vcFloat32s4_7 := simd.BroadcastFloat32s(0.5)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			c := x[i]
 			if c < -2 {
@@ -431,7 +431,7 @@ func Mixed(dst, x []float64) {
 	_vcFloat64s5_3 := simd.BroadcastFloat64s(10)
 	_vcFloat64s5_4 := simd.BroadcastFloat64s(100)
 	_vcFloat64s5_5 := simd.BroadcastFloat64s(-10)
-	if _loopvecOverlap(x, dst) {
+	if _loopvecOverlap(x, dst, 0, len(x), 0, len(dst)) {
 		for i := range dst {
 			a := x[i] * 2
 			b := a + 1
@@ -493,20 +493,14 @@ func Mixed(dst, x []float64) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- ops.go.guarded --
 //go:build !goexperiment.simd

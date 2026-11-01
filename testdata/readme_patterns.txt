@@ -14,7 +14,7 @@ stdout -count=1 '^--- \S+/a/ops\.go\t'
 stdout -count=1 '^\+\+\+ \S+/a/ops\.go\t'
 stdout -count=1 '^--- \S+/b/ops\.go\t'
 stdout -count=1 '^\+\+\+ \S+/b/ops\.go\t'
-stdout -count=2 '^@@ -1,7 \+1,69 @@$'
+stdout -count=2 '^@@ -1,7 \+1,63 @@$'
 cmpenv stderr both.stderr
 cmp a/ops.go a/ops.go.orig
 cmp b/ops.go b/ops.go.orig
@@ -93,7 +93,7 @@ import (
 )
 
 func AddInt32s(dst, a, b []int32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] + b[i]
 		}
@@ -137,20 +137,14 @@ func AddInt32s(dst, a, b []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- stdout.want --
 //go:build goexperiment.simd
@@ -163,7 +157,7 @@ import (
 )
 
 func AddInt32s(dst, a, b []int32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] + b[i]
 		}
@@ -207,20 +201,14 @@ func AddInt32s(dst, a, b []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 //go:build goexperiment.simd
 
@@ -232,7 +220,7 @@ import (
 )
 
 func AddInt32s(dst, a, b []int32) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = a[i] + b[i]
 		}
@@ -276,20 +264,14 @@ func AddInt32s(dst, a, b []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- both.stderr --
 loopvec: rewrote 1 loop(s) in $WORK/a/ops.go

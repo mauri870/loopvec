@@ -60,7 +60,7 @@ import (
 )
 
 func Define(a, b, c []int32) {
-	if _loopvecOverlap(b, a) || _loopvecOverlap(c, a) {
+	if _loopvecOverlap(b, a, 0, len(b), 0, len(a)) || _loopvecOverlap(c, a, 0, len(c), 0, len(a)) {
 		for i := range a {
 			s := b[i] + c[i]
 			a[i] = s * s
@@ -114,7 +114,7 @@ func Define(a, b, c []int32) {
 func Outer(a, b, c []int32) {
 	var s int32
 	_vcInt32s1_1 := simd.BroadcastInt32s(3)
-	if _loopvecOverlap(b, a) || _loopvecOverlap(c, a) {
+	if _loopvecOverlap(b, a, 0, len(b), 0, len(a)) || _loopvecOverlap(c, a, 0, len(c), 0, len(a)) {
 		for i := range a {
 			s = b[i] - c[i]
 			a[i] = s ^ 3
@@ -239,20 +239,14 @@ func Chain(a, b, c, e []int32) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- testmain/main.go --
 package main

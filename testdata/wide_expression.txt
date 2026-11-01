@@ -70,7 +70,7 @@ import (
 
 // Depth 4: the histogram merge shape.
 func Merge(h, h0, h1, h2, h3 []uint16) {
-	if _loopvecOverlap(h, h0) || _loopvecOverlap(h, h1) || _loopvecOverlap(h, h2) || _loopvecOverlap(h, h3) {
+	if _loopvecOverlap(h, h0, 0, len(h), 0, len(h0)) || _loopvecOverlap(h, h1, 0, len(h), 0, len(h1)) || _loopvecOverlap(h, h2, 0, len(h), 0, len(h2)) || _loopvecOverlap(h, h3, 0, len(h), 0, len(h3)) {
 		for i := range h {
 			h[i] += h0[i] + h1[i] + h2[i] + h3[i]
 		}
@@ -138,7 +138,7 @@ func Merge(h, h0, h1, h2, h3 []uint16) {
 func Poly(dst, a, b, c []int32, k, m int32) {
 	_vcInt32s1_1 := simd.BroadcastInt32s(k)
 	_vcInt32s1_2 := simd.BroadcastInt32s(k * m)
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) || _loopvecOverlap(dst, c) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) || _loopvecOverlap(dst, c, 0, len(dst), 0, len(c)) {
 		for i := range dst {
 			dst[i] = a[i]*b[i] + c[i]*k + (k*m - a[i])
 		}
@@ -192,7 +192,7 @@ func Poly(dst, a, b, c []int32, k, m int32) {
 // A scalar on the left of a subtraction is not swapped.
 func SubFrom(dst, a []float64, k float64) {
 	_vcFloat64s2 := simd.BroadcastFloat64s(k)
-	if _loopvecOverlap(dst, a) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) {
 		for i := range dst {
 			dst[i] = k - a[i]
 		}
@@ -253,7 +253,7 @@ func FillVar(dst []float64, k float64) {
 }
 
 func ShiftSum(dst, a, b []uint32, n uint) {
-	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
+	if _loopvecOverlap(dst, a, 0, len(dst), 0, len(a)) || _loopvecOverlap(dst, b, 0, len(dst), 0, len(b)) {
 		for i := range dst {
 			dst[i] = (a[i] + b[i]) << n
 		}
@@ -297,20 +297,14 @@ func ShiftSum(dst, a, b []uint32, n uint) {
 	}
 }
 
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 -- testmain/main.go --
 package main
