@@ -241,7 +241,7 @@ func wrapWithOverlapCheck(plan *loopir.Plan, origText, simdText string) string {
 		if plan.Bound == "" && plan.Start == "0" {
 			// The loop runs over whole slices, so comparing whole slices covers
 			// every element it touches.
-			fmt.Fprintf(&cond, "_loopvecOverlap(%s, %s)", pair[0].Name, pair[1].Name)
+			fmt.Fprintf(&cond, "_loopvecOverlap(%[1]s, %[2]s, 0, len(%[1]s), 0, len(%[2]s))", pair[0].Name, pair[1].Name)
 			continue
 		}
 		aLo, aHi := window(plan, pair[0])
@@ -285,22 +285,20 @@ func offsetText(v int) string {
 }
 
 // overlapHelperSrc is _loopvecOverlap's source, appended once per rewritten
-// file that needs it.
+// file that needs it. It reports whether a[aLo:aHi] and b[bLo:bHi] share
+// memory. It takes the windows as plain arguments, a whole slice as 0 and its
+// length, so that it is small enough to inline: every rewritten loop with two
+// slices calls it before it runs, and a call costs a short loop as much as
+// the loop itself.
 const overlapHelperSrc = `
-func _loopvecOverlap[T any](a, b []T, window ...int) bool {
-	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
-	if len(window) == 4 {
-		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
-	}
+func _loopvecOverlap[T any](a, b []T, aLo, aHi, bLo, bHi int) bool {
 	if aLo >= aHi || bLo >= bHi {
 		return false
 	}
 	size := unsafe.Sizeof(a[0])
 	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
 	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
-	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
-	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
-	return aStart < bEnd && bStart < aEnd
+	return aBase+uintptr(aLo)*size < bBase+uintptr(bHi)*size && bBase+uintptr(bLo)*size < aBase+uintptr(aHi)*size
 }
 `
 

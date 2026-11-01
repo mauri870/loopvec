@@ -6,7 +6,7 @@ loopvec -split .
 grep -count=1 'func _loopvecOverlap' a_simd.go
 ! grep 'func _loopvecOverlap' b_simd.go
 ! grep '"unsafe"' b_simd.go
-grep '_loopvecOverlap\(dst, a\)' b_simd.go
+grep '_loopvecOverlap\(dst, a, 0, len\(dst\), 0, len\(a\)\)' b_simd.go
 
 env GOEXPERIMENT=simd
 exec go run ./testmain
