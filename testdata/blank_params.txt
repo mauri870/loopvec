@@ -61,17 +61,47 @@ func _(_ int) int { return _p0 }
 
 func FillBlankParams(_p0 int, _p1 byte, dst []float32) {
 	_vcFloat32s0 := simd.BroadcastFloat32s(1)
-	for _i := 0; _i < len(dst); {
-		_n := _vcFloat32s0.StorePart(dst[_i:])
-		_i += _n
+	{
+		_w1 := dst[:len(dst):len(dst)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat32s0.Store(_c1)
+			_vcFloat32s0.Store(_c1[_lanes:])
+			_vcFloat32s0.Store(_c1[2*_lanes:])
+			_vcFloat32s0.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat32s0.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat32s0.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func _(_p2 int, dst []float32) {
 	_vcFloat32s1 := simd.BroadcastFloat32s(2)
-	for _i := 0; _i < len(dst); {
-		_n := _vcFloat32s1.StorePart(dst[_i:])
-		_i += _n
+	{
+		_w1 := dst[:len(dst):len(dst)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat32s1.Store(_c1)
+			_vcFloat32s1.Store(_c1[_lanes:])
+			_vcFloat32s1.Store(_c1[2*_lanes:])
+			_vcFloat32s1.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat32s1.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat32s1.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 -- stderr.want --

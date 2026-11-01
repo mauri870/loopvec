@@ -67,11 +67,37 @@ func Mix(dst, a, b []float32) {
 			_ = dst[len(b)-1]
 			_ = a[len(b)-1]
 			_ = b[len(b)-1]
-			for _i := 0; _i < len(b); {
-				_v1, _n := simd.LoadFloat32sPart(a[_i:len(b)])
-				_v2, _ := simd.LoadFloat32sPart(b[_i:len(b)])
-				_v1.MulAdd(_v2, _v2).StorePart(dst[_i:len(b)])
-				_i += _n
+			{
+				_w1 := dst[:len(b):len(b)]
+				_count := len(_w1)
+				_w2, _w3 := a[:_count:_count], b[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat32s(_c2)
+					_v2 := simd.LoadFloat32s(_c3)
+					_v1.MulAdd(_v2, _v2).Store(_c1)
+					_v3 := simd.LoadFloat32s(_c2[_lanes:])
+					_v4 := simd.LoadFloat32s(_c3[_lanes:])
+					_v3.MulAdd(_v4, _v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadFloat32s(_c2[2*_lanes:])
+					_v6 := simd.LoadFloat32s(_c3[2*_lanes:])
+					_v5.MulAdd(_v6, _v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadFloat32s(_c2[3*_lanes:])
+					_v8 := simd.LoadFloat32s(_c3[3*_lanes:])
+					_v7.MulAdd(_v8, _v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadFloat32s(_w2[_i:])
+					_v10 := simd.LoadFloat32s(_w3[_i:])
+					_v9.MulAdd(_v10, _v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadFloat32sPart(_w2[_i:])
+					_v12, _ := simd.LoadFloat32sPart(_w3[_i:])
+					_v11.MulAdd(_v12, _v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}

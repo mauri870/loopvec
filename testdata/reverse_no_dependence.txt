@@ -48,10 +48,31 @@ func FillFromReverse(a, b []float32) {
 	} else {
 		if len(a) > 0 {
 			_ = b[len(a)-1]
-			for _i := 0; _i < len(a); {
-				_v1, _n := simd.LoadFloat32sPart(b[_i:])
-				_v1.Add(_vcFloat32s0).StorePart(a[_i:])
-				_i += _n
+			{
+				_w1 := a[:len(a):len(a)]
+				_count := len(_w1)
+				_w2 := b[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat32s(_c2)
+					_v1.Add(_vcFloat32s0).Store(_c1)
+					_v2 := simd.LoadFloat32s(_c2[_lanes:])
+					_v2.Add(_vcFloat32s0).Store(_c1[_lanes:])
+					_v3 := simd.LoadFloat32s(_c2[2*_lanes:])
+					_v3.Add(_vcFloat32s0).Store(_c1[2*_lanes:])
+					_v4 := simd.LoadFloat32s(_c2[3*_lanes:])
+					_v4.Add(_vcFloat32s0).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadFloat32s(_w2[_i:])
+					_v5.Add(_vcFloat32s0).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadFloat32sPart(_w2[_i:])
+					_v6.Add(_vcFloat32s0).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}

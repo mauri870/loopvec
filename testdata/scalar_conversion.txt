@@ -37,10 +37,30 @@ import "simd"
 
 func Centroid(sum []float64, dim int) {
 	_vcFloat64s0 := simd.BroadcastFloat64s(float64(dim))
-	for _i := 0; _i < len(sum); {
-		_v1, _n := simd.LoadFloat64sPart(sum[_i:])
-		_v1.Div(_vcFloat64s0).StorePart(sum[_i:])
-		_i += _n
+	{
+		_w1 := sum[:len(sum):len(sum)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_v1 := simd.LoadFloat64s(_c1)
+			_v1.Div(_vcFloat64s0).Store(_c1)
+			_v2 := simd.LoadFloat64s(_c1[_lanes:])
+			_v2.Div(_vcFloat64s0).Store(_c1[_lanes:])
+			_v3 := simd.LoadFloat64s(_c1[2*_lanes:])
+			_v3.Div(_vcFloat64s0).Store(_c1[2*_lanes:])
+			_v4 := simd.LoadFloat64s(_c1[3*_lanes:])
+			_v4.Div(_vcFloat64s0).Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_v5 := simd.LoadFloat64s(_w1[_i:])
+			_v5.Div(_vcFloat64s0).Store(_w1[_i:])
+		}
+		for _i < _count {
+			_v6, _n := simd.LoadFloat64sPart(_w1[_i:])
+			_v6.Div(_vcFloat64s0).StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 -- testmain/main.go --

@@ -37,10 +37,30 @@ import "simd"
 
 func AddScalar(dst []float32, c float32) {
 	_vcFloat32s0 := simd.BroadcastFloat32s(c)
-	for _i := 0; _i < len(dst); {
-		_v1, _n := simd.LoadFloat32sPart(dst[_i:])
-		_v1.Add(_vcFloat32s0).StorePart(dst[_i:])
-		_i += _n
+	{
+		_w1 := dst[:len(dst):len(dst)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_v1 := simd.LoadFloat32s(_c1)
+			_v1.Add(_vcFloat32s0).Store(_c1)
+			_v2 := simd.LoadFloat32s(_c1[_lanes:])
+			_v2.Add(_vcFloat32s0).Store(_c1[_lanes:])
+			_v3 := simd.LoadFloat32s(_c1[2*_lanes:])
+			_v3.Add(_vcFloat32s0).Store(_c1[2*_lanes:])
+			_v4 := simd.LoadFloat32s(_c1[3*_lanes:])
+			_v4.Add(_vcFloat32s0).Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_v5 := simd.LoadFloat32s(_w1[_i:])
+			_v5.Add(_vcFloat32s0).Store(_w1[_i:])
+		}
+		for _i < _count {
+			_v6, _n := simd.LoadFloat32sPart(_w1[_i:])
+			_v6.Add(_vcFloat32s0).StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 -- testmain/main.go --

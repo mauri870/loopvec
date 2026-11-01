@@ -6,11 +6,11 @@ loopvec -d .
 cmpenv stderr stderr.want
 stdout -count=1 '^--- \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
 stdout -count=1 '^\+\+\+ \S+/ops\.go\t\S+ \S+ [+-][0-9]{4}$'
-stdout -count=1 '^@@ -1,7 \+1,43 @@$'
+stdout -count=1 '^@@ -1,7 \+1,69 @@$'
 stdout -count=1 '^\+//go:build goexperiment.simd$'
 stdout -count=1 '^\+import \($'
 stdout -count=1 '^-	for i := range dst \{$'
-stdout -count=1 '^\+				_v1.Add\(_v2\).StorePart\(dst\[_i:\]\)$'
+stdout -count=1 '^\+					_v1.Add\(_v2\).Store\(_c1\)$'
 cmp ops.go ops.go.orig
 ! exists ops_simd.go
 

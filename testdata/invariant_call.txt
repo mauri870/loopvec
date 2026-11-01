@@ -74,41 +74,116 @@ import (
 
 func FillNaN(out []float64) {
 	_vcFloat64s0 := simd.BroadcastFloat64s(math.NaN())
-	for _i := 0; _i < len(out); {
-		_n := _vcFloat64s0.StorePart(out[_i:])
-		_i += _n
+	{
+		_w1 := out[:len(out):len(out)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat64s0.Store(_c1)
+			_vcFloat64s0.Store(_c1[_lanes:])
+			_vcFloat64s0.Store(_c1[2*_lanes:])
+			_vcFloat64s0.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat64s0.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat64s0.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func FillNaN32(out []float32) {
 	_vcFloat32s1 := simd.BroadcastFloat32s(float32(math.NaN()))
-	for _i := 0; _i < len(out); {
-		_n := _vcFloat32s1.StorePart(out[_i:])
-		_i += _n
+	{
+		_w1 := out[:len(out):len(out)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat32s1.Store(_c1)
+			_vcFloat32s1.Store(_c1[_lanes:])
+			_vcFloat32s1.Store(_c1[2*_lanes:])
+			_vcFloat32s1.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat32s1.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat32s1.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func FillInf(out []float64, sign int) {
 	_vcFloat64s2 := simd.BroadcastFloat64s(math.Inf(sign))
-	for _i := 0; _i < len(out); {
-		_n := _vcFloat64s2.StorePart(out[_i:])
-		_i += _n
+	{
+		_w1 := out[:len(out):len(out)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat64s2.Store(_c1)
+			_vcFloat64s2.Store(_c1[_lanes:])
+			_vcFloat64s2.Store(_c1[2*_lanes:])
+			_vcFloat64s2.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat64s2.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat64s2.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func FillNegZero(out []float64) {
 	_vcFloat64s3 := simd.BroadcastFloat64s(math.Float64frombits(1 << 63))
-	for _i := 0; _i < len(out); {
-		_n := _vcFloat64s3.StorePart(out[_i:])
-		_i += _n
+	{
+		_w1 := out[:len(out):len(out)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat64s3.Store(_c1)
+			_vcFloat64s3.Store(_c1[_lanes:])
+			_vcFloat64s3.Store(_c1[2*_lanes:])
+			_vcFloat64s3.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat64s3.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat64s3.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func FillBits32(out []float32, bits uint32) {
 	_vcFloat32s4 := simd.BroadcastFloat32s(math.Float32frombits(bits))
-	for _i := 0; _i < len(out); {
-		_n := _vcFloat32s4.StorePart(out[_i:])
-		_i += _n
+	{
+		_w1 := out[:len(out):len(out)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat32s4.Store(_c1)
+			_vcFloat32s4.Store(_c1[_lanes:])
+			_vcFloat32s4.Store(_c1[2*_lanes:])
+			_vcFloat32s4.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat32s4.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat32s4.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
@@ -121,10 +196,31 @@ func ScaleByInf(dst, a []float64) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadFloat64sPart(a[_i:])
-				_v1.Mul(_vcFloat64s5).StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat64s(_c2)
+					_v1.Mul(_vcFloat64s5).Store(_c1)
+					_v2 := simd.LoadFloat64s(_c2[_lanes:])
+					_v2.Mul(_vcFloat64s5).Store(_c1[_lanes:])
+					_v3 := simd.LoadFloat64s(_c2[2*_lanes:])
+					_v3.Mul(_vcFloat64s5).Store(_c1[2*_lanes:])
+					_v4 := simd.LoadFloat64s(_c2[3*_lanes:])
+					_v4.Mul(_vcFloat64s5).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadFloat64s(_w2[_i:])
+					_v5.Mul(_vcFloat64s5).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadFloat64sPart(_w2[_i:])
+					_v6.Mul(_vcFloat64s5).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}

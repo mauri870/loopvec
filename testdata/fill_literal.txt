@@ -42,17 +42,47 @@ import "simd"
 
 func FillFloat64s(dst []float64) {
 	_vcFloat64s0 := simd.BroadcastFloat64s(2.5)
-	for _i := 0; _i < len(dst); {
-		_n := _vcFloat64s0.StorePart(dst[_i:])
-		_i += _n
+	{
+		_w1 := dst[:len(dst):len(dst)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcFloat64s0.Store(_c1)
+			_vcFloat64s0.Store(_c1[_lanes:])
+			_vcFloat64s0.Store(_c1[2*_lanes:])
+			_vcFloat64s0.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcFloat64s0.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcFloat64s0.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 
 func FillUint8s(dst []byte) {
 	_vcUint8s1 := simd.BroadcastUint8s(0xfe)
-	for _i := 0; _i < len(dst); {
-		_n := _vcUint8s1.StorePart(dst[_i:])
-		_i += _n
+	{
+		_w1 := dst[:len(dst):len(dst)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastUint8s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_vcUint8s1.Store(_c1)
+			_vcUint8s1.Store(_c1[_lanes:])
+			_vcUint8s1.Store(_c1[2*_lanes:])
+			_vcUint8s1.Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_vcUint8s1.Store(_w1[_i:])
+		}
+		for _i < _count {
+			_n := _vcUint8s1.StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 -- stderr.want --

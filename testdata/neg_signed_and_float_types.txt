@@ -73,10 +73,31 @@ func NegInt8s(dst, a []int8) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt8sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt8s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt8s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadInt8s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadInt8s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt8s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt8s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt8sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -90,10 +111,31 @@ func NegInt16s(dst, a []int16) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt16sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt16s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt16s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadInt16s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadInt16s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt16s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt16s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt16sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -107,10 +149,31 @@ func NegInt32s(dst, a []int32) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt32sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadInt32s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt32s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -124,10 +187,31 @@ func NegInt64s(dst, a []int64) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt64sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt64s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadInt64s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadInt64s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt64s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt64s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt64sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -141,10 +225,31 @@ func NegFloat32s(dst, a []float32) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadFloat32sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat32s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadFloat32s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadFloat32s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadFloat32s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadFloat32s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadFloat32sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -158,10 +263,31 @@ func NegFloat64s(dst, a []float64) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadFloat64sPart(a[_i:])
-				_v1.Neg().StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat64s(_c2)
+					_v1.Neg().Store(_c1)
+					_v2 := simd.LoadFloat64s(_c2[_lanes:])
+					_v2.Neg().Store(_c1[_lanes:])
+					_v3 := simd.LoadFloat64s(_c2[2*_lanes:])
+					_v3.Neg().Store(_c1[2*_lanes:])
+					_v4 := simd.LoadFloat64s(_c2[3*_lanes:])
+					_v4.Neg().Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadFloat64s(_w2[_i:])
+					_v5.Neg().Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadFloat64sPart(_w2[_i:])
+					_v6.Neg().StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}

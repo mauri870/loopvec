@@ -88,11 +88,37 @@ func ShiftAdd(a, b []int32) {
 			_ = a[(len(a)-1)-1]
 			_ = a[len(a)-1]
 			_ = b[(len(a)-1)-1]
-			for _i := 0; _i < len(a)-1; {
-				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
-				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
-				_v1.Add(_v2).StorePart(a[_i : len(a)-1])
-				_i += _n
+			{
+				_w1 := a[:(len(a) - 1):(len(a) - 1)]
+				_count := len(_w1)
+				_w2, _w3 := a[1:][:_count:_count], b[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v2 := simd.LoadInt32s(_c3)
+					_v1.Add(_v2).Store(_c1)
+					_v3 := simd.LoadInt32s(_c2[_lanes:])
+					_v4 := simd.LoadInt32s(_c3[_lanes:])
+					_v3.Add(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v6 := simd.LoadInt32s(_c3[2*_lanes:])
+					_v5.Add(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v8 := simd.LoadInt32s(_c3[3*_lanes:])
+					_v7.Add(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(_w2[_i:])
+					_v10 := simd.LoadInt32s(_w3[_i:])
+					_v9.Add(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v12, _ := simd.LoadInt32sPart(_w3[_i:])
+					_v11.Add(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -122,16 +148,67 @@ func ReadAfterStore(a, b, d []int32) {
 			_ = b[(len(a)-1)-1]
 			_ = d[(len(a)-1)-1]
 			_ = a[len(a)-1]
-			for _i := 0; _i < len(a)-1; {
-				_v1, _n := simd.LoadInt32sPart(a[_i+1:])
-				_v2, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
-				_v3, _ := simd.LoadInt32sPart(d[_i : len(a)-1])
-				_v2.Add(_v3).StorePart(a[_i : len(a)-1])
-				_v4, _ := simd.LoadInt32sPart(a[_i : len(a)-1])
-				_v4.Mul(_vcInt32s2_1).StorePart(b[_i : len(a)-1])
-				_v5, _ := simd.LoadInt32sPart(b[_i : len(a)-1])
-				_v1.Mul(_v3).Add(_v5).StorePart(a[_i : len(a)-1])
-				_i += _n
+			{
+				_w1 := a[:(len(a) - 1):(len(a) - 1)]
+				_count := len(_w1)
+				_w2, _w3, _w4 := b[:_count:_count], d[:_count:_count], a[1:][:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3, _c4 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes], _w4[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c4)
+					_v2 := simd.LoadInt32s(_c2)
+					_v3 := simd.LoadInt32s(_c3)
+					_v2.Add(_v3).Store(_c1)
+					_v4 := simd.LoadInt32s(_c1)
+					_v4.Mul(_vcInt32s2_1).Store(_c2)
+					_v5 := simd.LoadInt32s(_c2)
+					_v1.Mul(_v3).Add(_v5).Store(_c1)
+					_v6 := simd.LoadInt32s(_c4[_lanes:])
+					_v7 := simd.LoadInt32s(_c2[_lanes:])
+					_v8 := simd.LoadInt32s(_c3[_lanes:])
+					_v7.Add(_v8).Store(_c1[_lanes:])
+					_v9 := simd.LoadInt32s(_c1[_lanes:])
+					_v9.Mul(_vcInt32s2_1).Store(_c2[_lanes:])
+					_v10 := simd.LoadInt32s(_c2[_lanes:])
+					_v6.Mul(_v8).Add(_v10).Store(_c1[_lanes:])
+					_v11 := simd.LoadInt32s(_c4[2*_lanes:])
+					_v12 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v13 := simd.LoadInt32s(_c3[2*_lanes:])
+					_v12.Add(_v13).Store(_c1[2*_lanes:])
+					_v14 := simd.LoadInt32s(_c1[2*_lanes:])
+					_v14.Mul(_vcInt32s2_1).Store(_c2[2*_lanes:])
+					_v15 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v11.Mul(_v13).Add(_v15).Store(_c1[2*_lanes:])
+					_v16 := simd.LoadInt32s(_c4[3*_lanes:])
+					_v17 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v18 := simd.LoadInt32s(_c3[3*_lanes:])
+					_v17.Add(_v18).Store(_c1[3*_lanes:])
+					_v19 := simd.LoadInt32s(_c1[3*_lanes:])
+					_v19.Mul(_vcInt32s2_1).Store(_c2[3*_lanes:])
+					_v20 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v16.Mul(_v18).Add(_v20).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v21 := simd.LoadInt32s(_w4[_i:])
+					_v22 := simd.LoadInt32s(_w2[_i:])
+					_v23 := simd.LoadInt32s(_w3[_i:])
+					_v22.Add(_v23).Store(_w1[_i:])
+					_v24 := simd.LoadInt32s(_w1[_i:])
+					_v24.Mul(_vcInt32s2_1).Store(_w2[_i:])
+					_v25 := simd.LoadInt32s(_w2[_i:])
+					_v21.Mul(_v23).Add(_v25).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v26, _n := simd.LoadInt32sPart(_w4[_i:])
+					_v27, _ := simd.LoadInt32sPart(_w2[_i:])
+					_v28, _ := simd.LoadInt32sPart(_w3[_i:])
+					_v27.Add(_v28).StorePart(_w1[_i:])
+					_v29, _ := simd.LoadInt32sPart(_w1[_i:])
+					_v29.Mul(_vcInt32s2_1).StorePart(_w2[_i:])
+					_v30, _ := simd.LoadInt32sPart(_w2[_i:])
+					_v26.Mul(_v28).Add(_v30).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -151,13 +228,49 @@ func Pair(a, x, y []int32) {
 			_ = a[(len(a)-2)-1]
 			_ = y[(len(a)-2)-1]
 			_ = a[len(a)-2]
-			for _i := 0; _i < len(a)-2; {
-				_v1, _n := simd.LoadInt32sPart(a[_i+2:])
-				_v2, _ := simd.LoadInt32sPart(a[_i+1:])
-				_v1.StorePart(x[_i : len(a)-2])
-				_v3, _ := simd.LoadInt32sPart(y[_i : len(a)-2])
-				_v3.Add(_v2).StorePart(a[_i : len(a)-2])
-				_i += _n
+			{
+				_w1 := x[:(len(a) - 2):(len(a) - 2)]
+				_count := len(_w1)
+				_w2, _w3, _w4, _w5 := a[2:][:_count:_count], a[:_count:_count], y[:_count:_count], a[1:][:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3, _c4, _c5 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes], _w4[_i:][:4*_lanes], _w5[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v2 := simd.LoadInt32s(_c5)
+					_v1.Store(_c1)
+					_v3 := simd.LoadInt32s(_c4)
+					_v3.Add(_v2).Store(_c3)
+					_v4 := simd.LoadInt32s(_c2[_lanes:])
+					_v5 := simd.LoadInt32s(_c5[_lanes:])
+					_v4.Store(_c1[_lanes:])
+					_v6 := simd.LoadInt32s(_c4[_lanes:])
+					_v6.Add(_v5).Store(_c3[_lanes:])
+					_v7 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v8 := simd.LoadInt32s(_c5[2*_lanes:])
+					_v7.Store(_c1[2*_lanes:])
+					_v9 := simd.LoadInt32s(_c4[2*_lanes:])
+					_v9.Add(_v8).Store(_c3[2*_lanes:])
+					_v10 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v11 := simd.LoadInt32s(_c5[3*_lanes:])
+					_v10.Store(_c1[3*_lanes:])
+					_v12 := simd.LoadInt32s(_c4[3*_lanes:])
+					_v12.Add(_v11).Store(_c3[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v13 := simd.LoadInt32s(_w2[_i:])
+					_v14 := simd.LoadInt32s(_w5[_i:])
+					_v13.Store(_w1[_i:])
+					_v15 := simd.LoadInt32s(_w4[_i:])
+					_v15.Add(_v14).Store(_w3[_i:])
+				}
+				for _i < _count {
+					_v16, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v17, _ := simd.LoadInt32sPart(_w5[_i:])
+					_v16.StorePart(_w1[_i:])
+					_v18, _ := simd.LoadInt32sPart(_w4[_i:])
+					_v18.Add(_v17).StorePart(_w3[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -174,11 +287,37 @@ func AddHalf(b, xx, a []int32) {
 			_ = b[(len(b)/2)-1]
 			_ = xx[(len(b)/2)-1]
 			_ = a[(len(b)/2)-1]
-			for _i := 0; _i < len(b)/2; {
-				_v1, _n := simd.LoadInt32sPart(xx[_i : len(b)/2])
-				_v2, _ := simd.LoadInt32sPart(a[_i : len(b)/2])
-				_v1.Add(_v2).StorePart(b[_i : len(b)/2])
-				_i += _n
+			{
+				_w1 := b[:(len(b) / 2):(len(b) / 2)]
+				_count := len(_w1)
+				_w2, _w3 := xx[:_count:_count], a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v2 := simd.LoadInt32s(_c3)
+					_v1.Add(_v2).Store(_c1)
+					_v3 := simd.LoadInt32s(_c2[_lanes:])
+					_v4 := simd.LoadInt32s(_c3[_lanes:])
+					_v3.Add(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v6 := simd.LoadInt32s(_c3[2*_lanes:])
+					_v5.Add(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v8 := simd.LoadInt32s(_c3[3*_lanes:])
+					_v7.Add(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(_w2[_i:])
+					_v10 := simd.LoadInt32s(_w3[_i:])
+					_v9.Add(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v12, _ := simd.LoadInt32sPart(_w3[_i:])
+					_v11.Add(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}

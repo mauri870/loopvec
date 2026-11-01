@@ -91,11 +91,37 @@ func Diff(dst, a []float64) {
 			_ = dst[(len(dst)-1)-1]
 			_ = a[len(dst)-1]
 			_ = a[(len(dst)-1)-1]
-			for _i := 0; _i < len(dst)-1; {
-				_v1, _n := simd.LoadFloat64sPart(a[_i+1:])
-				_v2, _ := simd.LoadFloat64sPart(a[_i : len(dst)-1])
-				_v1.Sub(_v2).StorePart(dst[_i : len(dst)-1])
-				_i += _n
+			{
+				_w1 := dst[:(len(dst) - 1):(len(dst) - 1)]
+				_count := len(_w1)
+				_w2, _w3 := a[1:][:_count:_count], a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastFloat64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadFloat64s(_c2)
+					_v2 := simd.LoadFloat64s(_c3)
+					_v1.Sub(_v2).Store(_c1)
+					_v3 := simd.LoadFloat64s(_c2[_lanes:])
+					_v4 := simd.LoadFloat64s(_c3[_lanes:])
+					_v3.Sub(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadFloat64s(_c2[2*_lanes:])
+					_v6 := simd.LoadFloat64s(_c3[2*_lanes:])
+					_v5.Sub(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadFloat64s(_c2[3*_lanes:])
+					_v8 := simd.LoadFloat64s(_c3[3*_lanes:])
+					_v7.Sub(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadFloat64s(_w2[_i:])
+					_v10 := simd.LoadFloat64s(_w3[_i:])
+					_v9.Sub(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadFloat64sPart(_w2[_i:])
+					_v12, _ := simd.LoadFloat64sPart(_w3[_i:])
+					_v11.Sub(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -113,12 +139,43 @@ func Smooth(dst, a []int32) {
 			_ = a[(len(dst)-1)-2]
 			_ = a[(len(dst)-1)-1]
 			_ = a[len(dst)-1]
-			for _i := 1; _i < len(dst)-1; {
-				_v1, _n := simd.LoadInt32sPart(a[_i-1:])
-				_v2, _ := simd.LoadInt32sPart(a[_i : len(dst)-1])
-				_v3, _ := simd.LoadInt32sPart(a[_i+1:])
-				_v1.Add(_v2).Add(_v3).StorePart(dst[_i : len(dst)-1])
-				_i += _n
+			{
+				_w1 := dst[1:][:((len(dst) - 1) - 1):((len(dst) - 1) - 1)]
+				_count := len(_w1)
+				_w2, _w3, _w4 := a[0:][:_count:_count], a[1:][:_count:_count], a[2:][:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3, _c4 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes], _w4[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v2 := simd.LoadInt32s(_c3)
+					_v3 := simd.LoadInt32s(_c4)
+					_v1.Add(_v2).Add(_v3).Store(_c1)
+					_v4 := simd.LoadInt32s(_c2[_lanes:])
+					_v5 := simd.LoadInt32s(_c3[_lanes:])
+					_v6 := simd.LoadInt32s(_c4[_lanes:])
+					_v4.Add(_v5).Add(_v6).Store(_c1[_lanes:])
+					_v7 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v8 := simd.LoadInt32s(_c3[2*_lanes:])
+					_v9 := simd.LoadInt32s(_c4[2*_lanes:])
+					_v7.Add(_v8).Add(_v9).Store(_c1[2*_lanes:])
+					_v10 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v11 := simd.LoadInt32s(_c3[3*_lanes:])
+					_v12 := simd.LoadInt32s(_c4[3*_lanes:])
+					_v10.Add(_v11).Add(_v12).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v13 := simd.LoadInt32s(_w2[_i:])
+					_v14 := simd.LoadInt32s(_w3[_i:])
+					_v15 := simd.LoadInt32s(_w4[_i:])
+					_v13.Add(_v14).Add(_v15).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v16, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v17, _ := simd.LoadInt32sPart(_w3[_i:])
+					_v18, _ := simd.LoadInt32sPart(_w4[_i:])
+					_v16.Add(_v17).Add(_v18).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -134,10 +191,31 @@ func Shift(dst, a []int32, off int) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)+off-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt32sPart(a[_i+off:])
-				_v1.Mul(_vcInt32s2).StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[off:][:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c2)
+					_v1.Mul(_vcInt32s2).Store(_c1)
+					_v2 := simd.LoadInt32s(_c2[_lanes:])
+					_v2.Mul(_vcInt32s2).Store(_c1[_lanes:])
+					_v3 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v3.Mul(_vcInt32s2).Store(_c1[2*_lanes:])
+					_v4 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v4.Mul(_vcInt32s2).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadInt32s(_w2[_i:])
+					_v5.Mul(_vcInt32s2).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadInt32sPart(_w2[_i:])
+					_v6.Mul(_vcInt32s2).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -179,15 +257,35 @@ func SumPairs(a []int32) int32 {
 		{
 			_i := 0
 			if len(a)-1 >= 64 {
-				_a1 := simd.BroadcastInt32s(0)
-				_lanes := _a1.Len()
-				for ; _i+_lanes <= len(a)-1; _i += _lanes {
+				_a1_0 := simd.BroadcastInt32s(0)
+				_a1_1 := simd.BroadcastInt32s(0)
+				_a1_2 := simd.BroadcastInt32s(0)
+				_a1_3 := simd.BroadcastInt32s(0)
+				_lanes := _a1_0.Len()
+				for ; _i <= (len(a)-1)-4*_lanes; _i += 4 * _lanes {
 					_v1 := simd.LoadInt32s(a[_i:])
 					_v2 := simd.LoadInt32s(a[_i+1:])
-					_a1 = _a1.Add(_v1.Mul(_v2))
+					_a1_0 = _a1_0.Add(_v1.Mul(_v2))
+					_v3 := simd.LoadInt32s(a[_i+_lanes:])
+					_v4 := simd.LoadInt32s(a[_i+_lanes+1:])
+					_a1_1 = _a1_1.Add(_v3.Mul(_v4))
+					_v5 := simd.LoadInt32s(a[_i+2*_lanes:])
+					_v6 := simd.LoadInt32s(a[_i+2*_lanes+1:])
+					_a1_2 = _a1_2.Add(_v5.Mul(_v6))
+					_v7 := simd.LoadInt32s(a[_i+3*_lanes:])
+					_v8 := simd.LoadInt32s(a[_i+3*_lanes+1:])
+					_a1_3 = _a1_3.Add(_v7.Mul(_v8))
 				}
+				for ; _i <= (len(a)-1)-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(a[_i:])
+					_v10 := simd.LoadInt32s(a[_i+1:])
+					_a1_0 = _a1_0.Add(_v9.Mul(_v10))
+				}
+				_a1_0 = _a1_0.Add(_a1_1)
+				_a1_0 = _a1_0.Add(_a1_2)
+				_a1_0 = _a1_0.Add(_a1_3)
 				var _buf1 [16]int32
-				_a1.Store(_buf1[:])
+				_a1_0.Store(_buf1[:])
 				for _, _x := range _buf1[:_lanes] {
 					s = s + _x
 				}

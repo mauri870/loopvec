@@ -43,10 +43,30 @@ var spaces = func() string {
 
 func Xor(x byte, b []byte) {
 	_vcUint8s0 := simd.BroadcastUint8s(x)
-	for _i := 0; _i < len(b); {
-		_v1, _n := simd.LoadUint8sPart(b[_i:])
-		_v1.Xor(_vcUint8s0).StorePart(b[_i:])
-		_i += _n
+	{
+		_w1 := b[:len(b):len(b)]
+		_count := len(_w1)
+		_i, _lanes := 0, simd.BroadcastUint8s(0).Len()
+		for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+			_c1 := _w1[_i:][:4*_lanes]
+			_v1 := simd.LoadUint8s(_c1)
+			_v1.Xor(_vcUint8s0).Store(_c1)
+			_v2 := simd.LoadUint8s(_c1[_lanes:])
+			_v2.Xor(_vcUint8s0).Store(_c1[_lanes:])
+			_v3 := simd.LoadUint8s(_c1[2*_lanes:])
+			_v3.Xor(_vcUint8s0).Store(_c1[2*_lanes:])
+			_v4 := simd.LoadUint8s(_c1[3*_lanes:])
+			_v4.Xor(_vcUint8s0).Store(_c1[3*_lanes:])
+		}
+		for ; _i <= _count-_lanes; _i += _lanes {
+			_v5 := simd.LoadUint8s(_w1[_i:])
+			_v5.Xor(_vcUint8s0).Store(_w1[_i:])
+		}
+		for _i < _count {
+			_v6, _n := simd.LoadUint8sPart(_w1[_i:])
+			_v6.Xor(_vcUint8s0).StorePart(_w1[_i:])
+			_i += _n
+		}
 	}
 }
 -- stderr.want --

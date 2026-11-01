@@ -97,7 +97,7 @@ func Sum(a []float32) float32 {
 			_a1_2 := simd.BroadcastFloat32s(0)
 			_a1_3 := simd.BroadcastFloat32s(0)
 			_lanes := _a1_0.Len()
-			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+			for ; _i <= len(a)-4*_lanes; _i += 4 * _lanes {
 				_v1 := simd.LoadFloat32s(a[_i:])
 				_a1_0 = _a1_0.Add(_v1)
 				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
@@ -107,7 +107,7 @@ func Sum(a []float32) float32 {
 				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
 				_a1_3 = _a1_3.Add(_v4)
 			}
-			for ; _i+_lanes <= len(a); _i += _lanes {
+			for ; _i <= len(a)-_lanes; _i += _lanes {
 				_v5 := simd.LoadFloat32s(a[_i:])
 				_a1_0 = _a1_0.Add(_v5)
 			}
@@ -140,7 +140,7 @@ func Dot(a, b []float64) float64 {
 				_a1_2 := simd.BroadcastFloat64s(0)
 				_a1_3 := simd.BroadcastFloat64s(0)
 				_lanes := _a1_0.Len()
-				for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+				for ; _i <= len(a)-4*_lanes; _i += 4 * _lanes {
 					_v1 := simd.LoadFloat64s(a[_i:])
 					_v2 := simd.LoadFloat64s(b[_i:])
 					_a1_0 = _v1.MulAdd(_v2, _a1_0)
@@ -154,7 +154,7 @@ func Dot(a, b []float64) float64 {
 					_v8 := simd.LoadFloat64s(b[_i+3*_lanes:])
 					_a1_3 = _v7.MulAdd(_v8, _a1_3)
 				}
-				for ; _i+_lanes <= len(a); _i += _lanes {
+				for ; _i <= len(a)-_lanes; _i += _lanes {
 					_v9 := simd.LoadFloat64s(a[_i:])
 					_v10 := simd.LoadFloat64s(b[_i:])
 					_a1_0 = _v9.MulAdd(_v10, _a1_0)
@@ -187,7 +187,7 @@ func Product(a []float32) float32 {
 			_a1_2 := simd.BroadcastFloat32s(1)
 			_a1_3 := simd.BroadcastFloat32s(1)
 			_lanes := _a1_0.Len()
-			for ; _i+4*_lanes <= len(a); _i += 4 * _lanes {
+			for ; _i <= len(a)-4*_lanes; _i += 4 * _lanes {
 				_v1 := simd.LoadFloat32s(a[_i:])
 				_a1_0 = _a1_0.Mul(_v1)
 				_v2 := simd.LoadFloat32s(a[_i+_lanes:])
@@ -197,7 +197,7 @@ func Product(a []float32) float32 {
 				_v4 := simd.LoadFloat32s(a[_i+3*_lanes:])
 				_a1_3 = _a1_3.Mul(_v4)
 			}
-			for ; _i+_lanes <= len(a); _i += _lanes {
+			for ; _i <= len(a)-_lanes; _i += _lanes {
 				_v5 := simd.LoadFloat32s(a[_i:])
 				_a1_0 = _a1_0.Mul(_v5)
 			}
@@ -234,7 +234,7 @@ func SumAndSquares(a []float64, n int) (float64, float64) {
 				_a2_2 := simd.BroadcastFloat64s(0)
 				_a2_3 := simd.BroadcastFloat64s(0)
 				_lanes := _a1_0.Len()
-				for ; _i+4*_lanes <= n; _i += 4 * _lanes {
+				for ; _i <= n-4*_lanes; _i += 4 * _lanes {
 					_v1 := simd.LoadFloat64s(a[_i:])
 					_a1_0 = _a1_0.Add(_v1)
 					_a2_0 = _v1.MulAdd(_v1, _a2_0)
@@ -248,7 +248,7 @@ func SumAndSquares(a []float64, n int) (float64, float64) {
 					_a1_3 = _a1_3.Add(_v4)
 					_a2_3 = _v4.MulAdd(_v4, _a2_3)
 				}
-				for ; _i+_lanes <= n; _i += _lanes {
+				for ; _i <= n-_lanes; _i += _lanes {
 					_v5 := simd.LoadFloat64s(a[_i:])
 					_a1_0 = _a1_0.Add(_v5)
 					_a2_0 = _v5.MulAdd(_v5, _a2_0)
@@ -298,7 +298,7 @@ func Moments(x, w []float64, mean, std float64) (s, sumWeights float64) {
 				_a2_2 := simd.BroadcastFloat64s(0)
 				_a2_3 := simd.BroadcastFloat64s(0)
 				_lanes := _a1_0.Len()
-				for ; _i+4*_lanes <= len(x); _i += 4 * _lanes {
+				for ; _i <= len(x)-4*_lanes; _i += 4 * _lanes {
 					_v1 := simd.LoadFloat64s(x[_i:])
 					_t1 := _v1.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
 					_v2 := simd.LoadFloat64s(w[_i:])
@@ -320,7 +320,7 @@ func Moments(x, w []float64, mean, std float64) (s, sumWeights float64) {
 					_a1_3 = _v8.Mul(_t4).Mul(_t4).MulAdd(_t4, _a1_3)
 					_a2_3 = _a2_3.Add(_v8)
 				}
-				for ; _i+_lanes <= len(x); _i += _lanes {
+				for ; _i <= len(x)-_lanes; _i += _lanes {
 					_v9 := simd.LoadFloat64s(x[_i:])
 					_t5 := _v9.Sub(_vcFloat64s4_1).Div(_vcFloat64s4_2)
 					_v10 := simd.LoadFloat64s(w[_i:])

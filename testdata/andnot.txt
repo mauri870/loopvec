@@ -71,11 +71,37 @@ func AndNotUint64s(dst, a, b []uint64) {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
 			_ = b[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadUint64sPart(a[_i:])
-				_v2, _ := simd.LoadUint64sPart(b[_i:])
-				_v1.AndNot(_v2).StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2, _w3 := a[:_count:_count], b[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastUint64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadUint64s(_c2)
+					_v2 := simd.LoadUint64s(_c3)
+					_v1.AndNot(_v2).Store(_c1)
+					_v3 := simd.LoadUint64s(_c2[_lanes:])
+					_v4 := simd.LoadUint64s(_c3[_lanes:])
+					_v3.AndNot(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadUint64s(_c2[2*_lanes:])
+					_v6 := simd.LoadUint64s(_c3[2*_lanes:])
+					_v5.AndNot(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadUint64s(_c2[3*_lanes:])
+					_v8 := simd.LoadUint64s(_c3[3*_lanes:])
+					_v7.AndNot(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadUint64s(_w2[_i:])
+					_v10 := simd.LoadUint64s(_w3[_i:])
+					_v9.AndNot(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadUint64sPart(_w2[_i:])
+					_v12, _ := simd.LoadUint64sPart(_w3[_i:])
+					_v11.AndNot(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -89,11 +115,37 @@ func AndNotInPlace(dst []int32, mask []int32) {
 	} else {
 		if len(dst) > 0 {
 			_ = mask[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadInt32sPart(dst[_i:])
-				_v2, _ := simd.LoadInt32sPart(mask[_i:])
-				_v1.AndNot(_v2).StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := mask[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastInt32s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadInt32s(_c1)
+					_v2 := simd.LoadInt32s(_c2)
+					_v1.AndNot(_v2).Store(_c1)
+					_v3 := simd.LoadInt32s(_c1[_lanes:])
+					_v4 := simd.LoadInt32s(_c2[_lanes:])
+					_v3.AndNot(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadInt32s(_c1[2*_lanes:])
+					_v6 := simd.LoadInt32s(_c2[2*_lanes:])
+					_v5.AndNot(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadInt32s(_c1[3*_lanes:])
+					_v8 := simd.LoadInt32s(_c2[3*_lanes:])
+					_v7.AndNot(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadInt32s(_w1[_i:])
+					_v10 := simd.LoadInt32s(_w2[_i:])
+					_v9.AndNot(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadInt32sPart(_w1[_i:])
+					_v12, _ := simd.LoadInt32sPart(_w2[_i:])
+					_v11.AndNot(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -108,10 +160,31 @@ func AndNotScalar(dst, a []byte, mask byte) {
 	} else {
 		if len(dst) > 0 {
 			_ = a[len(dst)-1]
-			for _i := 0; _i < len(dst); {
-				_v1, _n := simd.LoadUint8sPart(a[_i:])
-				_v1.AndNot(_vcUint8s2).StorePart(dst[_i:])
-				_i += _n
+			{
+				_w1 := dst[:len(dst):len(dst)]
+				_count := len(_w1)
+				_w2 := a[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastUint8s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes]
+					_v1 := simd.LoadUint8s(_c2)
+					_v1.AndNot(_vcUint8s2).Store(_c1)
+					_v2 := simd.LoadUint8s(_c2[_lanes:])
+					_v2.AndNot(_vcUint8s2).Store(_c1[_lanes:])
+					_v3 := simd.LoadUint8s(_c2[2*_lanes:])
+					_v3.AndNot(_vcUint8s2).Store(_c1[2*_lanes:])
+					_v4 := simd.LoadUint8s(_c2[3*_lanes:])
+					_v4.AndNot(_vcUint8s2).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v5 := simd.LoadUint8s(_w2[_i:])
+					_v5.AndNot(_vcUint8s2).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v6, _n := simd.LoadUint8sPart(_w2[_i:])
+					_v6.AndNot(_vcUint8s2).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
@@ -126,11 +199,37 @@ func Feasible(feasible, used, adjacent Colors) {
 		if len(feasible) > 0 {
 			_ = used[len(feasible)-1]
 			_ = adjacent[len(feasible)-1]
-			for _i := 0; _i < len(feasible); {
-				_v1, _n := simd.LoadUint64sPart(used[_i:])
-				_v2, _ := simd.LoadUint64sPart(adjacent[_i:])
-				_v1.AndNot(_v2).StorePart(feasible[_i:])
-				_i += _n
+			{
+				_w1 := feasible[:len(feasible):len(feasible)]
+				_count := len(_w1)
+				_w2, _w3 := used[:_count:_count], adjacent[:_count:_count]
+				_i, _lanes := 0, simd.BroadcastUint64s(0).Len()
+				for ; _i <= _count-4*_lanes; _i += 4 * _lanes {
+					_c1, _c2, _c3 := _w1[_i:][:4*_lanes], _w2[_i:][:4*_lanes], _w3[_i:][:4*_lanes]
+					_v1 := simd.LoadUint64s(_c2)
+					_v2 := simd.LoadUint64s(_c3)
+					_v1.AndNot(_v2).Store(_c1)
+					_v3 := simd.LoadUint64s(_c2[_lanes:])
+					_v4 := simd.LoadUint64s(_c3[_lanes:])
+					_v3.AndNot(_v4).Store(_c1[_lanes:])
+					_v5 := simd.LoadUint64s(_c2[2*_lanes:])
+					_v6 := simd.LoadUint64s(_c3[2*_lanes:])
+					_v5.AndNot(_v6).Store(_c1[2*_lanes:])
+					_v7 := simd.LoadUint64s(_c2[3*_lanes:])
+					_v8 := simd.LoadUint64s(_c3[3*_lanes:])
+					_v7.AndNot(_v8).Store(_c1[3*_lanes:])
+				}
+				for ; _i <= _count-_lanes; _i += _lanes {
+					_v9 := simd.LoadUint64s(_w2[_i:])
+					_v10 := simd.LoadUint64s(_w3[_i:])
+					_v9.AndNot(_v10).Store(_w1[_i:])
+				}
+				for _i < _count {
+					_v11, _n := simd.LoadUint64sPart(_w2[_i:])
+					_v12, _ := simd.LoadUint64sPart(_w3[_i:])
+					_v11.AndNot(_v12).StorePart(_w1[_i:])
+					_i += _n
+				}
 			}
 		}
 	}
