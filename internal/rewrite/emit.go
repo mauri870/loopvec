@@ -64,6 +64,20 @@ type emitter struct {
 	// loadCount and tempCount number the vectors loaded and the temporaries
 	// defined, across every copy of the loop body, so no two names collide.
 	loadCount, tempCount int
+	// windows names, while loop emits the element-wise loop, the slice of each
+	// operand at each offset that the loop touches, indexed from the first
+	// iteration; see loop.
+	windows map[windowKey]string
+	// chunk is set while loop emits the unrolled main loop: each window is then
+	// the chunk of copies vectors the iteration covers, and a copy indexes it
+	// from its own first vector rather than from _i.
+	chunk bool
+}
+
+// windowKey is a slice and the offset from the loop index it is accessed at.
+type windowKey struct {
+	obj types.Object
+	off string
 }
 
 // copyCall renders a copy loop as the copy builtin. The length checks around it
@@ -114,6 +128,12 @@ func operand(expr string) string {
 // len(Dst). A slice read at an offset is not capped: the cap is the limit, and
 // the elements it needs end past it.
 func (e *emitter) operand(ref *loopir.Ref, pos, off string) string {
+	if w, ok := e.windows[windowKey{ref.Obj, off}]; ok {
+		if pos == "" {
+			return w
+		}
+		return w + "[" + pos + ":]"
+	}
 	if e.plan.Bound != "" && off == "" {
 		return ref.Name + "[" + pos + ":" + e.plan.Bound + "]"
 	}
@@ -158,18 +178,105 @@ func lastIndex(limit, off string) string {
 }
 
 // loop generates the vector loop: for each statement in order, load each operand
-// a partial vector at a time, compute, and store it or keep it in a temporary.
-// The loop advances by the number of lanes the first load reported, or the first
-// store when nothing was loaded before it. Running one statement over the whole
-// vector before the next is the scalar order, because every access is at the loop
-// index.
+// a vector at a time, compute, and store it or keep it in a temporary. Running
+// one statement over the whole vector before the next is the scalar order,
+// because every access is at the loop index.
+//
+// Every slice the loop touches is first cut to its window, the elements from the
+// first iteration at its offset, as many as the loop runs, so every window has
+// the same length and is indexed from zero. _count is the length of the first
+// window rather than the trip count it was cut to, so the compiler knows it is not
+// negative, and each window's capacity is its length. With those facts and
+// conditions of the form _i <= _count-k*_lanes, the compiler proves every slice
+// of a window the loops take in bounds and drops all bounds and length checks
+// from them.
+//
+// The main loop runs unrolled copies of the body over consecutive vectors, each
+// copy all the statements in order, so it runs the same chunks in the same order
+// as a loop of one vector would; it cuts each window to the chunk it covers, so
+// each copy addresses its vector at a constant offset. Then whole vectors run one
+// at a time, and what is left, fewer than one vector, is one partial vector, which
+// advances by the number of lanes the first load reported, or the first store
+// when nothing was loaded before it. A partial load or store works out how many
+// elements remain on every call, which on a target without masked loads (arm64)
+// costs more than the operation itself, so it is kept out of the main loops.
 func (e *emitter) loop() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "for _i := %s; _i < %s; {\n", e.plan.Start, e.limit())
+	e.windows = map[windowKey]string{}
+	var names, windows []string
+	for _, access := range e.plan.Checked {
+		key := windowKey{access.Ref.Obj, access.Off}
+		if _, ok := e.windows[key]; ok {
+			continue
+		}
+		name := fmt.Sprintf("_w%d", len(names)+1)
+		e.windows[key] = name
+		names = append(names, name)
+		windows = append(windows, e.window(access, "_count"))
+	}
+	windows[0] = e.window(e.plan.Checked[0], operand(e.count()))
+	fmt.Fprintf(&b, "{\n%s := %s\n_count := len(%[1]s)\n", names[0], windows[0])
+	if len(names) > 1 {
+		fmt.Fprintf(&b, "%s := %s\n", strings.Join(names[1:], ", "), strings.Join(windows[1:], ", "))
+	}
+	fmt.Fprintf(&b, "_i, _lanes := 0, simd.Broadcast%s(0).Len()\n", e.plan.SimdType)
+
+	whole := e.windows
+	fmt.Fprintf(&b, "for ; _i <= _count-%d*_lanes; _i += %[1]d * _lanes {\n", loopCopies)
+	e.windows = map[windowKey]string{}
+	var chunks []string
+	for key, w := range whole {
+		e.windows[key] = "_c" + strings.TrimPrefix(w, "_w")
+	}
+	for _, w := range names {
+		chunks = append(chunks, "_c"+strings.TrimPrefix(w, "_w"))
+	}
+	fmt.Fprintf(&b, "%s := ", strings.Join(chunks, ", "))
+	for k, w := range names {
+		if k > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s[_i:][:%d*_lanes]", w, loopCopies)
+	}
+	b.WriteString("\n")
+	e.chunk = true
+	for copy := range loopCopies {
+		e.statements(&b, true, copy, loopCopies)
+	}
+	e.chunk = false
+	b.WriteString("}\n")
+	e.windows = whole
+
+	b.WriteString("for ; _i <= _count-_lanes; _i += _lanes {\n")
+	e.statements(&b, true, 0, 1)
+	b.WriteString("}\n")
+	b.WriteString("for _i < _count {\n")
 	e.statements(&b, false, 0, 1)
 	b.WriteString("\t_i += _n\n")
-	b.WriteString("}")
+	b.WriteString("}\n}")
+	e.windows = nil
 	return b.String()
+}
+
+// loopCopies is how many vectors the unrolled main loop of an element-wise loop
+// covers per iteration. Measured on arm64 (Apple M4 Max), four copies of
+// AddFloat32s run 9% faster than one at 4096 elements and 18% faster at 1M; eight
+// are slower than four.
+const loopCopies = 4
+
+// window is the slice expression for the elements of access the loop touches:
+// count of them, from the first iteration's index plus the offset, with a
+// capacity of count, so that the compiler knows the capacity of every slice of
+// it as well as its length.
+func (e *emitter) window(access loopir.Access, count string) string {
+	from := addOffset(e.plan.Start, access.Off)
+	if e.plan.Start == "0" {
+		from = access.Off
+	}
+	if from == "" {
+		return access.Ref.Name + "[:" + count + ":" + count + "]"
+	}
+	return access.Ref.Name + "[" + from + ":][:" + count + ":" + count + "]"
 }
 
 // statements writes the body of the vector loop. A slice already loaded is not
@@ -185,6 +292,9 @@ func (e *emitter) statements(b *strings.Builder, full bool, copy, copies int) {
 		if copy == 1 {
 			offset = "_i+_lanes"
 		}
+	}
+	if e.chunk {
+		offset = strings.TrimPrefix(strings.TrimPrefix(offset, "_i"), "+")
 	}
 	haveLanes := false
 	type key struct {
@@ -304,13 +414,13 @@ func (e *emitter) fullLoop() (string, error) {
 	}
 	fmt.Fprintf(&b, "_lanes := %s.Len()\n", accName(1, 0, copies))
 	if copies > 1 {
-		fmt.Fprintf(&b, "for ; _i+%d*_lanes <= %s; _i += %d*_lanes {\n", copies, e.limit(), copies)
+		fmt.Fprintf(&b, "for ; _i <= %s-%d*_lanes; _i += %d*_lanes {\n", operand(e.limit()), copies, copies)
 		for k := range copies {
 			e.statements(&b, true, k, copies)
 		}
 		b.WriteString("}\n")
 	}
-	fmt.Fprintf(&b, "for ; _i+_lanes <= %s; _i += _lanes {\n", e.limit())
+	fmt.Fprintf(&b, "for ; _i <= %s-_lanes; _i += _lanes {\n", operand(e.limit()))
 	e.statements(&b, true, 0, copies)
 	b.WriteString("}\n")
 	for n, fold := range folds {
@@ -354,15 +464,14 @@ func (e *emitter) fullLoop() (string, error) {
 }
 
 // unroll is how many bodies the main loop of a reduction runs per iteration, each
-// into its own accumulators. A float add takes several cycles and depends on the
-// previous one, so a single accumulator leaves the vector unit idle; the copies
-// overlap those latencies. Measured on a float dot product, two copies nearly
-// double the speed of one and four add a few percent more; an integer add takes
-// one cycle and copies did not help. The accumulators have to stay in registers.
+// into its own accumulators. Each fold depends on the previous one, so a single
+// accumulator leaves the vector unit waiting on its latency; the copies overlap
+// those latencies. Measured on a float dot product, two copies nearly double the
+// speed of one and four add a few percent more. An integer add takes one cycle
+// on AVX-512 but two on arm64, where four copies make SumInt32s three times as
+// fast, so integers get them too. Integer folds wrap, so regrouping them gives
+// the same result. The accumulators have to stay in registers.
 func unroll(folds []loopir.PlanStmt) int {
-	if t := folds[0].Acc.Type().Underlying().(*types.Basic); t.Info()&types.IsFloat == 0 {
-		return 1
-	}
 	return max(1, min(4, 8/len(folds)))
 }
 
@@ -470,7 +579,12 @@ func (e *emitter) checked(loopText string) string {
 		fmt.Fprintf(&checks, "_ = %s[%s]\n", access.Ref.Name, lastIndex(limit, access.Off))
 	}
 	if checks.Len() == 0 {
-		return loopText
+		// The windows slice from the start, which a loop that does not run may be
+		// past the end of.
+		if e.plan.Start == "0" || e.plan.NonEmpty || e.plan.Copy {
+			return loopText
+		}
+		return "if " + limit + " > " + e.plan.Start + " {\n" + loopText + "\n}"
 	}
 	if e.plan.NonEmpty {
 		return checks.String() + loopText

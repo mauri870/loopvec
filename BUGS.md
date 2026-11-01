@@ -12,7 +12,7 @@ gotip, "1.27.1" is the release toolchain loopvec is tested against.
 | [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is open | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
 | [#81846](https://github.com/golang/go/issues/81846) `Float32s.Neg` rebuilds its sign constant every iteration | open | speed of negation loops | none; the loop is correct, only slower than it should be |
 | [#81847](https://github.com/golang/go/issues/81847) `GOEXPERIMENT=simd` alone slows async preemption on AVX-512 | open | any benchmark comparing a scalar and a simd build | benchmark with `GODEBUG=asyncpreemptoff=1` |
-| [#82001](https://github.com/golang/go/issues/82001) emulated `Load{Float64,Int64,Uint64}sPart` return `len(s)` | open | generated loops under `GODEBUG=simd=0` | none; the loops use the count `Load*Part` returns, as the package documents |
+| [#82001](https://github.com/golang/go/issues/82001) emulated `Load{Float64,Int64,Uint64}sPart` return `len(s)` | open | nothing loopvec generates | the loops use `Load*Part` only for what is left after the last whole vector, where `len(s)` is the count loaded |
 | [#82002](https://github.com/golang/go/issues/82002) `Min` and `Max` on floats differ from Go's for NaN and -0 | open | float `min`/`max` | not rewritten (`float min and max differ from Go's ...`) |
 
 ## #80657: simd in a method
@@ -76,10 +76,12 @@ regressions.
 ## #82001: emulated partial loads
 
 With `GODEBUG=simd=0` the emulated `Load{Float64,Int64,Uint64}sPart` return `len(s)`
-instead of the number of elements loaded. loopvec's loops advance by that count (the loop
-shape the `simd` package documents), so in that mode a copy of ten `float64`s produces
-`[1 2 0 0 0 0 0 0 0 0]` instead of the input. The hardware-backed mode gives the right
-answer.
+instead of the number of elements loaded. A loop that advances by that count on every
+iteration (the loop shape the `simd` package documents) skips elements in that mode: a
+copy of ten `float64`s produces `[1 2 0 0 0 0 0 0 0 0]` instead of the input. loopvec's
+loops load whole vectors while one fits and use `Load*Part` only for what is left, fewer
+elements than a vector holds, where `len(s)` is the number loaded, so they are not
+affected. The hardware-backed mode gives the right answer either way.
 
 ## #82002: float `Min` and `Max`
 

@@ -159,8 +159,14 @@ reversal), no new dependence checking is needed, just a wider clause match.
 
 `internal/rewrite/emit.go` never looks at the original statement's clauses —
 it only uses `plan.Loop.Node.Pos()/.End()` to know what text span to replace,
-and generates a **fixed forward** `for _i := 0; _i < bound; { ... }` template
-driven entirely by the `Plan` (`Root`, `Dst`, `Bound`, ...).
+and generates a **fixed forward** template driven entirely by the `Plan`
+(`Root`, `Dst`, `Bound`, ...): every operand is cut to its window
+(`x[start+off:][:_count]`) before the loop, then whole vectors while
+`_i <= _count-_lanes`, then one partial vector for what is left. Keep both:
+with every window exactly `_count` long and that condition, the compiler
+proves each `window[_i:]` holds a whole vector and drops all bounds and length
+checks from the main loop; slicing the original operands at `_i+off`, or
+writing `_i+_lanes <= _count`, leaves them in (each worth 30-50% on arm64).
 `Induction.Step` records the direction but the emitter ignores it. This means:
 extending lowering to accept a new *loop clause shape* that still produces
 the same kind of `Loop` (same body semantics) needs **zero** emitter changes.
