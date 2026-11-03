@@ -7,11 +7,16 @@
 
 env GOEXPERIMENT=simd
 env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/lib
 env GOCACHE=$WORK/gocache1
 exec go build -buildmode=archive -toolexec=$LOOPVEC_TOOLEXEC -o a1.a .
+! stdout .
+! stderr .
 env GOCACHE=$WORK/gocache2
 exec go build -buildmode=archive -toolexec=$LOOPVEC_TOOLEXEC -o a2.a .
-grep -count=2 '^rewrote 1 loop\(s\) in example\.com/lib$' log
+! stdout .
+! stderr .
+cmp log log.want
 cmp a1.a a2.a
 
 -- go.mod --
@@ -26,3 +31,6 @@ func Add(dst, a, b []float32) {
 		dst[i] = a[i] + b[i]
 	}
 }
+-- log.want --
+rewrote 1 loop(s) in example.com/lib
+rewrote 1 loop(s) in example.com/lib

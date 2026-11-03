@@ -1,0 +1,103 @@
+# With PGO, go test compiles a package once for a main package's binary and
+# again for its test binary, with the same inputs, and can compile the test
+# against one copy and link the other. The linker rejects the build unless both
+# copies of a rewritten package are the same archive. A profile with no samples
+# is enough to turn PGO on.
+
+cd mkprof
+exec go run . $WORK/cmd/bench/default.pgo
+! stdout .
+! stderr .
+cd $WORK
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/app/vec
+exec go test -toolexec=$LOOPVEC_TOOLEXEC ./...
+stdout -count=1 '^ok  	example\.com/app/vec	'
+stdout -count=1 '^ok  	example\.com/app/cmd/bench	'
+! stderr .
+cmp log log.want
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+func Add(dst, a, b []float32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- vec/vec_test.go --
+package vec
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	dst := make([]float32, 9)
+	Add(dst, []float32{1, 2, 3, 4, 5, 6, 7, 8, 9}, []float32{1, 1, 1, 1, 1, 1, 1, 1, 1})
+	if dst[8] != 10 {
+		t.Fatal(dst)
+	}
+}
+-- cmd/bench/main.go --
+package main
+
+import "example.com/app/vec"
+
+func main() {
+	dst := make([]float32, 4)
+	vec.Add(dst, dst, dst)
+}
+-- cmd/bench/main_test.go --
+package main
+
+import (
+	"testing"
+
+	"example.com/app/vec"
+)
+
+// The test imports vec itself, so the test binary gets a PGO copy of vec of its
+// own.
+func TestAdd(t *testing.T) {
+	dst := make([]float32, 4)
+	vec.Add(dst, []float32{1, 2, 3, 4}, []float32{1, 1, 1, 1})
+	if dst[3] != 5 {
+		t.Fatal(dst)
+	}
+}
+-- mkprof/go.mod --
+module mkprof
+
+go 1.27.1
+-- mkprof/main.go --
+// mkprof writes a CPU profile with no samples to the file named by its argument.
+package main
+
+import (
+	"os"
+	"runtime/pprof"
+)
+
+func main() {
+	f, err := os.Create(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		panic(err)
+	}
+	pprof.StopCPUProfile()
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
+}
+-- log.want --
+rewrote 1 loop(s) in example.com/app/vec
+rewrote 1 loop(s) in example.com/app/vec
+rewrote 1 loop(s) in example.com/app/vec
