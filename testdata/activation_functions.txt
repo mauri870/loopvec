@@ -3,9 +3,16 @@
 # Both branches are computed for every lane, and the results must still match the
 # scalar loop for NaN, infinities and signed zeros, which compare the way Go does.
 
+# testmain/output was recorded on amd64. These loops only pass the input NaN
+# through, but a NaN that an operation creates (an alpha of 0 times an infinity)
+# has the sign bit set there and clear on arm64, so only the scalar build is
+# compared with the recording, and only on amd64. On every target the simd build
+# is compared with the scalar build of the same machine.
+
 # The scalar program is the reference behavior.
 exec go run ./testmain
-cmp stdout testmain/output
+[GOARCH:amd64] cmp stdout testmain/output
+cp stdout scalar.out
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -17,7 +24,7 @@ cmp ops.go ops.go.guarded
 # The simd build must behave identically.
 env GOEXPERIMENT=simd
 exec go run ./testmain
-cmp stdout testmain/output
+cmp stdout scalar.out
 
 -- go.mod --
 module example.com/test
