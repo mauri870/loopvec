@@ -2,10 +2,15 @@ export GOTOOLCHAIN ?= go1.27.1
 
 .DEFAULT_GOAL := build
 
-.PHONY: build install test fix fmt lint ci bench bench-regen bench-fuzz fuzz-slow generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-coverage-update tsvc-bench test-update
+.PHONY: build install test test-qemu-arm64 fix fmt lint ci bench bench-regen bench-fuzz fuzz-slow generate tsvc-test tsvc-test-qemu-arm64 tsvc-update tsvc-coverage-update tsvc-bench test-update
 
 test: build
 	go test ./... -count=1 -race
+
+# The scripts run the arm64 binaries they build, which needs an aarch64 binfmt
+# handler as well as qemu-aarch64-static.
+test-qemu-arm64: build
+	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test ./... -count=1 -exec=qemu-aarch64-static
 
 bench-fuzz:
 	GOEXPERIMENT=simd go test ./bench/ -count=1 -run Fuzz
@@ -52,7 +57,7 @@ build:
 install:
 	go install . ./cmd/loopvec-toolexec
 
-ci: test-update test bench-fuzz tsvc-test tsvc-test-qemu-arm64
+ci: test-update test test-qemu-arm64 bench-fuzz tsvc-test tsvc-test-qemu-arm64
 	$(MAKE) fix
 	git diff --exit-code
 	$(MAKE) lint
