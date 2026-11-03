@@ -5,6 +5,7 @@ go 1.27.1
 toolchain go1.27.3
 
 require (
+	github.com/pmezard/go-difflib v1.0.0
 	golang.org/x/tools v0.52.1-0.20261103172851-aba6dfd3c19d
 	rsc.io/script v0.0.2
 )
