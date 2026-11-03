@@ -1,0 +1,109 @@
+# A read at a negative constant offset is left alone when an index it reads is a
+# negative constant: the one at the lowest index the loop visits, with a constant
+# start (a[i-1] over 0..n-1, whichever way the loop counts, and over a range of a
+# slice), or every one, with a constant limit (a[i-16] in a loop that stops before
+# 16). The scalar loop panics when it reaches that index, and the vector loop would
+# index at a negative constant, which does not compile. The start and limit may be
+# literals, named constants or constant expressions (see offset_negative_constant.txt
+# for the loops that are rewritten). A read at a positive constant offset that
+# pushes a constant start or limit past the largest int is left alone too, since the
+# emitted code would add them.
+
+cp ops.go ops.go.orig
+loopvec -split .
+! stdout .
+! stderr .
+! exists ops_simd.go
+cmp ops.go ops.go.orig
+
+loopvec -json .
+cmpenv stdout stdout.want
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+import "math"
+
+func EveryIndexNegative(dst, a []int32) {
+	for i := 0; i < 16; i++ {
+		dst[i] = a[i-16] + 1
+	}
+}
+
+func FarBelow(dst, a []float32) {
+	for i := 0; i < 16; i++ {
+		dst[i] = a[i-20] * a[i]
+	}
+}
+
+func FirstIndexNegative(dst, a []int32, n int) {
+	for i := 0; i < n; i++ {
+		dst[i] = a[i-1] * 3
+	}
+}
+
+const s0, lim = 0, 16
+
+func NamedLimit(dst, a []int32, k int) {
+	for i := k; i < lim; i++ {
+		dst[i] = a[i-20] + 1
+	}
+}
+
+func NamedStart(dst, a []int32, n int) {
+	for i := s0; i < n; i++ {
+		dst[i] = a[i-1] * 3
+	}
+}
+
+func ExpressionStart(dst, a []int32, n int) {
+	for i := 1 - 1; i < n; i++ {
+		dst[i] = a[i-1] * 3
+	}
+}
+
+func NamedStartCopy(dst, a []int32, n int) {
+	for i := s0; i < n; i++ {
+		dst[i] = a[i-1]
+	}
+}
+
+func CountingDownToZero(dst, a []int32) {
+	for i := 15; i >= 0; i-- {
+		dst[i] = a[i-1] + 1
+	}
+}
+
+func RangeOverSlice(dst, a []int32) {
+	for i := range dst {
+		dst[i] = a[i-1] + 1
+	}
+}
+
+func LimitPastLargest(dst, a []int32) {
+	for i := 0; i < math.MaxInt64; i++ {
+		dst[i] = a[i+1] + 1
+	}
+}
+
+func StartPastLargest(dst, a []int32, n int) {
+	for i := math.MaxInt64 - 1; i < n; i++ {
+		dst[i] = a[i+2] + 1
+	}
+}
+-- stdout.want --
+{"file":"$WORK/ops.go","line":6,"func":"EveryIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":12,"func":"FarBelow","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":18,"func":"FirstIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":26,"func":"NamedLimit","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":32,"func":"NamedStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":38,"func":"ExpressionStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":44,"func":"NamedStartCopy","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":50,"func":"CountingDownToZero","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":56,"func":"RangeOverSlice","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+{"file":"$WORK/ops.go","line":62,"func":"LimitPastLargest","vectorized":false,"reason":"loop limit is not a loop-invariant integer expression","stage":"lower"}
+{"file":"$WORK/ops.go","line":68,"func":"StartPastLargest","vectorized":false,"reason":"loop start is not a loop-invariant integer expression","stage":"lower"}

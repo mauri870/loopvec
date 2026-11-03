@@ -1,9 +1,6 @@
 package loopir
 
-import (
-	"go/types"
-	"strconv"
-)
+import "go/types"
 
 // maxSlices is the most distinct slices a loop may touch. Each stored slice is
 // checked at run time against every other slice in the loop, so the number of
@@ -166,22 +163,18 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 		p.Stmts = append(p.Stmts, planned)
 	}
 	if len(p.Stmts) == 1 && p.Stmts[0].Dst != nil {
-		if load, ok := p.Stmts[0].Root.(*Load); ok {
-			p.Copy = !negativeSource(l.Ind.Trip.Start, load.Off)
-		}
+		_, p.Copy = p.Stmts[0].Root.(*Load)
 	}
 
 	trip := l.Ind.Trip
 	// A loop that runs a few times, known at compile time, is faster as it is.
-	if from, errFrom := strconv.ParseInt(trip.Start, 10, 64); errFrom == nil {
-		if to, errTo := strconv.ParseInt(trip.Limit, 10, 64); errTo == nil {
-			least := int64(minTrip)
-			if p.Full {
-				least = int64(MinReduceVectors * MaxLanes(elem))
-			}
-			if to-from < least {
-				return nil, ReasonShortLoop
-			}
+	if trip.StartConst && trip.LimitConst {
+		least := int64(minTrip)
+		if p.Full {
+			least = int64(MinReduceVectors * MaxLanes(elem))
+		}
+		if trip.LimitValue-trip.StartValue < least {
+			return nil, ReasonShortLoop
 		}
 	}
 	p.Start, p.Limit, p.NonEmpty, p.TripRef = trip.Start, trip.Limit, trip.NonEmpty, trip.Slice
@@ -226,16 +219,6 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 		}
 	}
 	return p, ""
-}
-
-// negativeSource reports whether a copy would slice its source at a negative
-// constant, which does not compile: the loop starts at start and reads at offset
-// off, and both are constants that add up to less than zero. Such a loop panics
-// when it runs, which the ordinary vector loop does as well.
-func negativeSource(start, off string) bool {
-	s, errStart := strconv.ParseInt(start, 10, 64)
-	o, errOff := strconv.ParseInt(off, 10, 64)
-	return errStart == nil && errOff == nil && s+o < 0
 }
 
 // checkOps returns why simd cannot express an operation in v on the element

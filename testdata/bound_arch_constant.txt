@@ -1,0 +1,236 @@
+# A start or limit that names a constant keeps the name in the emitted code, since
+# the file is compiled for every build and the constant can have another value in
+# another one. Here width differs by GOARCH: written out as its value on one
+# architecture, the vector loop would stop short, or run past the slices, on the
+# others. A constant written with literals alone is spelled as its value.
+
+exec go run ./testmain
+cmp stdout testmain/output
+
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- width_amd64.go --
+package test
+
+const width = 32
+-- width_arm64.go --
+package test
+
+const width = 64
+-- width_other.go --
+//go:build !amd64 && !arm64
+
+package test
+
+const width = 48
+-- width.go --
+package test
+
+// Width is width, for testmain to check against.
+func Width() int { return width }
+-- ops.go --
+package test
+
+func Add(dst, a, b []float32) {
+	for i := 0; i < width; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func AddInclusive(dst, a, b []float32) {
+	for i := 0; i <= width-1; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func AddDown(dst, a, b []float32) {
+	for i := width - 1; i >= 0; i-- {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func AddAbove(dst, a, b []float32) {
+	for i := len(dst) - 1; i > width; i-- {
+		dst[i] = a[i] + b[i]
+	}
+}
+
+func AddLiteral(dst, a, b []float32) {
+	for i := 0; i < 2*8; i++ {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func Add(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a, 0, width, 0, width) || _loopvecOverlap(dst, b, 0, width, 0, width) {
+		for i := 0; i < width; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		_ = dst[width-1]
+		_ = a[width-1]
+		_ = b[width-1]
+		for _i := 0; _i < width; {
+			_v1, _n := simd.LoadFloat32sPart(a[_i:width])
+			_v2, _ := simd.LoadFloat32sPart(b[_i:width])
+			_v1.Add(_v2).StorePart(dst[_i:width])
+			_i += _n
+		}
+	}
+}
+
+func AddInclusive(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a, 0, width, 0, width) || _loopvecOverlap(dst, b, 0, width, 0, width) {
+		for i := 0; i <= width-1; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		_ = dst[width-1]
+		_ = a[width-1]
+		_ = b[width-1]
+		for _i := 0; _i < width; {
+			_v1, _n := simd.LoadFloat32sPart(a[_i:width])
+			_v2, _ := simd.LoadFloat32sPart(b[_i:width])
+			_v1.Add(_v2).StorePart(dst[_i:width])
+			_i += _n
+		}
+	}
+}
+
+func AddDown(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a, 0, width, 0, width) || _loopvecOverlap(dst, b, 0, width, 0, width) {
+		for i := width - 1; i >= 0; i-- {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		_ = dst[width-1]
+		_ = a[width-1]
+		_ = b[width-1]
+		for _i := 0; _i < width; {
+			_v1, _n := simd.LoadFloat32sPart(a[_i:width])
+			_v2, _ := simd.LoadFloat32sPart(b[_i:width])
+			_v1.Add(_v2).StorePart(dst[_i:width])
+			_i += _n
+		}
+	}
+}
+
+func AddAbove(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a, width+1, len(dst), width+1, len(dst)) || _loopvecOverlap(dst, b, width+1, len(dst), width+1, len(dst)) {
+		for i := len(dst) - 1; i > width; i-- {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if len(dst) > width+1 {
+			_ = a[len(dst)-1]
+			_ = b[len(dst)-1]
+			for _i := width + 1; _i < len(dst); {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:])
+				_v1.Add(_v2).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+func AddLiteral(dst, a, b []float32) {
+	if _loopvecOverlap(dst, a, 0, 16, 0, 16) || _loopvecOverlap(dst, b, 0, 16, 0, 16) {
+		for i := 0; i < 2*8; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		_ = dst[16-1]
+		_ = a[16-1]
+		_ = b[16-1]
+		for _i := 0; _i < 16; {
+			_v1, _n := simd.LoadFloat32sPart(a[_i:16])
+			_v2, _ := simd.LoadFloat32sPart(b[_i:16])
+			_v1.Add(_v2).StorePart(dst[_i:16])
+			_i += _n
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+const n = 100
+
+// check reports whether f stored a[i] + b[i] at exactly the indexes lo..hi-1 of
+// dst and left every other element alone.
+func check(f func(dst, a, b []float32), lo, hi int) bool {
+	dst, a, b := make([]float32, n), make([]float32, n), make([]float32, n)
+	for i := range a {
+		a[i], b[i], dst[i] = float32(i), float32(2*i), -1
+	}
+	f(dst, a, b)
+	for i := range dst {
+		want := float32(-1)
+		if lo <= i && i < hi {
+			want = a[i] + b[i]
+		}
+		if dst[i] != want {
+			return false
+		}
+	}
+	return true
+}
+
+func main() {
+	w := test.Width()
+	fmt.Println(check(test.Add, 0, w))
+	fmt.Println(check(test.AddInclusive, 0, w))
+	fmt.Println(check(test.AddDown, 0, w))
+	fmt.Println(check(test.AddAbove, w+1, n))
+	fmt.Println(check(test.AddLiteral, 0, 16))
+}
+-- testmain/output --
+true
+true
+true
+true
+true

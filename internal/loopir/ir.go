@@ -136,6 +136,12 @@ type Trip struct {
 	// Start and Limit are loop-invariant integer expressions, as source text.
 	// Start is "0" for the common case.
 	Start, Limit string
+	// StartConst and LimitConst are set when Start and Limit are constants, whose
+	// values are StartValue and LimitValue. The text of a constant that names
+	// another constant keeps the name (see spell), so the checks that need a
+	// constant read these.
+	StartConst, LimitConst bool
+	StartValue, LimitValue int64
 	// Slice is the slice whose length is Limit, when Limit is exactly len(Slice).
 	Slice *Ref
 	// NonEmpty is set when both are constants and Start < Limit, so the loop runs

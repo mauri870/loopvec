@@ -17,7 +17,9 @@ const (
 	ReasonUnsupportedRange Reason = "range clause is not i := range s, i, v := range s, or i := range n"
 	// ReasonUnsupportedStart covers a counting loop whose start is not a
 	// loop-invariant integer expression (a constant, an int variable, len of a
-	// slice, and sums and products of those), or is a negative constant.
+	// slice, and sums and products of those), is a negative constant, or is a
+	// constant that a read at a positive constant offset pushes past the largest
+	// int.
 	ReasonUnsupportedStart Reason = "loop start is not a loop-invariant integer expression"
 	// ReasonUnsupportedCondition covers a loop condition that is not
 	// i < limit or i <= limit, or i >= limit or i > limit when counting down.
@@ -28,7 +30,9 @@ const (
 	// ReasonUnsupportedBound covers a limit that is not a loop-invariant integer
 	// expression, is a constant that is not positive, or is written so that
 	// adding one to it could overflow (a <= limit, or the start of a loop that
-	// counts down, that is not a constant or something minus a constant).
+	// counts down, that is not a constant or something minus a constant), or is
+	// a constant that a read at a positive constant offset pushes past the
+	// largest int.
 	ReasonUnsupportedBound Reason = "loop limit is not a loop-invariant integer expression"
 	// ReasonUnsupportedDestination covers a destination that isn't a plain
 	// slice[i] element: an offset (dst[i+1]), a stride (dst[2*i]), or a
@@ -43,10 +47,11 @@ const (
 	// wrote, so the iterations cannot run as a vector.
 	ReasonCarriedDependence Reason = "an iteration reads an element an earlier iteration wrote"
 	// ReasonNegativeIndex covers a slice read at a constant offset that puts an
-	// index below zero: the first index, with a constant start (a[i-1] in a loop
-	// from 0), or every index, with a constant limit (a[i-20] in a loop that stops
-	// before 16). The scalar loop panics when it runs, and the vector loop would
-	// index or slice at a negative constant, which does not compile.
+	// index below zero: the one read at the lowest index the loop visits, with a
+	// constant start (a[i-1] in a loop over 0..n-1, whichever way it counts), or
+	// every one, with a constant limit (a[i-20] in a loop that stops before 16). The
+	// scalar loop panics when it reaches that index, and the vector loop would index
+	// or slice at a negative constant, which does not compile.
 	ReasonNegativeIndex Reason = "a constant offset puts an index below zero"
 	// ReasonUnsupportedIf covers an if that is not a select: a condition that is
 	// not a comparison of loop values (joined by && and ||), an init statement, or
