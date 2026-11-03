@@ -4,7 +4,7 @@
 # 1. Preview changes
 loopvec -d ./mypkg/...
 cmpenv stderr stderr.want
-stdout -count=1 '^\+\+\+ \S+/mypkg/ops\.go\t'
+stdout -count=1 '^\+\+\+ \S+/mypkg/ops\.go$'
 ! exists mypkg/ops_simd.go
 
 # 2. Apply: creates ops_simd.go and guards ops.go

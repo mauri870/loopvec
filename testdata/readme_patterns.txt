@@ -10,10 +10,10 @@ cmp b/ops.go b/ops.go.orig
 
 # unified diff, once per changed file
 loopvec -d ./...
-stdout -count=1 '^--- \S+/a/ops\.go\t'
-stdout -count=1 '^\+\+\+ \S+/a/ops\.go\t'
-stdout -count=1 '^--- \S+/b/ops\.go\t'
-stdout -count=1 '^\+\+\+ \S+/b/ops\.go\t'
+stdout -count=1 '^--- \S+/a/ops\.go$'
+stdout -count=1 '^\+\+\+ \S+/a/ops\.go$'
+stdout -count=1 '^--- \S+/b/ops\.go$'
+stdout -count=1 '^\+\+\+ \S+/b/ops\.go$'
 stdout -count=2 '^@@ -1,7 \+1,43 @@$'
 cmpenv stderr both.stderr
 cmp a/ops.go a/ops.go.orig

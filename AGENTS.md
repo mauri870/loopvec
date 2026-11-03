@@ -29,6 +29,7 @@ package (`GOEXPERIMENT=simd`). Three parts:
 ```sh
 make build   # ./bin/loopvec, ./bin/loopvec-toolexec
 make test    # full suite, -race
+make test-qemu-arm64  # full suite on arm64, under qemu
 make ci      # what CI runs, in one command (needs qemu-aarch64-static locally)
 ```
 
@@ -52,6 +53,11 @@ difference with `[tip]` (see `flag_methods_ice.txt`, `flag_methods_tip.txt`).
 
 `benchstat` and `qemu-aarch64-static` are assumed to be on `PATH`, not
 installed by any target (same convention as assuming `go` itself is there).
+`make test-qemu-arm64` also needs an aarch64 binfmt handler: `-exec` runs
+only the test binary under qemu, and the scripts then run the arm64 binaries
+they build. On Ubuntu, installing `qemu-user-static` registers one (CI relies
+on this); elsewhere,
+`docker run --privileged --rm tonistiigi/binfmt --install arm64`.
 
 ## Testing convention — there is no unit-test layer
 
@@ -237,7 +243,7 @@ Order that actually works, based on adding reverse-loop support (`s1112`):
    (`parsing measurement: invalid syntax`) or show mismatched sample counts
    (`n=9+10`) instead of a clean `n=10`; if you see either, delete the
    `/tmp` files and rerun before trusting the numbers.
-9. **Final pass**: `make ci` (build, test, `tsvc` on amd64 and arm64, fmt,
+9. **Final pass**: `make ci` (build, test and `tsvc` on amd64 and arm64, fmt,
    lint, all in one command) before calling it done. Fall back to
    `make test && make fmt && make lint` only if `qemu-aarch64-static` isn't
    available locally.

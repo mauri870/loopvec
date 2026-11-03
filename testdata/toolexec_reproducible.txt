@@ -1,0 +1,28 @@
+# The wrapper compiles rewritten files from a directory of its own, and their
+# names end up in the export data. Building the same package twice must still
+# give the same archive: the go command can compile a package twice in one build
+# (with PGO, once for each test binary that needs it), compile its importers
+# against one copy and link the other, and the linker rejects two copies that
+# differ.
+
+env GOEXPERIMENT=simd
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env GOCACHE=$WORK/gocache1
+exec go build -buildmode=archive -toolexec=$LOOPVEC_TOOLEXEC -o a1.a .
+env GOCACHE=$WORK/gocache2
+exec go build -buildmode=archive -toolexec=$LOOPVEC_TOOLEXEC -o a2.a .
+grep -count=2 '^rewrote 1 loop\(s\) in example\.com/lib$' log
+cmp a1.a a2.a
+
+-- go.mod --
+module example.com/lib
+
+go 1.27.1
+-- lib.go --
+package lib
+
+func Add(dst, a, b []float32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
