@@ -1,18 +1,20 @@
 # A read at a negative constant offset is rewritten while every index it reads can
-# be zero or more. When an index is a negative constant, the first one in a loop
-# with a constant start (a[i-1] from 0) or every one in a loop with a constant limit
-# (a[i-16] in a loop that stops before 16), the scalar loop panics when it runs and
-# the vector loop would index at a negative constant, which does not compile, so the
-# loop is left alone, whether the start and limit are written as literals, named
-# constants or constant expressions. The rewritten package must build.
+# be zero or more: from a constant start at least as large as the offset, a named
+# one included, which the emitted code keeps by name, and up to a constant limit
+# that leaves the highest index read at zero or more. Loops whose index is a
+# negative constant are left alone (see offset_negative_constant_no_rewrite.txt).
 
-loopvec -json .
-cmpenv stdout stdout.want
+exec go run ./testmain
+cmp stdout testmain/output
 
 loopvec -split .
+! stdout .
 cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+
 env GOEXPERIMENT=simd
-exec go build .
+exec go run ./testmain
+cmp stdout testmain/output
 
 -- go.mod --
 module example.com/test
@@ -27,64 +29,195 @@ func FirstIndexZeroConstant(dst, a []int32) {
 	}
 }
 
-func EveryIndexNegative(dst, a []int32) {
-	for i := 0; i < 16; i++ {
-		dst[i] = a[i-16] + 1
-	}
-}
-
-func FarBelow(dst, a []float32) {
-	for i := 0; i < 16; i++ {
-		dst[i] = a[i-20] * a[i]
-	}
-}
-
-func FirstIndexNegative(dst, a []int32, n int) {
-	for i := 0; i < n; i++ {
-		dst[i] = a[i-1] * 3
-	}
-}
-
 func FirstIndexZero(dst, a []int32, n int) {
 	for i := 1; i < n; i++ {
 		dst[i] = a[i-1] * 3
 	}
 }
 
-const s0, lim = 0, 16
-
-func NamedLimit(dst, a []int32, k int) {
-	for i := k; i < lim; i++ {
-		dst[i] = a[i-20] + 1
-	}
-}
+const s1 = 1
 
 func NamedStart(dst, a []int32, n int) {
-	for i := s0; i < n; i++ {
-		dst[i] = a[i-1] * 3
-	}
-}
-
-func ExpressionStart(dst, a []int32, n int) {
-	for i := 1 - 1; i < n; i++ {
+	for i := s1; i < n; i++ {
 		dst[i] = a[i-1] * 3
 	}
 }
 
 func NamedStartCopy(dst, a []int32, n int) {
-	for i := s0; i < n; i++ {
+	for i := s1; i < n; i++ {
 		dst[i] = a[i-1]
 	}
 }
--- stdout.want --
-{"file":"$WORK/ops.go","line":4,"func":"FirstIndexZeroConstant","vectorized":true}
-{"file":"$WORK/ops.go","line":10,"func":"EveryIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":16,"func":"FarBelow","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":22,"func":"FirstIndexNegative","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":28,"func":"FirstIndexZero","vectorized":true}
-{"file":"$WORK/ops.go","line":36,"func":"NamedLimit","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":42,"func":"NamedStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":48,"func":"ExpressionStart","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
-{"file":"$WORK/ops.go","line":54,"func":"NamedStartCopy","vectorized":false,"reason":"a constant offset puts an index below zero","stage":"lower"}
+
+func LastIndexZero(dst, a []int32, k int) {
+	for i := k; i < 16; i++ {
+		dst[i] = a[i-15] + 1
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+func FirstIndexZeroConstant(dst, a []int32) {
+	_vcInt32s0 := simd.BroadcastInt32s(1)
+	if _loopvecOverlap(dst, a, 15, 31, 0, 31) {
+		for i := 15; i < 31; i++ {
+			dst[i] = a[i-15] + 1
+		}
+	} else {
+		_ = dst[31-1]
+		_ = a[31-16]
+		for _i := 15; _i < 31; {
+			_v1, _n := simd.LoadInt32sPart(a[_i-15:])
+			_v1.Add(_vcInt32s0).StorePart(dst[_i:31])
+			_i += _n
+		}
+	}
+}
+
+func FirstIndexZero(dst, a []int32, n int) {
+	_vcInt32s1 := simd.BroadcastInt32s(3)
+	if _loopvecOverlap(dst, a, 1, n, 0, n) {
+		for i := 1; i < n; i++ {
+			dst[i] = a[i-1] * 3
+		}
+	} else {
+		if n > 1 {
+			_ = dst[n-1]
+			_ = a[n-2]
+			for _i := 1; _i < n; {
+				_v1, _n := simd.LoadInt32sPart(a[_i-1:])
+				_v1.Mul(_vcInt32s1).StorePart(dst[_i:n])
+				_i += _n
+			}
+		}
+	}
+}
+
+const s1 = 1
+
+func NamedStart(dst, a []int32, n int) {
+	_vcInt32s2 := simd.BroadcastInt32s(3)
+	if _loopvecOverlap(dst, a, s1, n, s1-1, n) {
+		for i := s1; i < n; i++ {
+			dst[i] = a[i-1] * 3
+		}
+	} else {
+		if n > s1 {
+			_ = dst[n-1]
+			_ = a[n-2]
+			for _i := s1; _i < n; {
+				_v1, _n := simd.LoadInt32sPart(a[_i-1:])
+				_v1.Mul(_vcInt32s2).StorePart(dst[_i:n])
+				_i += _n
+			}
+		}
+	}
+}
+
+func NamedStartCopy(dst, a []int32, n int) {
+	if _loopvecOverlap(dst, a, s1, n, s1-1, n) {
+		for i := s1; i < n; i++ {
+			dst[i] = a[i-1]
+		}
+	} else {
+		if n > s1 {
+			_ = dst[n-1]
+			_ = a[n-2]
+			copy(dst[s1:n], a[s1-1:])
+		}
+	}
+}
+
+func LastIndexZero(dst, a []int32, k int) {
+	_vcInt32s4 := simd.BroadcastInt32s(1)
+	if _loopvecOverlap(dst, a, k, 16, k-15, 16) {
+		for i := k; i < 16; i++ {
+			dst[i] = a[i-15] + 1
+		}
+	} else {
+		if 16 > k {
+			_ = dst[16-1]
+			_ = a[16-16]
+			for _i := k; _i < 16; {
+				_v1, _n := simd.LoadInt32sPart(a[_i-15:])
+				_v1.Add(_vcInt32s4).StorePart(dst[_i:16])
+				_i += _n
+			}
+		}
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
 -- stderr.want --
-loopvec: rewrote 2 loop(s) in $WORK/ops.go
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+func try(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return
+}
+
+func ramp(n int) []int32 {
+	s := make([]int32, n)
+	for i := range s {
+		s[i] = int32(i + 1)
+	}
+	return s
+}
+
+func main() {
+	dst := make([]int32, 31)
+	test.FirstIndexZeroConstant(dst, ramp(16))
+	fmt.Println(dst)
+
+	for _, f := range []func(dst, a []int32, n int){test.FirstIndexZero, test.NamedStart, test.NamedStartCopy} {
+		dst := make([]int32, 21)
+		f(dst, ramp(21), 21)
+		fmt.Println(dst)
+		fmt.Println(try(func() { f(make([]int32, 21), ramp(19), 21) }))
+	}
+
+	dst = make([]int32, 16)
+	test.LastIndexZero(dst, ramp(1), 15)
+	fmt.Println(dst)
+	fmt.Println(try(func() { test.LastIndexZero(make([]int32, 16), ramp(1), 14) }))
+}
+-- testmain/output --
+[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17]
+[0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60]
+true
+[0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60]
+true
+[0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20]
+true
+[0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2]
+true

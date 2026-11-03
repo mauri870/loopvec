@@ -89,10 +89,14 @@ safety argument stays structural:
   down, need one added to a bound, so they are accepted only where that cannot
   overflow (`plusOne`): a constant, or something minus a positive constant. A
   constant limit of zero or less, or a negative constant start, would put a negative
-  constant index in the emitted code and is rejected. `Trip` states every loop as
-  the forward `Start <= i < Limit`; a limit that is not exactly `len` of the stored
-  slice makes every operand slice carry an explicit cap (`Plan.Bound`), or the last
-  vector would write past it.
+  constant index in the emitted code and is rejected. A constant written with
+  literals alone (`16`, `1 - 1`) is spelled as its value; one that names a constant
+  keeps the name (`spell`), since the emitted file is compiled for every build and
+  the name can stand for another value in another (a file for each GOARCH). Checks
+  that need a constant read `Trip.StartValue`/`LimitValue`, never the text. `Trip`
+  states every loop as the forward `Start <= i < Limit`; a limit that is not exactly
+  `len` of the stored slice makes every operand slice carry an explicit cap
+  (`Plan.Bound`), or the last vector would write past it.
 - A slice operand is a variable or a chain of field selections ending in a slice
   (`x.f`, `x.f.g`) whose root variable the body does not assign (`sliceRef`). The body has
   no call and stores only elements, so nothing in it changes the header a field holds. The
@@ -107,9 +111,13 @@ safety argument stays structural:
   iteration writes, so the scalar loop sees the old value and the emitter loads it
   before any store of the chunk (`statements` hoists those loads). A negative
   offset is a recurrence (`ReasonCarriedDependence`); a variable distance or a
-  loop that counts down is `ReasonOffsetOfStored`. The length check is
-  against the last index read (`lastIndex`), and offset loads are not capped at the
-  limit. Every other store and load is `ident[i]` (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
+  loop that counts down is `ReasonOffsetOfStored`. A constant offset that puts an
+  index below zero, the lowest one read with a constant start or every one with a
+  constant limit, is `ReasonNegativeIndex`: the scalar loop panics and the emitted
+  code would index at a negative constant. A positive one that pushes a constant
+  start or limit past the largest int is rejected as that bound, since the emitted
+  code adds them. The length check is against the last index read (`lastIndex`),
+  and offset loads are not capped at the limit. Every other store and load is `ident[i]` (`index`) — `dst[i+1]`, `dst[2*i]` are rejected outright, regardless of
   whether they're actually dependent. That is what guarantees no two
   iterations touch the same element.
 - A non-slice operand becomes an `Invariant` only if it is a variable, a

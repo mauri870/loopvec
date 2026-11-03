@@ -100,7 +100,7 @@ func (l *lowerer) rangeLoop(s *ast.RangeStmt) (*Loop, Reason) {
 			l.valueVar = l.info.Defs[valueIdent]
 			l.valueRef = ref
 		}
-		return l.body(s, s.Body, Trip{Start: "0", Limit: "len(" + ref.Text() + ")", Slice: ref}, 1)
+		return l.body(s, s.Body, Trip{Start: "0", StartConst: true, Limit: "len(" + ref.Text() + ")", Slice: ref}, 1)
 	}
 	if s.Value != nil {
 		return nil, ReasonUnsupportedRange
@@ -215,7 +215,7 @@ func (l *lowerer) reverse(s *ast.ForStmt, start, limit ast.Expr, strict bool) (*
 		if !isConst || low == math.MaxInt64 {
 			return nil, ReasonUnsupportedBound
 		}
-		from = bound{text: strconv.FormatInt(low+1, 10), value: low + 1, isConst: true}
+		from = bound{text: spell(limit, low, 1), value: low + 1, isConst: true}
 	} else if from, ok = l.bound(limit); !ok {
 		return nil, ReasonUnsupportedBound
 	}
@@ -269,10 +269,14 @@ type bound struct {
 // trip states a loop that runs from to to (exclusive) as a Trip.
 func (l *lowerer) trip(from, to bound) Trip {
 	return Trip{
-		Start:    from.text,
-		Limit:    to.text,
-		Slice:    to.slice,
-		NonEmpty: from.isConst && to.isConst && from.value < to.value,
+		Start:      from.text,
+		Limit:      to.text,
+		StartConst: from.isConst,
+		LimitConst: to.isConst,
+		StartValue: from.value,
+		LimitValue: to.value,
+		Slice:      to.slice,
+		NonEmpty:   from.isConst && to.isConst && from.value < to.value,
 	}
 }
 
@@ -287,10 +291,7 @@ func (l *lowerer) bound(e ast.Expr) (bound, bool) {
 	b := bound{text: types.ExprString(e)}
 	b.value, b.isConst = l.constant(e)
 	if b.isConst {
-		// A named constant or a constant expression (s0, 1 - 1) is spelled as its
-		// value, so the checks that read a constant start or limit see it and the
-		// emitted code never indexes at a negative constant they would have caught.
-		b.text = strconv.FormatInt(b.value, 10)
+		b.text = spell(e, b.value, 0)
 	}
 	if call, ok := ast.Unparen(e).(*ast.CallExpr); ok {
 		b.slice, _ = l.lenOf(call)
@@ -302,29 +303,57 @@ func (l *lowerer) bound(e ast.Expr) (bound, bool) {
 // need. It is only accepted where adding one cannot overflow: a constant below the
 // largest int, or something minus a positive constant.
 func (l *lowerer) plusOne(e ast.Expr) (bound, bool) {
-	if v, isConst := l.constant(e); isConst {
-		if v == math.MaxInt64 {
-			return bound{}, false
+	v, isConst := l.constant(e)
+	if isConst && v == math.MaxInt64 {
+		return bound{}, false
+	}
+	// x - k + 1 is x - (k-1); with k == 1 that is x itself. A constant that names
+	// another is written this way too, so width - 1 + 1 is width. One written with
+	// literals alone is spelled as its value.
+	if sub, ok := ast.Unparen(e).(*ast.BinaryExpr); ok && sub.Op == token.SUB && !literal(e) {
+		if k, kConst := l.constant(sub.Y); kConst && k >= 1 {
+			if x, ok := l.bound(sub.X); ok {
+				if k == 1 {
+					return x, true
+				}
+				return bound{text: x.text + " - " + strconv.FormatInt(k-1, 10), value: v + 1, isConst: isConst}, true
+			}
 		}
-		return bound{text: strconv.FormatInt(v+1, 10), value: v + 1, isConst: true}, true
 	}
-	sub, ok := ast.Unparen(e).(*ast.BinaryExpr)
-	if !ok || sub.Op != token.SUB {
-		return bound{}, false
+	if isConst {
+		return bound{text: spell(e, v, 1), value: v + 1, isConst: true}, true
 	}
-	k, isConst := l.constant(sub.Y)
-	if !isConst || k < 1 || !l.pureInt(sub.X) {
-		return bound{}, false
+	return bound{}, false
+}
+
+// spell is the source text of the constant e, whose value is value, plus delta. A
+// constant written with literals alone (16, 1 - 1) is spelled as its value. One
+// that names a constant keeps the name, since the emitted file is compiled for
+// every build and the name can stand for another value in another one (a file for
+// each GOARCH).
+func spell(e ast.Expr, value, delta int64) string {
+	if literal(e) {
+		return strconv.FormatInt(value+delta, 10)
 	}
-	// x - k + 1 is x - (k-1); with k == 1 that is x itself.
-	x, ok := l.bound(sub.X)
-	if !ok {
-		return bound{}, false
+	// Every integer operator binds at least as tightly as +, and operators that bind
+	// as tightly group from the left, so the sum needs no parentheses.
+	text := types.ExprString(e)
+	if delta != 0 {
+		text += " + " + strconv.FormatInt(delta, 10)
 	}
-	if k == 1 {
-		return x, true
-	}
-	return bound{text: x.text + " - " + strconv.FormatInt(k-1, 10)}, true
+	return text
+}
+
+// literal reports whether e is written with literals and operators alone, no names.
+func literal(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if _, ok := n.(*ast.Ident); ok {
+			found = true
+		}
+		return !found
+	})
+	return !found
 }
 
 // constant returns the value of e when it is an integer constant that fits an int64.
@@ -516,6 +545,17 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	// the chunk. A read of an earlier iteration's element (d < 0) is a recurrence,
 	// and a distance that is not a constant, or a loop that counts down, has no
 	// order loopvec can check.
+	//
+	// A constant offset that puts an index below zero makes the scalar loop panic
+	// when it runs. Start is the lowest index the loop visits, whichever way it
+	// counts, so a constant start puts the lowest index read at Start+off, and a
+	// constant limit puts the highest at Limit-1+off. Such a loop is left alone,
+	// since the vector loop would index or slice at that negative constant, which
+	// does not compile. Start is never negative and Limit never below one (see
+	// rangeReason), so only a negative offset can do this, and it is at least
+	// -maxOffset, so negating it cannot overflow. A positive offset that pushes a
+	// constant start or limit past the largest int would not compile either, as the
+	// emitted code adds them.
 	stored := map[types.Object]bool{}
 	for _, stmt := range body {
 		if store, ok := stmt.(Store); ok {
@@ -525,34 +565,29 @@ func (l *lowerer) body(node ast.Stmt, block *ast.BlockStmt, trip Trip, step int6
 	for _, stmt := range body {
 		for _, leaf := range Leaves(stmtValue(stmt)) {
 			load, ok := leaf.(*Load)
-			if !ok || load.Off == "" || !stored[load.Ref.Obj] {
+			if !ok || load.Off == "" {
 				continue
 			}
 			distance, err := strconv.ParseInt(load.Off, 10, 64)
-			switch {
-			case err != nil || step != 1:
-				return nil, ReasonOffsetOfStored
-			case distance < 0:
-				return nil, ReasonCarriedDependence
+			if stored[load.Ref.Obj] {
+				switch {
+				case err != nil || step != 1:
+					return nil, ReasonOffsetOfStored
+				case distance < 0:
+					return nil, ReasonCarriedDependence
+				}
 			}
-		}
-	}
-
-	// A constant offset that puts an index below zero makes the scalar loop panic
-	// when it runs: on its first iteration when the start is a constant and the
-	// first index is negative, or on every iteration when the limit is a constant
-	// and even the last index is. It is left alone, since the vector loop would
-	// index or slice at a negative constant, which does not compile.
-	start, errStart := strconv.ParseInt(trip.Start, 10, 64)
-	limit, errLimit := strconv.ParseInt(trip.Limit, 10, 64)
-	negative := func(offset string) bool {
-		off, err := strconv.ParseInt(offset, 10, 64)
-		return err == nil && (errStart == nil && start+off < 0 || errLimit == nil && limit+off <= 0)
-	}
-	for _, stmt := range body {
-		for _, leaf := range Leaves(stmtValue(stmt)) {
-			if load, ok := leaf.(*Load); ok && negative(load.Off) {
+			if err == nil && distance < 0 &&
+				(trip.StartConst && trip.StartValue < -distance || trip.LimitConst && trip.LimitValue <= -distance) {
 				return nil, ReasonNegativeIndex
+			}
+			if err == nil && distance > 0 {
+				switch {
+				case trip.StartConst && trip.StartValue > math.MaxInt64-distance:
+					return nil, ReasonUnsupportedStart
+				case trip.LimitConst && trip.LimitValue > math.MaxInt64-distance:
+					return nil, ReasonUnsupportedBound
+				}
 			}
 		}
 	}
