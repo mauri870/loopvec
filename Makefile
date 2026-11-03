@@ -8,9 +8,10 @@ test: build
 	go test ./... -count=1 -race
 
 # The scripts run the arm64 binaries they build, which needs an aarch64 binfmt
-# handler as well as qemu-aarch64-static.
+# handler as well as qemu-aarch64-static. Under emulation the script suite takes
+# several times as long, near go test's default 10m timeout on a CI runner.
 test-qemu-arm64: build
-	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test ./... -count=1 -exec=qemu-aarch64-static
+	GOARCH=arm64 GOOS=linux CGO_ENABLED=0 go test ./... -count=1 -timeout=30m -exec=qemu-aarch64-static
 
 bench-fuzz:
 	GOEXPERIMENT=simd go test ./bench/ -count=1 -run Fuzz
