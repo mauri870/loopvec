@@ -3,8 +3,14 @@
 # the call is evaluated once before the loop. The results must match the scalar loop
 # bit for bit, which is the only way to compare NaN and negative zero.
 
+# testmain/output was recorded on amd64: a NaN that an operation creates (the square
+# root of a negative number, 0 times infinity) has the sign bit set there and clear
+# on arm64, so the recording is compared only on amd64, and on every target the
+# simd build is compared with the scalar build of the same machine.
+
 exec go run ./testmain
-cmp stdout testmain/output
+[GOARCH:amd64] cmp stdout testmain/output
+cp stdout scalar.out
 
 cp ops.go ops.go.orig
 loopvec -split .
@@ -15,7 +21,8 @@ cmp ops.go ops.go.guarded
 
 env GOEXPERIMENT=simd
 exec go run ./testmain
-cmp stdout testmain/output
+[GOARCH:amd64] cmp stdout testmain/output
+cmp stdout scalar.out
 
 -- go.mod --
 module example.com/test
