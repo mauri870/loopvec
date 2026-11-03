@@ -1,16 +1,11 @@
-# -d prints a unified diff, labeled with the file's path on both sides so the
-# headers are the same with GNU and BSD diff, and leaves the source untouched.
+# -d prints a unified diff, labeled with the file's path on both sides, and
+# leaves the source untouched. loopvec computes the diff itself, so the output
+# does not depend on a diff command and is checked whole.
 
 cp ops.go ops.go.orig
 loopvec -d .
 cmpenv stderr stderr.want
-stdout -count=1 '^--- \S+/ops\.go$'
-stdout -count=1 '^\+\+\+ \S+/ops\.go$'
-stdout -count=1 '^@@ -1,7 \+1,43 @@$'
-stdout -count=1 '^\+//go:build goexperiment.simd$'
-stdout -count=1 '^\+import \($'
-stdout -count=1 '^-	for i := range dst \{$'
-stdout -count=1 '^\+				_v1.Add\(_v2\).StorePart\(dst\[_i:\]\)$'
+cmpenv stdout stdout.want
 cmp ops.go ops.go.orig
 ! exists ops_simd.go
 
@@ -28,3 +23,52 @@ func AddInt32s(dst, a, b []int32) {
 }
 -- stderr.want --
 loopvec: rewrote 1 loop(s) in $WORK/ops.go
+-- stdout.want --
+--- $WORK/ops.go
++++ $WORK/ops.go
+@@ -1,7 +1,43 @@
++//go:build goexperiment.simd
++
+ package test
+ 
++import (
++	"simd"
++	"unsafe"
++)
++
+ func AddInt32s(dst, a, b []int32) {
+-	for i := range dst {
+-		dst[i] = a[i] + b[i]
++	if _loopvecOverlap(dst, a) || _loopvecOverlap(dst, b) {
++		for i := range dst {
++			dst[i] = a[i] + b[i]
++		}
++	} else {
++		if len(dst) > 0 {
++			_ = a[len(dst)-1]
++			_ = b[len(dst)-1]
++			for _i := 0; _i < len(dst); {
++				_v1, _n := simd.LoadInt32sPart(a[_i:])
++				_v2, _ := simd.LoadInt32sPart(b[_i:])
++				_v1.Add(_v2).StorePart(dst[_i:])
++				_i += _n
++			}
++		}
+ 	}
+ }
++
++func _loopvecOverlap[T any](a, b []T, window ...int) bool {
++	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
++	if len(window) == 4 {
++		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
++	}
++	if aLo >= aHi || bLo >= bHi {
++		return false
++	}
++	size := unsafe.Sizeof(a[0])
++	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
++	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
++	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
++	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
++	return aStart < bEnd && bStart < aEnd
++}

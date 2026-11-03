@@ -21,11 +21,11 @@ import (
 	"go/format"
 	"go/token"
 	"os"
-	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"strings"
 
+	"github.com/pmezard/go-difflib/difflib"
 	"golang.org/x/tools/go/packages"
 
 	"github.com/mauri870/loopvec/internal/analysis"
@@ -319,34 +319,25 @@ func addBuildTag(src []byte, tag string) []byte {
 	return formatted
 }
 
-// printDiff prints a unified diff between orig and rewritten for path,
-// using the system diff command. Both sides are labeled with path, so the
-// header does not depend on the temporary files or on which diff is installed
-// (GNU and BSD diff print their timestamps differently).
+// printDiff prints a unified diff between orig and rewritten for path, with
+// both sides labeled with path. It needs no diff command, so the output is the
+// same everywhere.
 func printDiff(path string, orig, rewritten []byte) error {
-	origFile, err := os.CreateTemp("", "loopvec-orig-*.go")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(origFile.Name()) }()
-	if _, err := origFile.Write(orig); err != nil {
-		_ = origFile.Close()
-		return err
-	}
-	_ = origFile.Close()
+	return difflib.WriteUnifiedDiff(os.Stdout, difflib.UnifiedDiff{
+		A:        diffLines(orig),
+		B:        diffLines(rewritten),
+		FromFile: path,
+		ToFile:   path,
+		Context:  3,
+	})
+}
 
-	newFile, err := os.CreateTemp("", "loopvec-new-*.go")
-	if err != nil {
-		return err
+// diffLines splits src into lines that keep their newline. difflib.SplitLines
+// would add an empty line after a final newline.
+func diffLines(src []byte) []string {
+	lines := strings.SplitAfter(string(src), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
-	defer func() { _ = os.Remove(newFile.Name()) }()
-	if _, err := newFile.Write(rewritten); err != nil {
-		_ = newFile.Close()
-		return err
-	}
-	_ = newFile.Close()
-
-	out, _ := exec.Command("diff", "-u", "-L", path, "-L", path, origFile.Name(), newFile.Name()).Output()
-	_, err = os.Stdout.Write(out)
-	return err
+	return lines
 }
