@@ -42,6 +42,12 @@ const (
 	// iteration writes (a[i] = a[i-1] + x): iteration i reads what iteration i-1
 	// wrote, so the iterations cannot run as a vector.
 	ReasonCarriedDependence Reason = "an iteration reads an element an earlier iteration wrote"
+	// ReasonNegativeIndex covers a slice read at a constant offset that puts an
+	// index below zero: the first index, with a constant start (a[i-1] in a loop
+	// from 0), or every index, with a constant limit (a[i-20] in a loop that stops
+	// before 16). The scalar loop panics when it runs, and the vector loop would
+	// index or slice at a negative constant, which does not compile.
+	ReasonNegativeIndex Reason = "a constant offset puts an index below zero"
 	// ReasonUnsupportedIf covers an if that is not a select: a condition that is
 	// not a comparison of loop values (joined by && and ||), an init statement, or
 	// a branch that is not one assignment to an element of the same slice.
