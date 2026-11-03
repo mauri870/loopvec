@@ -197,10 +197,17 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 		return nil, false
 	}
 
-	// A package and its test variant are compiled concurrently under the same
-	// import path, so every compile gets its own directory.
-	dir, err := os.MkdirTemp(b.dir, strings.NewReplacer("/", "_", ".", "_").Replace(c.pkg)+"-")
-	if err != nil {
+	// The rewritten files go in the compile's own object directory, where the
+	// go command writes the importcfg: a package and its test variant are
+	// compiled concurrently under the same import path, so each needs its own
+	// place, and the go command trims that directory from file names with
+	// -trimpath. The file names end up in the export data, so the archive must
+	// not depend on where the directory is: the go command can compile a
+	// package twice in one build (with PGO, once for each test binary) and use
+	// one archive to compile its importers and the other to link them, and the
+	// linker rejects two archives that differ.
+	dir := filepath.Join(filepath.Dir(args[c.importcfg]), "loopvec")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, false
 	}
 	newArgs := append([]string(nil), args...)
