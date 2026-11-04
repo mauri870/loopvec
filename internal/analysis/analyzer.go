@@ -42,9 +42,10 @@ func Analyze(file *ast.File, info *types.Info, opts Options) []*loopir.Plan {
 			continue
 		}
 		results := loopir.NamedResults(fn, info)
+		reserved := loopir.UsesReservedNames(fn)
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			if stmt, ok := n.(ast.Stmt); ok {
-				if plan, _ := analyzeLoop(stmt, info, results, opts.Plan()); plan != nil {
+				if plan, _ := analyzeLoop(stmt, info, info.Scopes[file], results, reserved, opts.Plan()); plan != nil {
 					plans = append(plans, plan)
 				}
 			}
@@ -55,8 +56,10 @@ func Analyze(file *ast.File, info *types.Info, opts Options) []*loopir.Plan {
 }
 
 // analyzeLoop lowers stmt, which must be a for or range statement, and plans
-// it. It returns the reason when the loop is not vectorizable.
-func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool, plan loopir.Options) (*loopir.Plan, loopir.Reason) {
+// it. It returns the reason when the loop is not vectorizable. reserved is set
+// when the enclosing function uses a name that begins with an underscore (see
+// loopir.UsesReservedNames); file is the scope of the file stmt is in.
+func analyzeLoop(stmt ast.Stmt, info *types.Info, file *types.Scope, results map[types.Object]bool, reserved bool, plan loopir.Options) (*loopir.Plan, loopir.Reason) {
 	switch stmt.(type) {
 	case *ast.RangeStmt, *ast.ForStmt:
 	default:
@@ -66,5 +69,21 @@ func analyzeLoop(stmt ast.Stmt, info *types.Info, results map[types.Object]bool,
 	if reason != "" {
 		return nil, reason
 	}
-	return loopir.NewPlan(loop, plan)
+	p, reason := loopir.NewPlan(loop, plan)
+	if p == nil {
+		return nil, reason
+	}
+	// The names are checked last, so that a loop that cannot be vectorized
+	// anyway keeps the reason that matters.
+	if reserved {
+		return nil, loopir.ReasonReservedName
+	}
+	var scope *types.Scope
+	if file != nil {
+		scope = file.Innermost(stmt.Pos())
+	}
+	if loopir.ShadowsEmittedName(scope, stmt.Pos()) || loopir.HeaderShadowsName(stmt) {
+		return nil, loopir.ReasonShadowedName
+	}
+	return p, reason
 }

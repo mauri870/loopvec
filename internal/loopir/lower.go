@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -403,6 +404,121 @@ func (l *lowerer) pureInt(e ast.Expr) bool {
 func isIntType(t types.Type) bool {
 	basic, ok := t.(*types.Basic)
 	return ok && (basic.Kind() == types.Int || basic.Kind() == types.UntypedInt)
+}
+
+// UsesReservedNames reports whether fn mentions an identifier that begins with
+// an underscore, other than the blank identifier: every name loopvec adds does,
+// so code it inserts into fn could capture one.
+func UsesReservedNames(fn *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && len(id.Name) > 1 && id.Name[0] == '_' {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// emittedNames are the predeclared and package names the rewritten code uses:
+// len, min, max and copy, uint64 for shift counts, the element types of
+// reductions (byte and rune among them, as go/types spells those), and the
+// simd and unsafe packages.
+var emittedNames = []string{
+	"len", "min", "max", "copy", "uint64",
+	"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "float32", "float64",
+	"byte", "rune",
+	"simd", "unsafe",
+}
+
+// HeaderShadowsName reports whether a variable stmt, a for or range statement,
+// declares in its header could capture a name of the rewritten code. The
+// scalar loop that finishes a reduction declares the same variables as stmt and
+// evaluates the bound inside their scope, while stmt evaluates its range
+// operand, or the start it counts down from, outside: an index named len would
+// break len(a), and for n := range n or for n := n - 1; n >= 0; n-- would
+// compare the index with itself. So stmt must not declare one of emittedNames,
+// nor a name used by its range operand or its initial values.
+func HeaderShadowsName(stmt ast.Stmt) bool {
+	var vars, outside []ast.Expr
+	switch s := stmt.(type) {
+	case *ast.RangeStmt:
+		if s.Tok == token.DEFINE {
+			vars = []ast.Expr{s.Key, s.Value}
+		}
+		outside = []ast.Expr{s.X}
+	case *ast.ForStmt:
+		if init, ok := s.Init.(*ast.AssignStmt); ok && init.Tok == token.DEFINE {
+			vars, outside = init.Lhs, init.Rhs
+		}
+	}
+	for _, v := range vars {
+		id, ok := v.(*ast.Ident)
+		if !ok || id.Name == "_" {
+			continue
+		}
+		if slices.Contains(emittedNames, id.Name) {
+			return true
+		}
+		for _, e := range outside {
+			if mentions(e, id.Name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mentions reports whether e uses an identifier named name.
+func mentions(e ast.Expr, name string) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Name == name {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// helperNames are the predeclared names that _loopvecOverlap, which loopvec
+// declares at package level, uses besides emittedNames.
+var helperNames = []string{"any", "bool", "false", "int", "uintptr"}
+
+// ShadowsEmittedName reports whether, at pos in scope, a name the rewritten code
+// uses means something else than the code needs: a predeclared name declared
+// again in an enclosing scope, the package or an import, or simd or unsafe naming
+// something other than those packages. scope is the innermost scope containing
+// pos, or nil when the type information has no scopes, which counts as shadowed.
+// The names only the overlap helper uses matter at package level, where it is
+// declared.
+func ShadowsEmittedName(scope *types.Scope, pos token.Pos) bool {
+	if scope == nil {
+		return true
+	}
+	pkg := scope
+	for pkg.Parent() != nil && pkg.Parent() != types.Universe {
+		pkg = pkg.Parent()
+	}
+	for _, name := range helperNames {
+		if pkg.Lookup(name) != nil {
+			return true
+		}
+	}
+	for _, name := range emittedNames {
+		_, obj := scope.LookupParent(name, pos)
+		switch name {
+		case "simd", "unsafe":
+			if pkg, ok := obj.(*types.PkgName); obj != nil && (!ok || pkg.Imported().Path() != name) {
+				return true
+			}
+		default:
+			if obj != types.Universe.Lookup(name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // NamedResults returns the named result variables of fn and of every function
