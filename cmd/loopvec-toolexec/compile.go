@@ -113,7 +113,7 @@ func tryRewrite(tool string, args []string) (out []string, ok bool) {
 		debugf(c.pkg, "skipped %s: simd unavailable or unsupported build mode", c.pkg)
 		return nil, false
 	}
-	if want := toolchainRelease(); want != builtRelease() {
+	if want := toolchainRelease(); want == "" || want != builtRelease() {
 		// go/types can only read export data written by the Go release it was
 		// built with.
 		debugf(c.pkg, "skipped %s: loopvec-toolexec was built with %s but the toolchain is %s", c.pkg, builtRelease(), want)
