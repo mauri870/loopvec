@@ -28,7 +28,9 @@ Packages are left alone when:
   `os`, `strconv`, `sync`, `sync/atomic`, `math`, and more). Rewritten code
   imports `simd`, so rewriting these would create an import cycle.
 - They use cgo, or the build uses `-race`, `-msan`, `-asan`, `-shared`,
-  `-dynlink` or `-trimpath`.
+  `-dynlink` or `-trimpath`. `-shared` is accepted where a position-independent
+  executable is the default build (darwin, ios, android, windows), since the
+  nested simd build is one there too.
 - They are cryptographic: `crypto/...` and `golang.org/x/crypto/...`, vendored
   copies included. Constant-time code is written so that its running time does
   not depend on secret data, and a rewrite adds a runtime overlap check, a length
