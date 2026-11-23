@@ -52,6 +52,14 @@ jobs:
       - name: Go version
         run: go version
 
+      # The tsvc targets regenerate the capability table, so without this step
+      # the tip job would test with the committed table first and with tip's
+      # partway through. Generating it up front makes every step use tip's simd,
+      # which is what the [tip] condition in the scripts assumes.
+      - name: Generate the capability table from tip's simd
+        if: matrix.toolchain == 'tip'
+        run: make generate
+
       - name: Build
         run: make build
 

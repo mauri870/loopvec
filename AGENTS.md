@@ -50,6 +50,9 @@ checks: `make generate` writes `internal/loopir/caps_gen.go` from the running
 toolchain's `simd` package, so after a tip run, regenerate it with the pinned
 toolchain before committing. Scripts that differ by toolchain guard the
 difference with `[tip]` (see `flag_methods_ice.txt`, `flag_methods_tip.txt`).
+The tip job generates the table from tip's `simd` before anything else, so
+`[tip]` also means tip's capability table (see `shift_right_int64.txt`): run
+`make generate` first when testing on tip locally.
 
 `benchstat` and `qemu-aarch64-static` are assumed to be on `PATH`, not
 installed by any target (same convention as assuming `go` itself is there).
