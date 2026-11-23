@@ -25,7 +25,7 @@ const noTargetCheckEnv = "LOOPVEC_TOOLEXEC_NO_TARGET_CHECK"
 // that is not possible, the answer is no and recordVariant is all there is.
 func (b *build) testsSimdDependency(skip map[string]bool) bool {
 	out, err := b.cached("testtarget", func() ([]byte, error) {
-		found, err := b.testTargetsSimdDependency(skip)
+		found, err := b.testTargetsSimdDependency(func() (map[string]bool, error) { return skip, nil })
 		if found {
 			return []byte("yes"), err
 		}
@@ -34,7 +34,28 @@ func (b *build) testsSimdDependency(skip map[string]bool) bool {
 	return err == nil && string(out) == "yes"
 }
 
-func (b *build) testTargetsSimdDependency(skip map[string]bool) (bool, error) {
+// probeTestsSimdDependency is testsSimdDependency for the go command's -V=full
+// probe, which runs before there is a build directory to share the answer
+// through. The answer is part of the wrapper's build identity: rewriting nothing
+// in such a build is not enough, since the go command would still take
+// rewritten packages that an earlier build left in its cache, and those link
+// simd against the other build of the tested package.
+func probeTestsSimdDependency(tool string) bool {
+	b := &build{tool: tool}
+	found, err := b.testTargetsSimdDependency(func() (map[string]bool, error) {
+		out, err := b.listSkip()
+		if err != nil {
+			return nil, err
+		}
+		return importPaths(out), nil
+	})
+	return err == nil && found
+}
+
+// testTargetsSimdDependency reports whether the go command that started this
+// process is go test on a package in the skip set. The set is only computed for
+// a go test command line.
+func (b *build) testTargetsSimdDependency(skipSet func() (map[string]bool, error)) (bool, error) {
 	if os.Getenv(noTargetCheckEnv) != "" {
 		return false, nil
 	}
@@ -45,6 +66,10 @@ func (b *build) testTargetsSimdDependency(skip map[string]bool) (bool, error) {
 	patterns, ok := testPatterns(args)
 	if !ok {
 		return false, nil
+	}
+	skip, err := skipSet()
+	if err != nil {
+		return false, err
 	}
 	// A flag's value, as in -run TestX, is indistinguishable from a package
 	// pattern here. go list -e resolves it to something that is not a simd

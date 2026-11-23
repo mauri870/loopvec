@@ -93,6 +93,9 @@ func printVersion(tool, name string) int {
 	if os.Getenv(floatReassocEnv) != "" {
 		hash += "-fpreassoc"
 	}
+	if probeTestsSimdDependency(tool) {
+		hash += "-testsdep"
+	}
 	fields := strings.Fields(line)
 	if last := len(fields) - 1; last >= 0 && strings.HasPrefix(fields[last], "buildID=") {
 		// Development toolchains end the line with buildID=...; the go command

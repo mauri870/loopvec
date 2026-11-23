@@ -100,17 +100,26 @@ func (b *build) goCommandEnv(dir string, env []string, args ...string) ([]byte, 
 // the runtime depend on. Rewritten code imports simd, so rewriting any of them
 // would create an import cycle.
 func (b *build) skipSet() (map[string]bool, error) {
-	out, err := b.cached("skip", func() ([]byte, error) {
-		return b.goCommand("list", "-deps", "-f", "{{.ImportPath}}", "simd", "runtime")
-	})
+	out, err := b.cached("skip", b.listSkip)
 	if err != nil {
 		return nil, err
 	}
+	return importPaths(out), nil
+}
+
+// listSkip lists, one import path a line, everything simd and the runtime
+// depend on.
+func (b *build) listSkip() ([]byte, error) {
+	return b.goCommand("list", "-deps", "-f", "{{.ImportPath}}", "simd", "runtime")
+}
+
+// importPaths returns the set of import paths in a go list listing.
+func importPaths(listing []byte) map[string]bool {
 	set := map[string]bool{}
-	for path := range strings.FieldsSeq(string(out)) {
+	for path := range strings.FieldsSeq(string(listing)) {
 		set[path] = true
 	}
-	return set, nil
+	return set
 }
 
 // exports returns the export data archives of simd and everything it depends

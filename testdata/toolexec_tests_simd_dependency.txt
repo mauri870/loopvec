@@ -2,29 +2,45 @@
 # variant of it, which a rewritten package (it imports simd) cannot link against.
 # The go command compiles packages concurrently, so the variant may not exist yet
 # when another package is compiled: the wrapper reads the go command's command line
-# and rewrites nothing in a build that tests such a package. testing/iotest has a
-# loop the wrapper would rewrite, and the test binary must still link and pass.
+# and rewrites nothing in a build that tests such a package. internal/fuzz, which
+# every test binary links (through testing/internal/testdeps) and which imports
+# strconv, has a loop the wrapper would rewrite, and the test binary must still
+# link and pass.
 
 env GOEXPERIMENT=simd
 env GOCACHE=$WORK/gocache
 env LOOPVEC_TOOLEXEC_LOG=$WORK/log
 env LOOPVEC_TOOLEXEC_DEBUG=1
-env LOOPVEC_TOOLEXEC_LOG_PKGS=testing/iotest
-exec go test -short -run 'TestSprintf|TestScanf' -toolexec=$LOOPVEC_TOOLEXEC fmt
-stdout -count=1 '^ok  	fmt	'
+env LOOPVEC_TOOLEXEC_LOG_PKGS=internal/fuzz
+exec go test -short -run 'TestAtoi|TestItoa' -toolexec=$LOOPVEC_TOOLEXEC strconv
+stdout -count=1 '^ok  	strconv	'
 cmp log log.want
 
 # Testing a package simd does not depend on is not affected: the same package is
 # rewritten again once the tested package is one the wrapper may link against.
 env GOCACHE=$WORK/gocache2
+env LOOPVEC_TOOLEXEC_LOG_PKGS=testing/iotest
 rm log
 exec go test -short -run 'TestReader|TestOneByte' -toolexec=$LOOPVEC_TOOLEXEC testing/iotest
 stdout -count=1 '^ok  	testing/iotest	'
 grep '^rewrote [0-9]+ loop.s. in testing/iotest$' log
+
+# Rewriting nothing in the build is not enough on its own: the go command would
+# reuse the rewritten packages an earlier build left in the cache, and any of
+# them in the test binary links simd, which was built against the other strconv.
+# The wrapper's build identity differs in such a build, so the cached rewrites are
+# not taken. On a toolchain where os is not a simd dependency, building it
+# rewrites internal/filepathlite, which every test binary links.
+env GOCACHE=$WORK/gocache3
+env LOOPVEC_TOOLEXEC_LOG_PKGS=
+rm log
+exec go build -toolexec=$LOOPVEC_TOOLEXEC os
+exec go test -short -run 'TestAtoi|TestItoa' -toolexec=$LOOPVEC_TOOLEXEC strconv
+stdout -count=1 '^ok  	strconv	'
 
 -- go.mod --
 module example.com/app
 
 go 1.27.1
 -- log.want --
-skipped testing/iotest: the build tests a package simd depends on
+skipped internal/fuzz: the build tests a package simd depends on
