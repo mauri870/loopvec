@@ -24,9 +24,9 @@ build.
 Packages are left alone when:
 
 - `GOEXPERIMENT` does not enable `simd`.
-- They are `simd` itself or anything `simd` or the runtime depends on (`fmt`,
-  `os`, `strconv`, `sync`, `sync/atomic`, `math`, and more). Rewritten code
-  imports `simd`, so rewriting these would create an import cycle.
+- They are `simd` itself or anything `simd` or the runtime depends on (`strconv`,
+  `sync`, `sync/atomic`, `math`, and more; on Go 1.27 also `fmt` and `os`).
+  Rewritten code imports `simd`, so rewriting these would create an import cycle.
 - They use cgo, or the build uses `-race`, `-msan`, `-asan`, `-shared`,
   `-dynlink` or `-trimpath`.
 - They are cryptographic: `crypto/...` and `golang.org/x/crypto/...`, vendored
@@ -34,14 +34,16 @@ Packages are left alone when:
   not depend on secret data, and a rewrite adds a runtime overlap check, a length
   check, and vector loads that nobody audited. Set `LOOPVEC_TOOLEXEC_CRYPTO=1` to
   rewrite them anyway.
-- The build tests a package `simd` depends on (`go test fmt`). The go command
+- The build tests a package `simd` depends on (`go test strconv`). The go command
   then compiles a test variant of that package, and a rewritten package would
   link `simd` against a different build of it. The go command compiles packages
   concurrently, so nothing can be rewritten safely once such a build starts; the
   wrapper reads the go command's command line to notice (Linux only) and rewrites
-  nothing. Elsewhere it can only leave alone the packages it sees built against
-  such a variant, so testing those packages may fail to link. Set
-  `LOOPVEC_TOOLEXEC_NO_TARGET_CHECK=1` to use only that per-package protection.
+  nothing. Such a build also has its own build identity, so it does not reuse
+  packages that other builds rewrote. Elsewhere it can only leave alone the
+  packages it sees built against such a variant, so testing those packages may
+  fail to link. Set `LOOPVEC_TOOLEXEC_NO_TARGET_CHECK=1` to use only that
+  per-package protection.
 
 Loops in methods and in package-level initializers are never rewritten, as with
 `-split`.

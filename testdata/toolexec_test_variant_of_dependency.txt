@@ -1,28 +1,30 @@
 # Testing a package that simd depends on makes the go command compile a test
 # variant of it, and rebuild the importers it knows about against that variant.
 # simd is not among them, so a rewritten package linked into the same test binary
-# would see two different builds of fmt and fail to link. testing/iotest has a
-# loop the wrapper would rewrite, and fmt's tests import it: it must be left
-# alone here, and the test binary must link and pass.
+# would see two different builds of strconv and fail to link. internal/fuzz has a
+# loop the wrapper would rewrite, imports strconv, and every test binary links it
+# (through testing/internal/testdeps): it must be left alone here.
 #
-# The wrapper normally notices that fmt is being tested and rewrites nothing (see
+# The wrapper normally notices that strconv is being tested and rewrites nothing (see
 # toolexec_tests_simd_dependency.txt). That check reads the go command's command
 # line and does not exist on every platform, so it is turned off here to exercise
-# the protection that remains.
+# the protection that remains. That protection only covers the packages built
+# against a variant: another rewritten package in the test binary still links
+# simd, which is why the test may fail to link (on a toolchain where os is not a
+# simd dependency, internal/filepathlite is one). The variant it names is the
+# first in import path order, fmt where fmt is a simd dependency.
 
 env GOEXPERIMENT=simd
 env LOOPVEC_TOOLEXEC_NO_TARGET_CHECK=1
 env GOCACHE=$WORK/gocache
 env LOOPVEC_TOOLEXEC_LOG=$WORK/log
 env LOOPVEC_TOOLEXEC_DEBUG=1
-env LOOPVEC_TOOLEXEC_LOG_PKGS=testing/iotest
-exec go test -short -run 'TestSprintf|TestScanf' -toolexec=$LOOPVEC_TOOLEXEC fmt
-stdout -count=1 '^ok  	fmt	'
-cmp log log.want
+env LOOPVEC_TOOLEXEC_LOG_PKGS=internal/fuzz
+? exec go test -short -run 'TestAtoi|TestItoa' -toolexec=$LOOPVEC_TOOLEXEC strconv
+grep -count=1 '^skipped internal/fuzz: built against a test variant of (fmt|strconv)$' log
+! grep '^rewrote' log
 
 -- go.mod --
 module example.com/app
 
 go 1.27.1
--- log.want --
-skipped testing/iotest: built against a test variant of fmt
