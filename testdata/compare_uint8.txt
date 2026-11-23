@@ -1,0 +1,293 @@
+# An if on an ordered comparison of uint8 elements (<, <=, >, >=) needs the
+# Uint8s comparisons, which the release toolchain's simd does not have, so these
+# loops are left alone there. A development toolchain has them, and they compare
+# unsigned as Go does: the inputs on both sides of 127 and 128 would catch a
+# signed comparison, and the letters an off-by-one at the edges of the ASCII
+# ranges. The loops are the shapes found in gorgonia/tensor (compare to 0 or 1,
+# min) and the standard library (ASCII case conversion in net and math/big).
+
+# The scalar program is the reference behavior.
+exec go run ./testmain
+cmp stdout testmain/output
+
+cp ops.go ops.go.orig
+[!tip] loopvec -split .
+[!tip] ! stdout .
+[!tip] ! stderr .
+[!tip] ! exists ops_simd.go
+[!tip] cmp ops.go ops.go.orig
+[!tip] stop 'the release toolchain has no ordered uint8 comparison'
+
+loopvec -split .
+! stdout .
+cmpenv stderr stderr.want
+cmp ops_simd.go ops_simd.go.want
+cmp ops.go ops.go.guarded
+
+# The simd build must behave identically.
+env GOEXPERIMENT=simd
+exec go run ./testmain
+cmp stdout testmain/output
+
+-- go.mod --
+module example.com/test
+
+go 1.27.1
+-- ops.go --
+package test
+
+// GtSameSV is tensor's scalar-by-vector compare: 1 where a > b[i], else 0.
+func GtSameSV(a uint8, b []uint8) {
+	for i := range b {
+		if a > b[i] {
+			b[i] = 1
+		} else {
+			b[i] = 0
+		}
+	}
+}
+
+// GteSame is the vector-by-vector form, stored over the first operand.
+func GteSame(a, b []uint8) {
+	for i := range a {
+		if a[i] >= b[i] {
+			a[i] = 1
+		} else {
+			a[i] = 0
+		}
+	}
+}
+
+// VecMin keeps the smaller element, with a range value and a temporary.
+func VecMin(a, b []uint8) {
+	for i, v := range a {
+		bv := b[i]
+		if bv < v {
+			a[i] = bv
+		}
+	}
+}
+
+// LowerASCII is net's lowerASCIIBytes.
+func LowerASCII(x []byte) {
+	for i, b := range x {
+		if 'A' <= b && b <= 'Z' {
+			x[i] += 'a' - 'A'
+		}
+	}
+}
+
+// UpperDigits is math/big's hex digit upper-casing.
+func UpperDigits(digits []byte) {
+	for i, d := range digits {
+		if 'a' <= d && d <= 'z' {
+			digits[i] = 'A' + (d - 'a')
+		}
+	}
+}
+-- ops_simd.go.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// GtSameSV is tensor's scalar-by-vector compare: 1 where a > b[i], else 0.
+func GtSameSV(a uint8, b []uint8) {
+	_vcUint8s0_1 := simd.BroadcastUint8s(a)
+	_vcUint8s0_2 := simd.BroadcastUint8s(1)
+	_vcUint8s0_3 := simd.BroadcastUint8s(0)
+	for _i := 0; _i < len(b); {
+		_v1, _n := simd.LoadUint8sPart(b[_i:])
+		_vcUint8s0_2.IfElse(_vcUint8s0_1.Greater(_v1), _vcUint8s0_3).StorePart(b[_i:])
+		_i += _n
+	}
+}
+
+// GteSame is the vector-by-vector form, stored over the first operand.
+func GteSame(a, b []uint8) {
+	_vcUint8s1_1 := simd.BroadcastUint8s(1)
+	_vcUint8s1_2 := simd.BroadcastUint8s(0)
+	if _loopvecOverlap(a, b) {
+		for i := range a {
+			if a[i] >= b[i] {
+				a[i] = 1
+			} else {
+				a[i] = 0
+			}
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadUint8sPart(a[_i:])
+				_v2, _ := simd.LoadUint8sPart(b[_i:])
+				_vcUint8s1_1.IfElse(_v1.GreaterEqual(_v2), _vcUint8s1_2).StorePart(a[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// VecMin keeps the smaller element, with a range value and a temporary.
+func VecMin(a, b []uint8) {
+	if _loopvecOverlap(b, a) {
+		for i, v := range a {
+			bv := b[i]
+			if bv < v {
+				a[i] = bv
+			}
+		}
+	} else {
+		if len(a) > 0 {
+			_ = b[len(a)-1]
+			for _i := 0; _i < len(a); {
+				_v1, _n := simd.LoadUint8sPart(b[_i:])
+				_t1 := _v1
+				_v2, _ := simd.LoadUint8sPart(a[_i:])
+				_t1.IfElse(_t1.Less(_v2), _v2).StorePart(a[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// LowerASCII is net's lowerASCIIBytes.
+func LowerASCII(x []byte) {
+	_vcUint8s3_1 := simd.BroadcastUint8s('A')
+	_vcUint8s3_2 := simd.BroadcastUint8s('Z')
+	_vcUint8s3_3 := simd.BroadcastUint8s('a' - 'A')
+	for _i := 0; _i < len(x); {
+		_v1, _n := simd.LoadUint8sPart(x[_i:])
+		_v1.Add(_vcUint8s3_3).IfElse(_vcUint8s3_1.LessEqual(_v1).And(_v1.LessEqual(_vcUint8s3_2)), _v1).StorePart(x[_i:])
+		_i += _n
+	}
+}
+
+// UpperDigits is math/big's hex digit upper-casing.
+func UpperDigits(digits []byte) {
+	_vcUint8s4_1 := simd.BroadcastUint8s('a')
+	_vcUint8s4_2 := simd.BroadcastUint8s('z')
+	_vcUint8s4_4 := simd.BroadcastUint8s('A')
+	for _i := 0; _i < len(digits); {
+		_v1, _n := simd.LoadUint8sPart(digits[_i:])
+		_v1.Sub(_vcUint8s4_1).Add(_vcUint8s4_4).IfElse(_vcUint8s4_1.LessEqual(_v1).And(_v1.LessEqual(_vcUint8s4_2)), _v1).StorePart(digits[_i:])
+		_i += _n
+	}
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops.go.guarded --
+//go:build !goexperiment.simd
+
+package test
+
+// GtSameSV is tensor's scalar-by-vector compare: 1 where a > b[i], else 0.
+func GtSameSV(a uint8, b []uint8) {
+	for i := range b {
+		if a > b[i] {
+			b[i] = 1
+		} else {
+			b[i] = 0
+		}
+	}
+}
+
+// GteSame is the vector-by-vector form, stored over the first operand.
+func GteSame(a, b []uint8) {
+	for i := range a {
+		if a[i] >= b[i] {
+			a[i] = 1
+		} else {
+			a[i] = 0
+		}
+	}
+}
+
+// VecMin keeps the smaller element, with a range value and a temporary.
+func VecMin(a, b []uint8) {
+	for i, v := range a {
+		bv := b[i]
+		if bv < v {
+			a[i] = bv
+		}
+	}
+}
+
+// LowerASCII is net's lowerASCIIBytes.
+func LowerASCII(x []byte) {
+	for i, b := range x {
+		if 'A' <= b && b <= 'Z' {
+			x[i] += 'a' - 'A'
+		}
+	}
+}
+
+// UpperDigits is math/big's hex digit upper-casing.
+func UpperDigits(digits []byte) {
+	for i, d := range digits {
+		if 'a' <= d && d <= 'z' {
+			digits[i] = 'A' + (d - 'a')
+		}
+	}
+}
+-- testmain/main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/test"
+)
+
+var in = []uint8{0, 1, '@', 'A', 'M', 'Z', '[', '`', 'a', 'm', 'z', '{', 126, 127, 128, 129, 200, 254, 255}
+
+func main() {
+	for _, a := range []uint8{0, 'Z', 127, 128, 255} {
+		b := append([]uint8(nil), in...)
+		test.GtSameSV(a, b)
+		fmt.Println("gt", a, b)
+	}
+	other := []uint8{255, 128, 127, 0, 'M', 'Z', 'a', 'a', 'Z', 200, 129, 128, 127, 128, 127, 130, 199, 255, 0}
+	a := append([]uint8(nil), in...)
+	test.GteSame(a, other)
+	fmt.Println("gte", a)
+	a = append([]uint8(nil), in...)
+	test.VecMin(a, other)
+	fmt.Println("min", a)
+	s := []byte("Hello, WORLD! [Zz] `Aa` 0x7F\x80\xc1\xda\xff")
+	test.LowerASCII(s)
+	fmt.Printf("lower %q\n", s)
+	d := []byte("0123456789abcdefxyz{|}`ABC\x80\xe1\xfa")
+	test.UpperDigits(d)
+	fmt.Printf("upper %q\n", d)
+}
+-- testmain/output --
+gt 0 [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+gt 90 [1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+gt 127 [1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0]
+gt 128 [1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0]
+gt 255 [1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0]
+gte [0 0 0 1 1 1 0 0 1 0 0 0 0 0 1 0 1 0 1]
+min [0 1 64 0 77 90 91 96 90 109 122 123 126 127 127 129 199 254 0]
+lower "hello, world! [zz] `aa` 0x7f\x80\xc1\xda\xff"
+upper "0123456789ABCDEFXYZ{|}`ABC\x80\xe1\xfa"
+-- stderr.want --
+loopvec: rewrote 5 loop(s) in $WORK/ops.go
