@@ -94,6 +94,9 @@ type PlanStmt struct {
 	Acc  types.Object
 	Op   Op
 	Root Value
+	// Sum is set for a sum when simd has ReduceSum for the accumulator's type:
+	// the vector accumulator is then added up in one call instead of lane by lane.
+	Sum bool
 }
 
 // Options selects behavior that changes results or depends on the toolchain.
@@ -148,7 +151,8 @@ func NewPlan(l *Loop, opts Options) (*Plan, Reason) {
 			if !supports(elem, stmt.Op) {
 				return nil, ReasonUnsupportedOp
 			}
-			planned = PlanStmt{Acc: stmt.Acc, Op: stmt.Op, Root: Normalize(stmt.Val)}
+			planned = PlanStmt{Acc: stmt.Acc, Op: stmt.Op, Root: Normalize(stmt.Val),
+				Sum: stmt.Op == OpAdd && hasMethod(elem, "ReduceSum")}
 			p.Full = true
 		}
 		if reason := checkOps(elem, planned.Root); reason != "" {

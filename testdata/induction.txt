@@ -14,7 +14,8 @@ cp ops.go ops.go.orig
 loopvec -split .
 ! stdout .
 cmpenv stderr stderr.want
-cmp ops_simd.go ops_simd.go.want
+[!tip] cmp ops_simd.go ops_simd.go.want
+[tip] cmp ops_simd.go ops_simd.go.tip.want
 cmp ops.go ops.go.guarded
 
 # The simd build must behave identically.
@@ -271,6 +272,207 @@ func SumInner(a []int32) int32 {
 				for _, _x := range _buf1[:_lanes] {
 					s = s + _x
 				}
+			}
+			for i := _i; i < len(a)-1; i++ {
+				s += a[i]
+			}
+		}
+	}
+	return s
+}
+
+func _loopvecOverlap[T any](a, b []T, window ...int) bool {
+	aLo, aHi, bLo, bHi := 0, len(a), 0, len(b)
+	if len(window) == 4 {
+		aLo, aHi, bLo, bHi = window[0], window[1], window[2], window[3]
+	}
+	if aLo >= aHi || bLo >= bHi {
+		return false
+	}
+	size := unsafe.Sizeof(a[0])
+	aBase := uintptr(unsafe.Pointer(unsafe.SliceData(a)))
+	bBase := uintptr(unsafe.Pointer(unsafe.SliceData(b)))
+	aStart, aEnd := aBase+uintptr(aLo)*size, aBase+uintptr(aHi)*size
+	bStart, bEnd := bBase+uintptr(bLo)*size, bBase+uintptr(bHi)*size
+	return aStart < bEnd && bStart < aEnd
+}
+-- ops_simd.go.tip.want --
+//go:build goexperiment.simd
+
+package test
+
+import (
+	"simd"
+	"unsafe"
+)
+
+// The loop starts after the first element.
+func StartOne(dst, a []int32) {
+	_vcInt32s0 := simd.BroadcastInt32s(2)
+	if _loopvecOverlap(dst, a, 1, len(dst), 1, len(dst)) {
+		for i := 1; i < len(dst); i++ {
+			dst[i] = a[i] * 2
+		}
+	} else {
+		if len(dst) > 1 {
+			_ = a[len(dst)-1]
+			for _i := 1; _i < len(dst); {
+				_v1, _n := simd.LoadInt32sPart(a[_i:])
+				_v1.Mul(_vcInt32s0).StorePart(dst[_i:])
+				_i += _n
+			}
+		}
+	}
+}
+
+// The limit stops one short of len(dst): the last element must not be written.
+func Short(dst, a, b []int32) {
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1) || _loopvecOverlap(dst, b, 0, len(dst)-1, 0, len(dst)-1) {
+		for i := 0; i < len(dst)-1; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if len(dst)-1 > 0 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			_ = b[(len(dst)-1)-1]
+			for _i := 0; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v2, _ := simd.LoadInt32sPart(b[_i : len(dst)-1])
+				_v1.Add(_v2).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Inclusive(dst, a []int32) {
+	_vcInt32s2 := simd.BroadcastInt32s(1)
+	if _loopvecOverlap(dst, a, 0, len(dst)-1, 0, len(dst)-1) {
+		for i := 0; i <= len(dst)-2; i++ {
+			dst[i] = a[i] - 1
+		}
+	} else {
+		if len(dst)-1 > 0 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			for _i := 0; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v1.Sub(_vcInt32s2).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Both ends are variables, so the loop may be empty or run past the data.
+func Window(dst, a, b []float32, lo, hi int) {
+	if _loopvecOverlap(dst, a, lo, hi, lo, hi) || _loopvecOverlap(dst, b, lo, hi, lo, hi) {
+		for i := lo; i < hi; i++ {
+			dst[i] = a[i] + b[i]
+		}
+	} else {
+		if hi > lo {
+			_ = dst[hi-1]
+			_ = a[hi-1]
+			_ = b[hi-1]
+			for _i := lo; _i < hi; {
+				_v1, _n := simd.LoadFloat32sPart(a[_i:hi])
+				_v2, _ := simd.LoadFloat32sPart(b[_i:hi])
+				_v1.Add(_v2).StorePart(dst[_i:hi])
+				_i += _n
+			}
+		}
+	}
+}
+
+func Half(dst, a []int32) {
+	_vcInt32s4 := simd.BroadcastInt32s(7)
+	if _loopvecOverlap(dst, a, 0, len(dst)/2, 0, len(dst)/2) {
+		for i := 0; i < len(dst)/2; i++ {
+			dst[i] = a[i] ^ 7
+		}
+	} else {
+		if len(dst)/2 > 0 {
+			_ = dst[(len(dst)/2)-1]
+			_ = a[(len(dst)/2)-1]
+			for _i := 0; _i < len(dst)/2; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)/2])
+				_v1.Xor(_vcInt32s4).StorePart(dst[_i : len(dst)/2])
+				_i += _n
+			}
+		}
+	}
+}
+
+// Counting down, from an expression and to a variable.
+func Down(dst, a []int32, n, lo int) {
+	if _loopvecOverlap(dst, a, lo, n, lo, n) {
+		for i := n - 1; i >= lo; i-- {
+			dst[i] += a[i]
+		}
+	} else {
+		if n > lo {
+			_ = dst[n-1]
+			_ = a[n-1]
+			for _i := lo; _i < n; {
+				_v1, _n := simd.LoadInt32sPart(dst[_i:n])
+				_v2, _ := simd.LoadInt32sPart(a[_i:n])
+				_v1.Add(_v2).StorePart(dst[_i:n])
+				_i += _n
+			}
+		}
+	}
+}
+
+func DownStrict(dst, a []int32) {
+	_vcInt32s6 := simd.BroadcastInt32s(5)
+	if _loopvecOverlap(dst, a, 1, len(dst)-1, 1, len(dst)-1) {
+		for i := len(dst) - 2; i > 0; i-- {
+			dst[i] = a[i] + 5
+		}
+	} else {
+		if len(dst)-1 > 1 {
+			_ = dst[(len(dst)-1)-1]
+			_ = a[(len(dst)-1)-1]
+			for _i := 1; _i < len(dst)-1; {
+				_v1, _n := simd.LoadInt32sPart(a[_i : len(dst)-1])
+				_v1.Add(_vcInt32s6).StorePart(dst[_i : len(dst)-1])
+				_i += _n
+			}
+		}
+	}
+}
+
+// A copy that starts at an offset.
+func CopyFrom(dst, src []int32, from int) {
+	if _loopvecOverlap(dst, src, from, len(dst), from, len(dst)) {
+		for i := from; i < len(dst); i++ {
+			dst[i] = src[i]
+		}
+	} else {
+		if len(dst) > from {
+			_ = src[len(dst)-1]
+			copy(dst[from:], src[from:])
+		}
+	}
+}
+
+// A reduction over the inside of a slice.
+func SumInner(a []int32) int32 {
+	var s int32
+	if len(a)-1 > 1 {
+		_ = a[(len(a)-1)-1]
+		{
+			_i := 1
+			if (len(a)-1)-1 >= 64 {
+				_a1 := simd.BroadcastInt32s(0)
+				_lanes := _a1.Len()
+				for ; _i+_lanes <= len(a)-1; _i += _lanes {
+					_v1 := simd.LoadInt32s(a[_i:])
+					_a1 = _a1.Add(_v1)
+				}
+				s = s + _a1.ReduceSum()
 			}
 			for i := _i; i < len(a)-1; i++ {
 				s += a[i]
