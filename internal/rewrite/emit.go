@@ -280,11 +280,13 @@ func (e *emitter) fold(stmt loopir.PlanStmt, acc string) string {
 
 // fullLoop generates a loop that folds into accumulators. The vector loop runs
 // while a whole vector remains, every accumulator starts at the identity of its
-// operation, and afterwards the lanes are combined into the scalar accumulator
-// (simd has no horizontal reduction on every toolchain, so they go through an
-// array). What is left, fewer than one vector, runs the original body. A partial
-// load would zero-pad, which is the identity for a sum but not for a product,
-// min, max, or and.
+// operation, and afterwards the lanes are combined into the scalar accumulator:
+// a sum with ReduceSum where the toolchain's simd has it for the type, anything
+// else through an array, lane by lane. ReduceSum adds the lanes pairwise, a
+// different order from the array; that only matters for floats, whose sums are
+// reductions only when regrouping is allowed. What is left, fewer than one
+// vector, runs the original body. A partial load would zero-pad, which is the
+// identity for a sum but not for a product, min, max, or and.
 func (e *emitter) fullLoop() (string, error) {
 	var b strings.Builder
 	b.WriteString("{\n")
@@ -319,6 +321,10 @@ func (e *emitter) fullLoop() (string, error) {
 			fmt.Fprintf(&b, "%s = %s.%s(%s)\n", first, first, fold.Op.Method(), accName(n+1, k, copies))
 		}
 		name := fold.Acc.Name()
+		if fold.Sum {
+			fmt.Fprintf(&b, "%s = %s\n", name, combine(fold.Op, name, first+".ReduceSum()"))
+			continue
+		}
 		fmt.Fprintf(&b, "var _buf%d [%d]%s\n%s.Store(_buf%[1]d[:])\n", n+1, loopir.MaxLanes(fold.Acc.Type()), fold.Acc.Type(), first)
 		fmt.Fprintf(&b, "for _, _x := range _buf%d[:_lanes] {\n%s = %s\n}\n", n+1, name, combine(fold.Op, name, "_x"))
 	}

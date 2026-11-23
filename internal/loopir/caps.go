@@ -41,5 +41,11 @@ func SimdType(t types.Type) string {
 // supports reports whether simd has the method that implements op on the
 // vector type of element type t.
 func supports(t types.Type, op Op) bool {
-	return simdMethods[SimdType(t)][op.Method()]
+	return hasMethod(t, op.Method())
+}
+
+// hasMethod reports whether simd has the method name on the vector type of
+// element type t.
+func hasMethod(t types.Type, name string) bool {
+	return simdMethods[SimdType(t)][name]
 }
