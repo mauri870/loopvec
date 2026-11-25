@@ -1,0 +1,64 @@
+# The go command compiles a position-independent executable with -shared. It is the
+# default build mode on darwin, ios, android and windows, where the nested simd build
+# is one too, so a default build is rewritten there. Asking for one where it is not
+# the default (-buildmode=pie on linux) still leaves the package alone: the nested
+# build would not match it.
+
+# Reference: the scalar program.
+exec go run .
+cmp stdout want.out
+
+env GOEXPERIMENT=simd
+env GOCACHE=$WORK/gocache
+env LOOPVEC_TOOLEXEC_LOG=$WORK/log
+env LOOPVEC_TOOLEXEC_LOG_PKGS=example.com/app/vec
+
+[GOOS:darwin] exec go build -toolexec=$LOOPVEC_TOOLEXEC -o app .
+[GOOS:darwin] cmp log rewrote.want
+
+[GOOS:linux] env LOOPVEC_TOOLEXEC_DEBUG=1
+[GOOS:linux] exec go build -buildmode=pie -toolexec=$LOOPVEC_TOOLEXEC -o app .
+[GOOS:linux] cmp log skipped.want
+
+[GOOS:darwin] exec ./app
+[GOOS:darwin] cmp stdout want.out
+[GOOS:linux] exec ./app
+[GOOS:linux] cmp stdout want.out
+
+-- go.mod --
+module example.com/app
+
+go 1.27.1
+-- vec/vec.go --
+package vec
+
+func AddInt32s(dst, a, b []int32) {
+	for i := range dst {
+		dst[i] = a[i] + b[i]
+	}
+}
+-- main.go --
+package main
+
+import (
+	"fmt"
+
+	"example.com/app/vec"
+)
+
+func main() {
+	dst := make([]int32, 21)
+	a := make([]int32, 21)
+	b := make([]int32, 21)
+	for i := range a {
+		a[i], b[i] = int32(i), int32(2*i)
+	}
+	vec.AddInt32s(dst, a, b)
+	fmt.Println(dst)
+}
+-- want.out --
+[0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60]
+-- rewrote.want --
+rewrote 1 loop(s) in example.com/app/vec
+-- skipped.want --
+skipped example.com/app/vec: simd unavailable or unsupported build mode

@@ -34,8 +34,28 @@ type compileArgs struct {
 	importcfg int   // index in args of the importcfg path, or -1
 	files     []int // indexes in args of the Go source files
 	// unsupported is set for build modes whose objects the nested simd build
-	// would not match (race, msan, asan, shared, dynlink, -trimpath).
+	// would not match (race, msan, asan, shared, dynlink, -trimpath). -shared
+	// is also what the go command passes for a position-independent
+	// executable, the default build mode on some targets (see defaultPIE);
+	// there the nested build uses the same default and matches.
 	unsupported bool
+}
+
+// defaultPIE reports whether the target builds position-independent
+// executables by default (internal/platform.DefaultPIE), so that the go command
+// passes -shared to every compile of a default build. The go command sets GOOS
+// for the tools it runs. On windows -race turns the default off, but -race is
+// unsupported here on its own.
+func defaultPIE() bool {
+	goos := os.Getenv("GOOS")
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	switch goos {
+	case "android", "darwin", "ios", "windows":
+		return true
+	}
+	return false
 }
 
 func parseCompileArgs(args []string) compileArgs {
@@ -59,8 +79,10 @@ func parseCompileArgs(args []string) compileArgs {
 			c.lang = args[i+1]
 		case strings.HasPrefix(arg, "-lang="):
 			c.lang = strings.TrimPrefix(arg, "-lang=")
-		case arg == "-race", arg == "-msan", arg == "-asan", arg == "-shared", arg == "-dynlink":
+		case arg == "-race", arg == "-msan", arg == "-asan", arg == "-dynlink":
 			c.unsupported = true
+		case arg == "-shared":
+			c.unsupported = !defaultPIE()
 		case arg == "-trimpath" && hasValue && strings.Contains(args[i+1], ";"):
 			c.unsupported = true
 		}
