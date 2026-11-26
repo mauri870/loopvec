@@ -9,9 +9,9 @@ gotip, "1.27.3" is the release toolchain loopvec is tested against.
 | [#80657](https://github.com/golang/go/issues/80657) simd in a method: internal compiler error | closed, fixed on tip (CL 839405), still crashes on 1.27.3 | `-methods` | methods are skipped unless `-methods` is passed |
 | [#80835](https://github.com/golang/go/issues/80835) legacy SSE encodings in functions using simd cause AVX-SSE transition penalties | open, fix pending (CLs 825145, 825146, in tip) | speed of any scalar float code that runs after a rewritten loop, in the same function or another | none yet; the portable `simd` package has no `ClearAVXUpperBits` |
 | [#81844](https://github.com/golang/go/issues/81844) blank identifier parameters rejected | fixed on tip (CL 841145) | every rewrite of a function with a `_` parameter | the generated file renames them `_p0`, `_p1`, ... |
-| [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is open | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
+| [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is fixed on tip; still fails on 1.27.3 | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
 | [#81846](https://github.com/golang/go/issues/81846) `Float32s.Neg` rebuilds its sign constant every iteration | open | speed of negation loops | none; the loop is correct, only slower than it should be |
-| [#81847](https://github.com/golang/go/issues/81847) `GOEXPERIMENT=simd` alone slows async preemption on AVX-512 | closed on 2026-11-18, but the fix was reverted in tip (9dd63f3e5c) and is being re-landed (CL 866014); still reproduces on tip | any benchmark comparing a scalar and a simd build | benchmark with `GODEBUG=asyncpreemptoff=1` |
+| [#81847](https://github.com/golang/go/issues/81847) `GOEXPERIMENT=simd` alone slows async preemption on AVX-512 | closed, fixed on tip (re-landed as 29d9d6662b), still reproduces on 1.27.3 | any benchmark comparing a scalar and a simd build | benchmark with `GODEBUG=asyncpreemptoff=1` on 1.27.3 |
 | [#82001](https://github.com/golang/go/issues/82001) emulated `Load{Float64,Int64,Uint64}sPart` return `len(s)` | open | generated loops under `GODEBUG=simd=0` | none; the loops use the count `Load*Part` returns, as the package documents |
 | [#82002](https://github.com/golang/go/issues/82002) `Min` and `Max` on floats differ from Go's for NaN and -0 | open | float `min`/`max` | not rewritten (`float min and max differ from Go's ...`) |
 
@@ -42,9 +42,9 @@ vector loop still wins and one that is mostly scalar float code around it can lo
 `simd/archsimd` (amd64) has `ClearAVXUpperBits`, not the portable `simd`, so loopvec has no
 portable way to clear the state. When comparing a function before and after a rewrite,
 benchmark the whole function, not the loop. This is separate from #81847: it reproduces with
-async preemption off. It is unchanged on tip `cfc710a1e6` (2026-11-22): the scalar `Scan`
-after a 64-element vector fill still takes 1.45 us against 0.55 us alone at both `GOAMD64=v1`
-and `v3`, and 0.54 us with `ClearAVXUpperBits()` after the fill.
+async preemption off. It is unchanged on tip `2f2558f561` (2026-11-26): the scalar `Scan`
+after a 64-element vector fill still takes 1.46 us against 0.55 us alone at `GOAMD64=v1`
+(1.42 against 0.53 at `v3`), and 0.55 us with `ClearAVXUpperBits()` after the fill.
 
 Two more things from loopvec's runs, also on the 9950X3D. `GOAMD64=v3` does not remove the
 penalty: the compiler still emits legacy SSE for scalar float code, except where it fuses a
@@ -70,9 +70,11 @@ can be removed.
 ## #81845 and #80689: simd in a package initializer
 
 A simd call that the compiler inlines into a package-level variable initializer leaves the
-link unresolved. The Go team treats it as a known problem
-([#80689](https://github.com/golang/go/issues/80689)). loopvec leaves loops in
-initializers alone.
+link unresolved. The Go team tracked it as
+[#80689](https://github.com/golang/go/issues/80689), fixed on tip by `01ec31ee83` ("handle
+simd-dependent package-var initializers") and `53e6890653` (init order). loopvec still leaves
+loops in initializers alone, since 1.27.3 has neither; that can change once the minimum
+toolchain has them.
 
 ## #81846: `Neg` rebuilds a constant
 
@@ -88,12 +90,11 @@ become several times slower and much noisier. Set `GODEBUG=asyncpreemptoff=1` wh
 comparing a scalar and a simd build; otherwise the rows that were not rewritten look like
 regressions.
 
-The issue was closed when CL 866014's first version landed (tip `203fdf25b3`, which saves
-only the vector registers in use), and that change was reverted days later because it broke
-something. On tip `cfc710a1e6` (2026-11-22) a scalar `Sum` and `Scan` loop in a binary built
-with `GOEXPERIMENT=simd` takes 1.3 to 1.4 us, against 0.55 us with
-`GODEBUG=asyncpreemptoff=1`, so the slowdown is still there. Check the issue before dropping
-the setting.
+Tip saves only the vector registers in use since `29d9d6662b` (CL 866014, re-landed after
+a first version was reverted). On tip `2f2558f561` (2026-11-26) a scalar `Scan` loop in a
+binary built with `GOEXPERIMENT=simd` takes 531 to 540 ns, against 530 to 554 ns with
+`GODEBUG=asyncpreemptoff=1`; before the fix it took 1.3 to 1.4 us. The setting is still
+needed with 1.27.3.
 
 ## #82001: emulated partial loads
 
