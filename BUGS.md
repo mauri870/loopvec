@@ -2,16 +2,16 @@
 
 loopvec rewrites code to use `GOEXPERIMENT=simd`, which is new, so most of what it hits
 is in the Go toolchain. This file lists the Go issues that affect loopvec. "tip" means
-gotip, "1.27.3" is the release toolchain loopvec is tested against.
+gotip, "1.27.4" is the release toolchain loopvec is tested against.
 
 | Issue | Status | Affects | loopvec's answer |
 |---|---|---|---|
-| [#80657](https://github.com/golang/go/issues/80657) simd in a method: internal compiler error | closed, fixed on tip (CL 839405), still crashes on 1.27.3 | `-methods` | methods are skipped unless `-methods` is passed |
+| [#80657](https://github.com/golang/go/issues/80657) simd in a method: internal compiler error | closed, fixed on tip (CL 839405), still crashes on 1.27.4 | `-methods` | methods are skipped unless `-methods` is passed |
 | [#80835](https://github.com/golang/go/issues/80835) legacy SSE encodings in functions using simd cause AVX-SSE transition penalties | open, fix pending (CLs 825145, 825146, in tip) | speed of any scalar float code that runs after a rewritten loop, in the same function or another | none yet; the portable `simd` package has no `ClearAVXUpperBits` |
 | [#81844](https://github.com/golang/go/issues/81844) blank identifier parameters rejected | fixed on tip (CL 841145) | every rewrite of a function with a `_` parameter | the generated file renames them `_p0`, `_p1`, ... |
-| [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is fixed on tip; still fails on 1.27.3 | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
+| [#81845](https://github.com/golang/go/issues/81845) calls left unresolved when inlined into a package initializer | closed as a duplicate of [#80689](https://github.com/golang/go/issues/80689), which is fixed on tip; still fails on 1.27.4 | loops in package-level `var x = func() {...}()` | not rewritten (the generated initializer fails to link), see `package_initializer_no_rewrite.txt` and `toolexec_package_initializer.txt` |
 | [#81846](https://github.com/golang/go/issues/81846) `Float32s.Neg` rebuilds its sign constant every iteration | open | speed of negation loops | none; the loop is correct, only slower than it should be |
-| [#81847](https://github.com/golang/go/issues/81847) `GOEXPERIMENT=simd` alone slows async preemption on AVX-512 | closed, fixed on tip (re-landed as 29d9d6662b), still reproduces on 1.27.3 | any benchmark comparing a scalar and a simd build | benchmark with `GODEBUG=asyncpreemptoff=1` on 1.27.3 |
+| [#81847](https://github.com/golang/go/issues/81847) `GOEXPERIMENT=simd` alone slows async preemption on AVX-512 | closed, fixed on tip (re-landed as 29d9d6662b), still reproduces on 1.27.4 | any benchmark comparing a scalar and a simd build | benchmark with `GODEBUG=asyncpreemptoff=1` on 1.27.4 |
 | [#82001](https://github.com/golang/go/issues/82001) emulated `Load{Float64,Int64,Uint64}sPart` return `len(s)` | open | generated loops under `GODEBUG=simd=0` | none; the loops use the count `Load*Part` returns, as the package documents |
 | [#82002](https://github.com/golang/go/issues/82002) `Min` and `Max` on floats differ from Go's for NaN and -0 | open | float `min`/`max` | not rewritten (`float min and max differ from Go's ...`) |
 
@@ -19,7 +19,7 @@ gotip, "1.27.3" is the release toolchain loopvec is tested against.
 
 A function with a receiver that contains simd code failed to compile with
 `internal compiler error: missing Types entry`. loopvec does not rewrite loops in methods
-by default; `-methods` turns it on. The fix is on tip. On 1.27.3 the crash is still there,
+by default; `-methods` turns it on. The fix is on tip. On 1.27.4 the crash is still there,
 and `flag_methods_ice.txt` pins it, so that test starts failing when the pinned toolchain
 gets the fix. Reported by someone else; the fix is [CL 839405](https://go.dev/cl/839405).
 
@@ -73,7 +73,7 @@ A simd call that the compiler inlines into a package-level variable initializer 
 link unresolved. The Go team tracked it as
 [#80689](https://github.com/golang/go/issues/80689), fixed on tip by `01ec31ee83` ("handle
 simd-dependent package-var initializers") and `53e6890653` (init order). loopvec still leaves
-loops in initializers alone, since 1.27.3 has neither; that can change once the minimum
+loops in initializers alone, since 1.27.4 has neither; that can change once the minimum
 toolchain has them.
 
 ## #81846: `Neg` rebuilds a constant
@@ -94,7 +94,7 @@ Tip saves only the vector registers in use since `29d9d6662b` (CL 866014, re-lan
 a first version was reverted). On tip `2f2558f561` (2026-11-26) a scalar `Scan` loop in a
 binary built with `GOEXPERIMENT=simd` takes 531 to 540 ns, against 530 to 554 ns with
 `GODEBUG=asyncpreemptoff=1`; before the fix it took 1.3 to 1.4 us. The setting is still
-needed with 1.27.3.
+needed with 1.27.4.
 
 ## #82001: emulated partial loads
 

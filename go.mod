@@ -1,8 +1,6 @@
 module github.com/mauri870/loopvec
 
-go 1.27.1
-
-toolchain go1.27.3
+go 1.27.4
 
 require (
 	github.com/pmezard/go-difflib v1.0.0

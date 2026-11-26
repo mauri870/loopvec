@@ -303,7 +303,7 @@ func (r *goldenRecorder) apply(a *txtar.Archive) bool {
 
 // testConds is scripttest.DefaultConds plus [tip], active when the go command the
 // scripts run is a development toolchain. A few behaviors differ there on purpose
-// (the method crash of go1.27.1 is fixed on tip), and those scripts guard the
+// (the method crash of go1.27.4 is fixed on tip), and those scripts guard the
 // toolchain-specific part with it.
 func testConds(env []string) map[string]script.Cond {
 	conds := scripttest.DefaultConds()

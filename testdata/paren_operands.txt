@@ -18,7 +18,7 @@ cmp stdout testmain/output
 -- go.mod --
 module example.com/test
 
-go 1.27.1
+go 1.27.4
 -- ops.go --
 package test
 

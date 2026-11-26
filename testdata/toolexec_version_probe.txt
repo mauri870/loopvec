@@ -11,12 +11,12 @@ stdout -count=1 '^compile version go1\.28-devel_edd77e8488f Fri Sep 25 13:56:10 
 ! stderr .
 
 exec $LOOPVEC_TOOLEXEC $WORK/release/compile -V=full
-stdout -count=1 '^compile version go1\.27\.1 X:simd loopvec=[0-9a-f]{16}$'
+stdout -count=1 '^compile version go1\.27\.4 X:simd loopvec=[0-9a-f]{16}$'
 ! stderr .
 
 # Other tools are reported unchanged.
 exec $LOOPVEC_TOOLEXEC $WORK/other/asm -V=full
-stdout -count=1 '^asm version go1\.27\.1$'
+stdout -count=1 '^asm version go1\.27\.4$'
 ! stderr .
 
 -- dev/compile --
@@ -24,7 +24,7 @@ stdout -count=1 '^asm version go1\.27\.1$'
 echo "compile version go1.28-devel_edd77e8488f Fri Sep 25 13:56:10 2026 -0700 buildID=abc/def"
 -- release/compile --
 #!/bin/sh
-echo "compile version go1.27.1 X:simd"
+echo "compile version go1.27.4 X:simd"
 -- other/asm --
 #!/bin/sh
-echo "asm version go1.27.1"
+echo "asm version go1.27.4"

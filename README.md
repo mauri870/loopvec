@@ -539,7 +539,7 @@ included, without touching any source file. See [toolexec.md](toolexec.md).
 
 ## Requirements
 
-- Go 1.27 or later
+- Go 1.27.4 or later
 - `GOEXPERIMENT=simd` at build time for the rewritten code
 
 ## Known Limitations

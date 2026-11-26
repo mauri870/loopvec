@@ -16,7 +16,7 @@ exists mypkg/ops_simd.go
 -- go.mod --
 module example.com/test
 
-go 1.27.1
+go 1.27.4
 
 tool github.com/mauri870/loopvec
 -- mypkg/ops.go --
