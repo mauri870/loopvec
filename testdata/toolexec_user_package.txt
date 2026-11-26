@@ -23,7 +23,7 @@ grep 'dst\[i\] = a\[i\] \+ b\[i\]' vec/vec.go
 -- go.mod --
 module example.com/app
 
-go 1.27.1
+go 1.27.4
 -- vec/vec.go --
 package vec
 

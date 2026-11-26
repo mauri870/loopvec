@@ -22,7 +22,7 @@ cmp a1.a a2.a
 -- go.mod --
 module example.com/lib
 
-go 1.27.1
+go 1.27.4
 -- lib.go --
 package lib
 

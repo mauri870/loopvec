@@ -25,7 +25,7 @@ stdout -count=1 '^BenchmarkAddFloat32s'
 -- go.mod --
 module example.com/test
 
-go 1.27.1
+go 1.27.4
 -- mypkg/ops.go --
 package mypkg
 

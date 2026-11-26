@@ -9,7 +9,7 @@ cmp ops_simd.go ops_simd.go.want
 -- go.mod --
 module example.com/ops
 
-go 1.27.1
+go 1.27.4
 -- ops.go --
 package ops
 

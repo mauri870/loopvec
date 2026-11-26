@@ -27,4 +27,4 @@ grep -count=1 '^skipped internal/fuzz: built against a test variant of (fmt|strc
 -- go.mod --
 module example.com/app
 
-go 1.27.1
+go 1.27.4

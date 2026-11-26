@@ -1,4 +1,4 @@
-export GOTOOLCHAIN ?= go1.27.3
+export GOTOOLCHAIN ?= go1.27.4
 
 .DEFAULT_GOAL := build
 
